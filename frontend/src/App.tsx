@@ -1,4 +1,4 @@
-import { ClipboardEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
   ImagePlus,
@@ -11,6 +11,7 @@ import {
   Sparkles
 } from "lucide-react";
 import { api, Attachment, ChatSession, Invite, Message, ReportContent, ReportItem, streamChat, User } from "./api";
+import { firstClipboardImage } from "./clipboard";
 
 type View = "chat" | "reports" | "admin";
 type AuthMode = "login" | "register";
@@ -124,6 +125,19 @@ function ChatView() {
     api.messages(active.id).then(setMessages).catch((err) => setError(err.message));
   }, [active?.id]);
 
+  useEffect(() => {
+    function handleDocumentPaste(event: globalThis.ClipboardEvent) {
+      const file = firstClipboardImage(event.clipboardData);
+      if (!file) return;
+
+      event.preventDefault();
+      uploadFile(file).catch((err) => setError(err.message));
+    }
+
+    document.addEventListener("paste", handleDocumentPaste);
+    return () => document.removeEventListener("paste", handleDocumentPaste);
+  }, []);
+
   async function newSession() {
     const created = await api.createSession("新会话", model);
     setSessions([created, ...sessions]);
@@ -183,11 +197,6 @@ function ChatView() {
     }
   }
 
-  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const file = Array.from(event.clipboardData.files).find((item) => item.type.startsWith("image/"));
-    if (file) uploadFile(file).catch((err) => setError(err.message));
-  }
-
   return (
     <div className="workspace">
       <aside className="sessions-pane">
@@ -240,7 +249,6 @@ function ChatView() {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              onPaste={handlePaste}
               placeholder="输入问题，或直接粘贴图片..."
               rows={2}
             />
