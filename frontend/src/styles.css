@@ -315,6 +315,14 @@ textarea:focus {
   gap: 6px;
 }
 
+.session-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  border-radius: 14px;
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
 .session-item,
 .report-item {
   width: 100%;
@@ -330,6 +338,31 @@ textarea:focus {
   transition: background 160ms ease, box-shadow 160ms ease;
 }
 
+.session-item {
+  min-width: 0;
+}
+
+.delete-session {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  color: var(--headline);
+  background: transparent;
+  border-radius: 10px;
+  opacity: 0;
+  transition: background 160ms ease, opacity 160ms ease;
+}
+
+.delete-session:hover {
+  background: #e7e7e7;
+}
+
+.session-row:hover .delete-session,
+.session-row.active .delete-session {
+  opacity: 1;
+}
+
 .session-item span,
 .report-item span {
   overflow: hidden;
@@ -338,10 +371,17 @@ textarea:focus {
 }
 
 .session-item:hover,
-.session-item.active,
+.session-row.active,
+.session-row:hover,
 .report-item:hover {
   background: #f4f4f4;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+}
+
+.session-row:hover .session-item,
+.session-row.active .session-item {
+  background: transparent;
+  box-shadow: none;
 }
 
 .chat-pane {
@@ -415,7 +455,7 @@ textarea:focus {
   width: min(860px, 100%);
   display: grid;
   gap: 24px;
-  transform: translateY(8vh);
+  transform: translateY(-2vh);
 }
 
 .empty-chat-greeting {
@@ -838,7 +878,7 @@ textarea:focus {
   }
 
   .empty-chat-content {
-    transform: translateY(4vh);
+    transform: translateY(-1vh);
   }
 
   .composer {

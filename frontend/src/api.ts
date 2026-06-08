@@ -97,6 +97,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ title, model })
     }),
+  deleteSession: (sessionId: number) =>
+    request<{ status: string }>(`/api/sessions/${sessionId}`, {
+      method: "DELETE"
+    }),
   messages: (sessionId: number) => request<Message[]>(`/api/sessions/${sessionId}/messages`),
   upload: async (file: File): Promise<Attachment> => {
     const form = new FormData();

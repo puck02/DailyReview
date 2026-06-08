@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ImagePlus,
@@ -10,6 +10,7 @@ import {
   Plus,
   Send,
   FileText,
+  Trash2,
   X
 } from "lucide-react";
 import {
@@ -34,6 +35,17 @@ type PendingAttachment = Attachment & { previewUrl: string; name: string };
 
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
+const openingLines = [
+  "准备好了，随时开始",
+  "有什么想学的，直接开始",
+  "把问题丢给我，我们一起拆开看",
+  "今天想推进哪一块？",
+  "从一个问题开始就行"
+];
+
+function randomOpeningLine() {
+  return openingLines[Math.floor(Math.random() * openingLines.length)];
+}
 
 function isMobileViewport() {
   return window.matchMedia("(max-width: 980px)").matches;
@@ -139,6 +151,7 @@ function ChatView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [openingLine, setOpeningLine] = useState(randomOpeningLine);
 
   async function refreshSessions() {
     const items = await api.sessions();
@@ -158,6 +171,10 @@ function ChatView() {
       return;
     }
     api.messages(active.id).then(setMessages).catch((err) => setError(err.message));
+  }, [active?.id]);
+
+  useEffect(() => {
+    setOpeningLine(randomOpeningLine());
   }, [active?.id]);
 
   useEffect(() => {
@@ -194,12 +211,33 @@ function ChatView() {
     setSessions([created, ...sessions]);
     setActive(created);
     setMessages([]);
+    setOpeningLine(randomOpeningLine());
     if (isMobileViewport()) setSidebarOpen(false);
   }
 
   function selectSession(session: ChatSession) {
     setActive(session);
     if (isMobileViewport()) setSidebarOpen(false);
+  }
+
+  async function deleteSession(session: ChatSession) {
+    if (!window.confirm(`删除会话「${session.title}」？`)) return;
+    try {
+      setError("");
+      await api.deleteSession(session.id);
+      const remaining = sessions.filter((item) => item.id !== session.id);
+      setSessions(remaining);
+      if (active?.id === session.id) {
+        const nextSession = remaining[0] || null;
+        setActive(nextSession);
+        if (!nextSession) {
+          setMessages([]);
+          setOpeningLine(randomOpeningLine());
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除失败");
+    }
   }
 
   async function uploadFile(file: File) {
@@ -283,6 +321,13 @@ function ChatView() {
     }
   }
 
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    void sendMessage();
+  }
+
   const isEmptyChat = messages.length === 0;
   const composer = (
     <footer className={`composer ${isEmptyChat ? "composer-floating" : ""}`}>
@@ -313,6 +358,7 @@ function ChatView() {
           ref={textareaRef}
           value={input}
           onChange={(event) => setInput(event.target.value)}
+          onKeyDown={handleComposerKeyDown}
           placeholder="输入问题，或直接粘贴图片..."
           rows={1}
         />
@@ -334,14 +380,21 @@ function ChatView() {
             </button>
             <div className="session-list">
               {sessions.map((session) => (
-                <button
-                  key={session.id}
-                  className={active?.id === session.id ? "session-item active" : "session-item"}
-                  onClick={() => selectSession(session)}
-                >
-                  <MessageSquareText size={15} />
-                  <span>{session.title}</span>
-                </button>
+                <div key={session.id} className={active?.id === session.id ? "session-row active" : "session-row"}>
+                  <button className="session-item" onClick={() => selectSession(session)}>
+                    <MessageSquareText size={15} />
+                    <span>{session.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="delete-session"
+                    onClick={() => deleteSession(session)}
+                    aria-label={`删除会话 ${session.title}`}
+                    title="删除会话"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               ))}
             </div>
           </>
@@ -372,7 +425,7 @@ function ChatView() {
         <div className={isEmptyChat ? "messages empty-chat" : "messages"}>
           {isEmptyChat ? (
             <div className="empty-chat-content">
-              <h1 className="empty-chat-greeting">准备好了，随时开始</h1>
+              <h1 className="empty-chat-greeting">{openingLine}</h1>
               {composer}
             </div>
           ) : (

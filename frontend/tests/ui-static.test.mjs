@@ -66,7 +66,12 @@ test("composer textarea starts as one centered line and grows to four lines", ()
   assert.ok(app.includes("const textareaRef = useRef<HTMLTextAreaElement>(null);"));
   assert.ok(app.includes("textareaRef.current.style.height = \"auto\";"));
   assert.ok(app.includes("textareaRef.current.scrollHeight"));
+  assert.ok(app.includes("function handleComposerKeyDown"));
+  assert.ok(app.includes("event.key !== \"Enter\" || event.shiftKey"));
+  assert.ok(app.includes("event.nativeEvent.isComposing"));
+  assert.ok(app.includes("event.preventDefault();"));
   assert.match(app, /<textarea[\s\S]*?ref={textareaRef}[\s\S]*?rows={1}/);
+  assert.match(app, /<textarea[\s\S]*?onKeyDown={handleComposerKeyDown}/);
   assert.match(styles, /\.composer textarea\s*{[^}]*line-height:\s*22px;[^}]*min-height:\s*22px;[^}]*max-height:\s*88px;/s);
   assert.match(styles, /\.composer textarea\s*{[^}]*overflow-y:\s*auto;/s);
   assert.match(styles, /\.composer textarea\s*{[^}]*padding:\s*0 2px;/s);
@@ -74,14 +79,30 @@ test("composer textarea starts as one centered line and grows to four lines", ()
 });
 
 test("empty chat shows a centered greeting with the composer below it", () => {
+  assert.ok(app.includes("openingLines"));
+  assert.ok(app.includes("randomOpeningLine"));
+  assert.ok(app.includes("setOpeningLine(randomOpeningLine())"));
   assert.ok(app.includes("const isEmptyChat = messages.length === 0;"));
   assert.ok(app.includes("准备好了，随时开始"));
+  assert.ok(app.includes("有什么想学的，直接开始"));
+  assert.ok(app.includes("{openingLine}"));
   assert.ok(app.includes("empty-chat"));
   assert.ok(app.includes("composer ${isEmptyChat ? \"composer-floating\" : \"\"}"));
   assert.match(styles, /\.empty-chat\s*{[^}]*place-items:\s*center;/s);
-  assert.match(styles, /\.empty-chat-content\s*{[^}]*transform:\s*translateY\(8vh\);/s);
+  assert.match(styles, /\.empty-chat-content\s*{[^}]*transform:\s*translateY\(-2vh\);/s);
   assert.match(styles, /\.empty-chat-greeting\s*{[^}]*text-align:\s*center;/s);
   assert.match(styles, /\.composer-floating\s*{[^}]*padding:\s*0;/s);
+});
+
+test("sessions can be deleted from the sidebar", () => {
+  assert.ok(app.includes("Trash2"));
+  assert.ok(app.includes("deleteSession(session)"));
+  assert.ok(app.includes("window.confirm"));
+  assert.ok(app.includes("api.deleteSession(session.id)"));
+  assert.ok(app.includes("delete-session"));
+  assert.ok(app.includes("setActive(nextSession);"));
+  assert.match(styles, /\.session-row\s*{/);
+  assert.match(styles, /\.delete-session\s*{/);
 });
 
 test("admin page can update AI config without echoing the key", () => {
