@@ -73,6 +73,7 @@ test("chat sidebar can collapse from the top-left control", () => {
   assert.ok(app.includes("sidebar-collapsed"));
   assert.ok(app.includes("sidebar-toggle"));
   assert.match(styles, /\.workspace\.sidebar-collapsed\s*{/);
+  assert.match(styles, /\.workspace\.sidebar-collapsed \.sessions-pane\s*{[^}]*border-right:\s*0;/s);
 });
 
 test("sidebar and chat bubbles follow ChatGPT-style light surfaces", () => {

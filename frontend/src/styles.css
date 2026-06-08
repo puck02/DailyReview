@@ -286,6 +286,10 @@ textarea:focus {
   grid-template-columns: 0 minmax(0, 1fr);
 }
 
+.workspace.sidebar-collapsed .sessions-pane {
+  border-right: 0;
+}
+
 .sessions-pane {
   border-right: 1px solid var(--stroke);
   background: #ffffff;
