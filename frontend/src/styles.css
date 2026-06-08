@@ -258,18 +258,28 @@ textarea:focus {
   height: 100vh;
   display: grid;
   grid-template-columns: 284px minmax(0, 1fr);
+  transition: grid-template-columns 180ms ease;
+}
+
+.workspace.sidebar-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .sessions-pane {
   border-right: 1px solid var(--stroke);
-  background: rgba(255, 255, 255, 0.36);
+  background: #ffffff;
   padding: 14px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .new-session {
+  color: var(--headline);
+  background: #ffffff;
   width: 100%;
   margin-bottom: 14px;
+  border: 1px solid rgba(0, 71, 62, 0.12);
+  box-shadow: 0 8px 18px rgba(0, 71, 62, 0.06);
 }
 
 .session-list {
@@ -326,6 +336,31 @@ textarea:focus {
   backdrop-filter: blur(18px);
 }
 
+.pane-title-group {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-toggle {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--headline);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.sidebar-toggle:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
 .pane-header h2 {
   margin: 0;
   color: var(--headline);
@@ -356,7 +391,7 @@ textarea:focus {
 }
 
 .message.user {
-  grid-template-columns: minmax(0, auto) 34px;
+  grid-template-columns: minmax(0, auto);
   justify-content: end;
 }
 
@@ -393,34 +428,23 @@ textarea:focus {
   stroke-linejoin: round;
 }
 
-.user-avatar {
-  color: #fffffe;
-  background: var(--highlight);
-  color: var(--headline);
-  font-size: 12px;
-  font-weight: 780;
-  box-shadow: 0 8px 20px rgba(250, 174, 43, 0.24);
-}
-
 .message-content {
   width: fit-content;
   max-width: min(680px, calc(100vw - 420px));
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   border: 1px solid var(--stroke);
+  background: #f4f4f4;
   border-radius: 20px;
   padding: 13px 16px;
 }
 
 .message.assistant .message-content {
-  background: rgba(255, 255, 255, 0.7);
   box-shadow: 0 10px 26px rgba(0, 71, 62, 0.07);
 }
 
 .message.user .message-content {
   color: var(--headline);
-  background: rgba(250, 174, 43, 0.28);
-  border-color: rgba(250, 174, 43, 0.45);
   justify-self: end;
 }
 
@@ -679,6 +703,10 @@ textarea:focus {
   .report-layout {
     height: calc(100vh - 62px);
     grid-template-columns: 1fr;
+  }
+
+  .workspace.sidebar-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
   }
 
   .sessions-pane,

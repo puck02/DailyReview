@@ -16,7 +16,8 @@ test("chat messages keep assistant left and user right", () => {
   assert.match(styles, /\.message\.assistant\s*{[^}]*justify-content:\s*start;/s);
   assert.match(styles, /\.message\.user\s*{[^}]*justify-content:\s*end;/s);
   assert.ok(app.includes("ChatGptAvatar"));
-  assert.ok(app.includes("message.role === \"user\""));
+  assert.ok(app.includes("message ${message.role}"));
+  assert.ok(!app.includes("user-avatar"));
 });
 
 test("pending image previews are removable above the composer", () => {
@@ -30,4 +31,17 @@ test("pending image previews are removable above the composer", () => {
 test("app icon is used for favicon and brand", () => {
   assert.ok(main.includes("link[rel='icon']"));
   assert.ok(app.includes("AppIcon"));
+});
+
+test("chat sidebar can collapse from the top-left control", () => {
+  assert.ok(app.includes("sidebarOpen"));
+  assert.ok(app.includes("sidebar-collapsed"));
+  assert.ok(app.includes("sidebar-toggle"));
+  assert.match(styles, /\.workspace\.sidebar-collapsed\s*{/);
+});
+
+test("sidebar and chat bubbles follow ChatGPT-style light surfaces", () => {
+  assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*#ffffff;/s);
+  assert.match(styles, /\.new-session\s*{[^}]*background:\s*#ffffff;/s);
+  assert.match(styles, /\.message-content\s*{[^}]*background:\s*#f4f4f4;/s);
 });

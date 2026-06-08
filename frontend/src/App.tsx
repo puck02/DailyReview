@@ -3,6 +3,8 @@ import {
   CalendarDays,
   ImagePlus,
   KeyRound,
+  PanelLeftClose,
+  PanelLeftOpen,
   LogOut,
   MessageSquareText,
   Plus,
@@ -116,6 +118,7 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 function ChatView() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [active, setActive] = useState<ChatSession | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [model, setModel] = useState(defaultModel);
@@ -256,30 +259,45 @@ function ChatView() {
   }
 
   return (
-    <div className="workspace">
+    <div className={sidebarOpen ? "workspace" : "workspace sidebar-collapsed"}>
       <aside className="sessions-pane">
-        <button className="new-session" onClick={newSession}>
-          <Plus size={16} />
-          新会话
-        </button>
-        <div className="session-list">
-          {sessions.map((session) => (
-            <button
-              key={session.id}
-              className={active?.id === session.id ? "session-item active" : "session-item"}
-              onClick={() => setActive(session)}
-            >
-              <MessageSquareText size={15} />
-              <span>{session.title}</span>
+        {sidebarOpen && (
+          <>
+            <button className="new-session" onClick={newSession}>
+              <Plus size={16} />
+              新会话
             </button>
-          ))}
-        </div>
+            <div className="session-list">
+              {sessions.map((session) => (
+                <button
+                  key={session.id}
+                  className={active?.id === session.id ? "session-item active" : "session-item"}
+                  onClick={() => setActive(session)}
+                >
+                  <MessageSquareText size={15} />
+                  <span>{session.title}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </aside>
       <section className="chat-pane">
         <header className="pane-header">
-          <div>
-            <h2>{active?.title || "新会话"}</h2>
-            <p>最近 7 天会话会保留，报告长期保存。</p>
+          <div className="pane-title-group">
+            <button
+              type="button"
+              className="sidebar-toggle"
+              onClick={() => setSidebarOpen((current) => !current)}
+              aria-label={sidebarOpen ? "收起会话历史" : "展开会话历史"}
+              title={sidebarOpen ? "收起会话历史" : "展开会话历史"}
+            >
+              {sidebarOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
+            </button>
+            <div>
+              <h2>{active?.title || "新会话"}</h2>
+              <p>最近 7 天会话会保留，报告长期保存。</p>
+            </div>
           </div>
           <select value={model} onChange={(event) => setModel(event.target.value)}>
             <option value={defaultModel}>{defaultModel}</option>
@@ -291,7 +309,6 @@ function ChatView() {
             <div key={message.id} className={`message ${message.role}`}>
               {message.role === "assistant" && <ChatGptAvatar />}
               <div className="message-content">{message.content}</div>
-              {message.role === "user" && <div className="message-avatar user-avatar">我</div>}
             </div>
           ))}
         </div>
