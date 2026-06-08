@@ -43,6 +43,22 @@ test("theme follows system dark mode with readable chat surfaces", () => {
   assert.match(styles, /\.markdown-table\s*{[^}]*background:\s*var\(--table-bg\);/s);
 });
 
+test("chat header can manually toggle light and dark theme before the model picker", () => {
+  assert.ok(app.includes('type ThemePreference = "light" | "dark";'));
+  assert.ok(app.includes("themeStorageKey"));
+  assert.ok(app.includes("localStorage.setItem(themeStorageKey, nextTheme)"));
+  assert.ok(app.includes("document.documentElement.dataset.theme = preference"));
+  assert.ok(app.includes("function toggleThemePreference"));
+  assert.ok(app.includes("Moon"));
+  assert.ok(app.includes("Sun"));
+  assert.match(app, /className="pane-actions"[\s\S]*className="theme-toggle"[\s\S]*<select value={model}/);
+  assert.match(styles, /:root\[data-theme="light"\]\s*{[^}]*color-scheme:\s*light;/s);
+  assert.match(styles, /:root\[data-theme="dark"\]\s*{[^}]*--background:\s*#111111;/s);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)\s*{[\s\S]*:root:not\(\[data-theme\]\)/);
+  assert.match(styles, /\.pane-actions\s*{[^}]*display:\s*flex;/s);
+  assert.match(styles, /\.theme-toggle\s*{[^}]*width:\s*38px;[^}]*height:\s*38px;/s);
+});
+
 test("desktop global sidebar is a narrow icon rail", () => {
   assert.match(styles, /\.app-shell\s*{[^}]*grid-template-columns:\s*56px minmax\(0,\s*1fr\);/s);
   assert.match(styles, /\.app-nav button\s*{[^}]*width:\s*40px;[^}]*place-items:\s*center;/s);

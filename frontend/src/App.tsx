@@ -19,6 +19,7 @@ import {
   Copy,
   ImagePlus,
   KeyRound,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   LogOut,
@@ -26,6 +27,7 @@ import {
   Plus,
   Send,
   FileText,
+  Sun,
   Trash2,
   X
 } from "lucide-react";
@@ -49,10 +51,12 @@ import "katex/dist/katex.min.css";
 
 type View = "chat" | "reports" | "admin";
 type AuthMode = "login" | "register";
+type ThemePreference = "light" | "dark";
 type PendingAttachment = Attachment & { previewUrl: string; name: string };
 
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
+const themeStorageKey = "dailyreview.theme";
 const openingLines = [
   "准备好了，随时开始",
   "有什么想学的，直接开始",
@@ -67,6 +71,23 @@ function randomOpeningLine() {
 
 function isMobileViewport() {
   return window.matchMedia("(max-width: 980px)").matches;
+}
+
+function currentSystemTheme(): ThemePreference {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function readThemePreference(): ThemePreference | null {
+  const value = localStorage.getItem(themeStorageKey);
+  return value === "light" || value === "dark" ? value : null;
+}
+
+function applyThemePreference(preference: ThemePreference | null) {
+  if (preference) {
+    document.documentElement.dataset.theme = preference;
+    return;
+  }
+  delete document.documentElement.dataset.theme;
 }
 
 function monthValue() {
@@ -336,7 +357,13 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
   );
 }
 
-function ChatView() {
+function ChatView({
+  currentTheme,
+  onToggleTheme
+}: {
+  currentTheme: ThemePreference;
+  onToggleTheme: () => void;
+}) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [active, setActive] = useState<ChatSession | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport());
@@ -628,10 +655,21 @@ function ChatView() {
               <h2>{active?.title || "新会话"}</h2>
             </div>
           </div>
-          <select value={model} onChange={(event) => setModel(event.target.value)}>
-            <option value={defaultModel}>{defaultModel}</option>
-            <option value={complexModel}>{complexModel}</option>
-          </select>
+          <div className="pane-actions">
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={onToggleTheme}
+              aria-label={currentTheme === "dark" ? "切换到日间模式" : "切换到夜间模式"}
+              title={currentTheme === "dark" ? "切换到日间模式" : "切换到夜间模式"}
+            >
+              {currentTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <select value={model} onChange={(event) => setModel(event.target.value)}>
+              <option value={defaultModel}>{defaultModel}</option>
+              <option value={complexModel}>{complexModel}</option>
+            </select>
+          </div>
         </header>
         <div className={isEmptyChat ? "messages empty-chat" : "messages"}>
           {isEmptyChat ? (
@@ -849,6 +887,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<View>("chat");
   const [loading, setLoading] = useState(true);
+  const [systemTheme, setSystemTheme] = useState<ThemePreference>(currentSystemTheme);
+  const [themePreference, setThemePreference] = useState<ThemePreference | null>(readThemePreference);
 
   useEffect(() => {
     api
@@ -858,6 +898,18 @@ export default function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateSystemTheme = () => setSystemTheme(query.matches ? "dark" : "light");
+    updateSystemTheme();
+    query.addEventListener("change", updateSystemTheme);
+    return () => query.removeEventListener("change", updateSystemTheme);
+  }, []);
+
+  useEffect(() => {
+    applyThemePreference(themePreference);
+  }, [themePreference]);
+
   if (loading) return <div className="loading">加载中...</div>;
   if (!user) return <AuthScreen onAuthed={setUser} />;
 
@@ -865,6 +917,14 @@ export default function App() {
     await api.logout();
     setUser(null);
   }
+
+  function toggleThemePreference() {
+    const nextTheme: ThemePreference = (themePreference || systemTheme) === "dark" ? "light" : "dark";
+    setThemePreference(nextTheme);
+    localStorage.setItem(themeStorageKey, nextTheme);
+  }
+
+  const currentTheme = themePreference || systemTheme;
 
   return (
     <main className="app-shell">
@@ -910,7 +970,7 @@ export default function App() {
         </button>
       </nav>
       <section className="app-content">
-        {view === "chat" && <ChatView />}
+        {view === "chat" && <ChatView currentTheme={currentTheme} onToggleTheme={toggleThemePreference} />}
         {view === "reports" && <ReportsView />}
         {view === "admin" && <AdminView />}
       </section>
