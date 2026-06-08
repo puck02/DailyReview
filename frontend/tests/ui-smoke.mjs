@@ -234,7 +234,15 @@ async function removePreview(client) {
 
 async function createRenderedMessage(client) {
   const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9u2wAAAABJRU5ErkJggg==";
-  const markdownText = "# 图片复盘\n- 关键点：`坐标`";
+  const markdownText = [
+    "# 图片复盘",
+    "- 关键点：`坐标`",
+    "行内公式 $E = mc^2$",
+    "",
+    "$$",
+    "\\frac{d}{dx}x^2 = 2x",
+    "$$"
+  ].join("\n");
   const sessionId = await evaluate(
     client,
     `(async () => {
@@ -275,7 +283,8 @@ async function createRenderedMessage(client) {
       document.querySelector('.message-attachment-thumb img')?.complete &&
       document.querySelector('.message-markdown h1') &&
       document.querySelector('.markdown-list') &&
-      document.querySelector('.markdown-inline-code')
+      document.querySelector('.markdown-inline-code') &&
+      document.querySelector('.message-markdown .katex')
     )`,
     "rendered markdown message with image",
     15000

@@ -5,6 +5,7 @@ import { test } from "node:test";
 const app = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
+const packageJson = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
 
 const appIcon = fs.readFileSync(new URL("../src/assets/app-icon.svg", import.meta.url), "utf8");
 
@@ -60,6 +61,25 @@ test("sent messages render image thumbnails and markdown content", () => {
   assert.match(styles, /\.message-attachments\s*{/);
   assert.match(styles, /\.message-attachment-thumb\s*{/);
   assert.match(styles, /\.message-markdown\s*{/);
+});
+
+test("message markdown uses GFM and KaTeX for formulas", () => {
+  assert.ok(packageJson.includes("react-markdown"));
+  assert.ok(packageJson.includes("remark-gfm"));
+  assert.ok(packageJson.includes("remark-math"));
+  assert.ok(packageJson.includes("rehype-katex"));
+  assert.ok(packageJson.includes("katex"));
+  assert.ok(app.includes("ReactMarkdown"));
+  assert.ok(app.includes("remarkGfm"));
+  assert.ok(app.includes("remarkMath"));
+  assert.ok(app.includes("rehypeKatex"));
+  assert.ok(app.includes('import "katex/dist/katex.min.css";'));
+  assert.ok(app.includes("markdown-math-block"));
+  assert.ok(app.includes("markdown-math-inline"));
+  assert.match(styles, /\.message-markdown \.katex-display\s*{/);
+  assert.match(styles, /\.message-markdown \.katex\s*{/);
+  assert.match(styles, /\.markdown-code\s*{/);
+  assert.match(styles, /\.markdown-table-wrap\s*{/);
 });
 
 test("composer blocks sending while image upload is still running", () => {

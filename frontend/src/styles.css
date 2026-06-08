@@ -580,7 +580,12 @@ textarea:focus {
 .message-markdown ul,
 .message-markdown ol,
 .message-markdown blockquote,
-.message-markdown pre {
+.message-markdown pre,
+.markdown-preview p,
+.markdown-preview ul,
+.markdown-preview ol,
+.markdown-preview blockquote,
+.markdown-preview pre {
   margin: 0;
 }
 
@@ -608,7 +613,8 @@ textarea:focus {
   padding-left: 20px;
 }
 
-.message-markdown blockquote {
+.message-markdown blockquote,
+.markdown-preview blockquote {
   border-left: 3px solid var(--stroke-strong);
   padding-left: 10px;
   color: var(--paragraph);
@@ -633,6 +639,14 @@ textarea:focus {
   border-radius: 12px;
   padding: 10px;
   white-space: pre;
+}
+
+.markdown-code .markdown-inline-code {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
 }
 
 .markdown-table-wrap {
@@ -669,6 +683,49 @@ textarea:focus {
   color: var(--headline);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.message-markdown .katex {
+  font-size: 1.02em;
+  line-height: 1.35;
+}
+
+.markdown-preview .katex {
+  font-size: 1.02em;
+  line-height: 1.35;
+}
+
+.message-markdown .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 4px 0;
+  padding: 4px 0;
+}
+
+.markdown-preview .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 4px 0;
+  padding: 4px 0;
+}
+
+.message-markdown .katex-display > .katex {
+  display: inline-block;
+  min-width: max-content;
+}
+
+.markdown-preview .katex-display > .katex {
+  display: inline-block;
+  min-width: max-content;
+}
+
+.markdown-math-inline,
+.markdown-math-block {
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
 .composer {

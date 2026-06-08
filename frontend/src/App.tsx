@@ -1,4 +1,8 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown, { Components } from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import {
   CalendarDays,
   ImagePlus,
@@ -28,6 +32,7 @@ import {
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
 import appIconUrl from "./assets/app-icon.svg?url";
+import "katex/dist/katex.min.css";
 
 type View = "chat" | "reports" | "admin";
 type AuthMode = "login" | "register";
@@ -55,19 +60,7 @@ function monthValue() {
   return new Date().toISOString().slice(0, 7);
 }
 
-function MarkdownPreview({ markdown }: { markdown: string }) {
-  const nodes = markdown.split("\n").map((line, index) => {
-    if (line.startsWith("# ")) return <h1 key={index}>{line.slice(2)}</h1>;
-    if (line.startsWith("## ")) return <h2 key={index}>{line.slice(3)}</h2>;
-    if (line.startsWith("### ")) return <h3 key={index}>{line.slice(4)}</h3>;
-    if (line.startsWith("- ")) return <li key={index}>{line.slice(2)}</li>;
-    if (!line.trim()) return <div key={index} className="md-gap" />;
-    return <p key={index}>{line}</p>;
-  });
-  return <article className="markdown-preview">{nodes}</article>;
-}
-
-function safeHref(href: string) {
+function safeMarkdownUrl(href: string) {
   try {
     const url = new URL(href, window.location.origin);
     if (["http:", "https:", "mailto:"].includes(url.protocol)) return href;
@@ -77,189 +70,76 @@ function safeHref(href: string) {
   return "";
 }
 
-function renderInlineMarkdown(text: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g;
-  let cursor = 0;
-  for (const match of text.matchAll(pattern)) {
-    if (match.index === undefined) continue;
-    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
-    const token = match[0];
-    const key = `${match.index}-${token}`;
-    if (token.startsWith("`")) {
-      nodes.push(
-        <code className="markdown-inline-code" key={key}>
-          {token.slice(1, -1)}
-        </code>
-      );
-    } else if (token.startsWith("**")) {
-      nodes.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2))}</strong>);
-    } else if (token.startsWith("*")) {
-      nodes.push(<em key={key}>{renderInlineMarkdown(token.slice(1, -1))}</em>);
-    } else {
-      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      const href = link ? safeHref(link[2].trim()) : "";
-      nodes.push(
-        href ? (
-          <a href={href} key={key} rel="noreferrer" target="_blank">
-            {link?.[1]}
-          </a>
-        ) : (
-          token
-        )
-      );
-    }
-    cursor = match.index + token.length;
+const markdownComponents: Components = {
+  a({ href = "", children }) {
+    const safeHref = safeMarkdownUrl(href);
+    if (!safeHref) return <>{children}</>;
+    return (
+      <a href={safeHref} rel="noreferrer" target="_blank">
+        {children}
+      </a>
+    );
+  },
+  code({ className, children, node: _node, ...props }) {
+    const isMath = className?.includes("language-math");
+    const isInlineMath = className?.includes("math-inline");
+    return (
+      <code
+        className={
+          isMath
+            ? isInlineMath
+              ? "markdown-math-inline"
+              : "markdown-math-block"
+            : className
+              ? `markdown-inline-code ${className}`
+              : "markdown-inline-code"
+        }
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre({ children }) {
+    return <pre className="markdown-code">{children}</pre>;
+  },
+  table({ children }) {
+    return (
+      <div className="markdown-table-wrap">
+        <table className="markdown-table">{children}</table>
+      </div>
+    );
+  },
+  ul({ children }) {
+    return <ul className="markdown-list">{children}</ul>;
+  },
+  ol({ children }) {
+    return <ol className="markdown-list">{children}</ol>;
   }
-  if (cursor < text.length) nodes.push(text.slice(cursor));
-  return nodes;
+};
+
+function MarkdownRenderer({ markdown, className }: { markdown: string; className: string }) {
+  return (
+    <div className={className}>
+      <ReactMarkdown
+        components={markdownComponents}
+        rehypePlugins={[rehypeKatex]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        skipHtml
+        urlTransform={(url) => safeMarkdownUrl(url)}
+      >
+        {markdown}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
-function splitTableRow(line: string) {
-  return line
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
-}
-
-function isTableSeparator(line: string) {
-  return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line);
+function MarkdownPreview({ markdown }: { markdown: string }) {
+  return <MarkdownRenderer markdown={markdown} className="markdown-preview" />;
 }
 
 function MessageMarkdown({ markdown }: { markdown: string }) {
-  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  const nodes: ReactNode[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index];
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-
-    const fence = line.match(/^```(\w+)?\s*$/);
-    if (fence) {
-      const code: string[] = [];
-      index += 1;
-      while (index < lines.length && !lines[index].startsWith("```")) {
-        code.push(lines[index]);
-        index += 1;
-      }
-      if (index < lines.length) index += 1;
-      nodes.push(
-        <pre className="markdown-code" key={`code-${index}`}>
-          <code>{code.join("\n")}</code>
-        </pre>
-      );
-      continue;
-    }
-
-    if (index + 1 < lines.length && line.includes("|") && isTableSeparator(lines[index + 1])) {
-      const headers = splitTableRow(line);
-      const rows: string[][] = [];
-      index += 2;
-      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
-        rows.push(splitTableRow(lines[index]));
-        index += 1;
-      }
-      nodes.push(
-        <div className="markdown-table-wrap" key={`table-${index}`}>
-          <table className="markdown-table">
-            <thead>
-              <tr>
-                {headers.map((header, headerIndex) => (
-                  <th key={headerIndex}>{renderInlineMarkdown(header)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex}>{renderInlineMarkdown(cell)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      const level = heading[1].length;
-      const Tag = `h${level}` as "h1" | "h2" | "h3";
-      nodes.push(<Tag key={`heading-${index}`}>{renderInlineMarkdown(heading[2])}</Tag>);
-      index += 1;
-      continue;
-    }
-
-    if (/^>\s?/.test(line)) {
-      const quote: string[] = [];
-      while (index < lines.length && /^>\s?/.test(lines[index])) {
-        quote.push(lines[index].replace(/^>\s?/, ""));
-        index += 1;
-      }
-      nodes.push(
-        <blockquote key={`quote-${index}`}>{quote.map((item, itemIndex) => <p key={itemIndex}>{renderInlineMarkdown(item)}</p>)}</blockquote>
-      );
-      continue;
-    }
-
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s*[-*]\s+/, ""));
-        index += 1;
-      }
-      nodes.push(
-        <ul className="markdown-list" key={`ul-${index}`}>
-          {items.map((item, itemIndex) => (
-            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
-          ))}
-        </ul>
-      );
-      continue;
-    }
-
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s*\d+\.\s+/, ""));
-        index += 1;
-      }
-      nodes.push(
-        <ol className="markdown-list" key={`ol-${index}`}>
-          {items.map((item, itemIndex) => (
-            <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
-          ))}
-        </ol>
-      );
-      continue;
-    }
-
-    const paragraph: string[] = [];
-    while (
-      index < lines.length &&
-      lines[index].trim() &&
-      !/^```/.test(lines[index]) &&
-      !/^(#{1,3})\s+/.test(lines[index]) &&
-      !/^>\s?/.test(lines[index]) &&
-      !/^\s*[-*]\s+/.test(lines[index]) &&
-      !/^\s*\d+\.\s+/.test(lines[index])
-    ) {
-      if (index + 1 < lines.length && lines[index].includes("|") && isTableSeparator(lines[index + 1])) break;
-      paragraph.push(lines[index]);
-      index += 1;
-    }
-    nodes.push(<p key={`p-${index}`}>{renderInlineMarkdown(paragraph.join(" "))}</p>);
-  }
-
-  return <div className="message-markdown">{nodes}</div>;
+  return <MarkdownRenderer markdown={markdown} className="message-markdown" />;
 }
 
 function AppIcon({ size = 22 }: { size?: number }) {
