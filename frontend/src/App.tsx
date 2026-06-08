@@ -12,7 +12,18 @@ import {
   FileText,
   X
 } from "lucide-react";
-import { api, Attachment, ChatSession, Invite, Message, ReportContent, ReportItem, streamChat, User } from "./api";
+import {
+  api,
+  AiConfig,
+  Attachment,
+  ChatSession,
+  Invite,
+  Message,
+  ReportContent,
+  ReportItem,
+  streamChat,
+  User
+} from "./api";
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
 import appIconUrl from "./assets/app-icon.svg?url";
@@ -23,6 +34,10 @@ type PendingAttachment = Attachment & { previewUrl: string; name: string };
 
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
+
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 980px)").matches;
+}
 
 function monthValue() {
   return new Date().toISOString().slice(0, 7);
@@ -47,10 +62,7 @@ function AppIcon({ size = 22 }: { size?: number }) {
 function ChatGptAvatar() {
   return (
     <div className="message-avatar ai-avatar" aria-label="AI">
-      <svg viewBox="0 0 40 40" aria-hidden="true">
-        <path d="M20 5.5c3.3 0 5.9 1.8 7.3 4.4 3 .2 5.6 2.2 6.7 5.1 1.1 3 .3 6-1.7 8.1.4 3-1.1 6-3.8 7.6-2.7 1.6-5.9 1.3-8.3-.3-2.5 1.8-5.8 2.1-8.5.5-2.8-1.6-4.2-4.6-3.8-7.6-2.2-2.1-3-5.2-1.9-8.1 1.1-3 3.8-4.9 6.8-5.1A8.1 8.1 0 0 1 20 5.5Z" />
-        <path d="M19.9 11.2v8l6.9 4M27.1 14.6l-6.9 4-6.9-4M12.9 25.4l6.9-4 6.9 4M20.1 28.8v-8l-6.9-4" />
-      </svg>
+      <img src={appIconUrl} alt="" />
     </div>
   );
 }
@@ -118,12 +130,13 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 function ChatView() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [active, setActive] = useState<ChatSession | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport());
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [model, setModel] = useState(defaultModel);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -152,6 +165,12 @@ function ChatView() {
   }, [attachments]);
 
   useEffect(() => {
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = "auto";
+    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 88)}px`;
+  }, [input]);
+
+  useEffect(() => {
     return () => {
       attachmentsRef.current.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
     };
@@ -175,6 +194,12 @@ function ChatView() {
     setSessions([created, ...sessions]);
     setActive(created);
     setMessages([]);
+    if (isMobileViewport()) setSidebarOpen(false);
+  }
+
+  function selectSession(session: ChatSession) {
+    setActive(session);
+    if (isMobileViewport()) setSidebarOpen(false);
   }
 
   async function uploadFile(file: File) {
@@ -272,7 +297,7 @@ function ChatView() {
                 <button
                   key={session.id}
                   className={active?.id === session.id ? "session-item active" : "session-item"}
-                  onClick={() => setActive(session)}
+                  onClick={() => selectSession(session)}
                 >
                   <MessageSquareText size={15} />
                   <span>{session.title}</span>
@@ -332,10 +357,11 @@ function ChatView() {
               <input type="file" accept="image/*" hidden onChange={handleFileSelect} />
             </label>
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder="输入问题，或直接粘贴图片..."
-              rows={2}
+              rows={1}
             />
             <button className="send-button" onClick={sendMessage} disabled={busy}>
               <Send size={18} />
@@ -397,10 +423,17 @@ function ReportsView() {
 
 function AdminView() {
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
 
   async function refresh() {
-    setInvites(await api.invites());
+    const [inviteItems, config] = await Promise.all([api.invites(), api.aiConfig()]);
+    setInvites(inviteItems);
+    setAiConfig(config);
+    setBaseUrl(config.base_url);
   }
 
   useEffect(() => {
@@ -408,22 +441,73 @@ function AdminView() {
   }, []);
 
   async function createInvite() {
-    await api.createInvite();
-    await refresh();
+    try {
+      setError("");
+      await api.createInvite();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "创建失败");
+    }
+  }
+
+  async function saveAiConfig(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setError("");
+      setSaved("");
+      const config = await api.updateAiConfig(baseUrl, apiKey);
+      setAiConfig(config);
+      setBaseUrl(config.base_url);
+      setApiKey("");
+      setSaved("AI 配置已保存");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败");
+    }
   }
 
   return (
     <section className="admin-panel">
-      <header className="pane-header">
-        <div>
-          <h2>邀请码</h2>
-          <p>管理员只管理邀请，不查看用户聊天和报告。</p>
-        </div>
-        <button className="primary-button compact" onClick={createInvite}>
-          <KeyRound size={16} />
-          生成邀请码
-        </button>
-      </header>
+      <section className="admin-section">
+        <header className="pane-header">
+          <div>
+            <h2>AI 配置</h2>
+            <p>只保存调用地址和密钥，不在页面回显密钥明文。</p>
+          </div>
+        </header>
+        <form className="admin-form" onSubmit={saveAiConfig}>
+          <label>
+            Base URL
+            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
+          </label>
+          <label>
+            API Key
+            <input
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              type="password"
+              placeholder={aiConfig?.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
+            />
+          </label>
+          <div className="admin-actions">
+            <span>{aiConfig?.has_api_key ? "密钥已配置" : "密钥未配置"}</span>
+            <button className="primary-button compact" type="submit">
+              保存 AI 配置
+            </button>
+          </div>
+        </form>
+        {saved && <div className="form-success">{saved}</div>}
+      </section>
+      <section className="admin-section">
+        <header className="pane-header">
+          <div>
+            <h2>邀请码</h2>
+            <p>管理员只管理邀请，不查看用户聊天和报告。</p>
+          </div>
+          <button className="primary-button compact" onClick={createInvite}>
+            <KeyRound size={16} />
+            生成邀请码
+          </button>
+        </header>
       {error && <div className="form-error">{error}</div>}
       <div className="invite-table">
         {invites.map((invite) => (
@@ -434,6 +518,7 @@ function AdminView() {
           </div>
         ))}
       </div>
+      </section>
     </section>
   );
 }

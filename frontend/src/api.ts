@@ -46,6 +46,11 @@ export type ReportContent = ReportItem & {
   markdown: string;
 };
 
+export type AiConfig = {
+  base_url: string;
+  has_api_key: boolean;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -104,7 +109,13 @@ export const api = {
   },
   reports: (reportType: ReportItem["report_type"], month: string) =>
     request<ReportItem[]>(`/api/reports?report_type=${reportType}&month=${month}`),
-  report: (id: number) => request<ReportContent>(`/api/reports/${id}`)
+  report: (id: number) => request<ReportContent>(`/api/reports/${id}`),
+  aiConfig: () => request<AiConfig>("/api/admin/ai-config"),
+  updateAiConfig: (baseUrl: string, apiKey: string) =>
+    request<AiConfig>("/api/admin/ai-config", {
+      method: "PUT",
+      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey })
+    })
 };
 
 export async function streamChat(

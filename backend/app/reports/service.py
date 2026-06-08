@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from app.admin.ai_config import get_ai_config
 from app.ai_client import complete_chat
 from app.config import settings
 from app.models import ChatSession, Message, Report, User
@@ -112,7 +113,13 @@ def _fallback_daily_markdown(day: date, conversation: str, keywords: list[str], 
 """
 
 
-async def _ai_daily_markdown(day: date, conversation: str, keywords: list[str], related_blocks: list[str]) -> str:
+async def _ai_daily_markdown(
+    db: Session,
+    day: date,
+    conversation: str,
+    keywords: list[str],
+    related_blocks: list[str],
+) -> str:
     prompt = f"""请根据以下学习问答生成一份 5 页以内的 Markdown 学习日报。
 必须使用这些标题：
 # {day:%Y-%m-%d} 学习日报
@@ -136,6 +143,7 @@ async def _ai_daily_markdown(day: date, conversation: str, keywords: list[str], 
         [{"role": "user", "content": prompt}],
         model=settings.ai_default_model,
         fallback=_fallback_daily_markdown(day, conversation, keywords, related_blocks),
+        ai_config=get_ai_config(db),
     )
 
 
@@ -174,7 +182,7 @@ async def generate_daily_report_async(db: Session, user_id: int, day: date) -> R
     conversation = _render_conversation(messages)
     keywords = extract_keywords(conversation)
     related_blocks = search_markdown_blocks(_recent_daily_paths(db, user_id, day), keywords)
-    markdown = await _ai_daily_markdown(day, conversation, keywords, related_blocks)
+    markdown = await _ai_daily_markdown(db, day, conversation, keywords, related_blocks)
     stats = {"message_count": len(messages), "keywords": keywords, "related_count": len(related_blocks)}
     return _write_report(db, user_id, "daily", f"{day:%Y-%m-%d}", _daily_report_path(user_id, day), markdown, stats)
 

@@ -28,6 +28,7 @@ test("chat messages keep assistant left and user right", () => {
   assert.match(styles, /\.message\.assistant\s*{[^}]*justify-content:\s*start;/s);
   assert.match(styles, /\.message\.user\s*{[^}]*justify-content:\s*end;/s);
   assert.ok(app.includes("ChatGptAvatar"));
+  assert.ok(app.includes('<img src={appIconUrl} alt="" />'));
   assert.ok(app.includes("message ${message.role}"));
   assert.ok(!app.includes("user-avatar"));
 });
@@ -43,6 +44,9 @@ test("pending image previews are removable above the composer", () => {
 test("app icon is used for favicon and brand", () => {
   assert.ok(main.includes("link[rel='icon']"));
   assert.ok(app.includes("AppIcon"));
+  assert.match(appIcon, /id="knot"/);
+  assert.match(appIcon, /fill="#111111"/);
+  assert.ok(!appIcon.includes("#faae2b"));
 });
 
 test("chat sidebar can collapse from the top-left control", () => {
@@ -56,4 +60,33 @@ test("sidebar and chat bubbles follow ChatGPT-style light surfaces", () => {
   assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*#ffffff;/s);
   assert.match(styles, /\.new-session\s*{[^}]*background:\s*#ffffff;/s);
   assert.match(styles, /\.message-content\s*{[^}]*background:\s*#f4f4f4;/s);
+});
+
+test("composer textarea starts as one centered line and grows to four lines", () => {
+  assert.ok(app.includes("const textareaRef = useRef<HTMLTextAreaElement>(null);"));
+  assert.ok(app.includes("textareaRef.current.style.height = \"auto\";"));
+  assert.ok(app.includes("textareaRef.current.scrollHeight"));
+  assert.match(app, /<textarea[\s\S]*?ref={textareaRef}[\s\S]*?rows={1}/);
+  assert.match(styles, /\.composer textarea\s*{[^}]*line-height:\s*22px;[^}]*min-height:\s*22px;[^}]*max-height:\s*88px;/s);
+  assert.match(styles, /\.composer textarea\s*{[^}]*overflow-y:\s*auto;/s);
+  assert.match(styles, /\.composer textarea\s*{[^}]*padding:\s*0 2px;/s);
+  assert.match(styles, /\.composer-row\s*{[^}]*align-items:\s*center;/s);
+});
+
+test("admin page can update AI config without echoing the key", () => {
+  assert.ok(app.includes("api.aiConfig()"));
+  assert.ok(app.includes("api.updateAiConfig(baseUrl, apiKey)"));
+  assert.ok(app.includes("留空则保持当前密钥"));
+  assert.ok(app.includes("密钥已配置"));
+  assert.ok(app.includes("setApiKey(\"\")"));
+  assert.match(styles, /\.admin-form\s*{/);
+  assert.match(styles, /\.admin-section\s*{/);
+});
+
+test("mobile chat uses a slide-over session drawer", () => {
+  assert.ok(app.includes("isMobileViewport()"));
+  assert.ok(app.includes("if (isMobileViewport()) setSidebarOpen(false);"));
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane\s*{[\s\S]*position:\s*fixed;[\s\S]*transform:\s*translateX\(0\);/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.workspace\.sidebar-collapsed \.sessions-pane\s*{[\s\S]*transform:\s*translateX\(-100%\);/);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message-content\s*{[\s\S]*max-width:\s*calc\(100vw - 64px\);/);
 });

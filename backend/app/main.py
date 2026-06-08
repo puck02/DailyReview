@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.admin.routes import router as admin_router
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.db import initialize_database
@@ -13,6 +14,7 @@ from app.scheduler.jobs import start_scheduler
 
 
 app = FastAPI(title="DailyReview")
+app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(invites_router)
 app.include_router(chat_router)

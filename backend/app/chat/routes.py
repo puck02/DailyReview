@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.admin.ai_config import get_ai_config
 from app.ai_client import stream_chat_completion
 from app.config import settings
 from app.db import get_db
@@ -211,12 +212,18 @@ async def stream_chat(
 
     session_id = session.id
     history = _append_current_images(_history_for_session(db, session_id), current_attachments)
+    ai_config = get_ai_config(db)
     bind = db.get_bind()
     stream_session_factory = sessionmaker(bind=bind, autoflush=False, autocommit=False)
 
     async def event_stream():
         assistant_parts: list[str] = []
-        async for token in stream_chat_completion(history, payload.model):
+        try:
+            async for token in stream_chat_completion(history, payload.model, ai_config):
+                assistant_parts.append(token)
+                yield f"data: {token}\n\n"
+        except Exception:
+            token = "AI 服务连接失败，请稍后重试。"
             assistant_parts.append(token)
             yield f"data: {token}\n\n"
         assistant_content = "".join(assistant_parts)

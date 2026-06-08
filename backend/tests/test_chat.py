@@ -127,6 +127,36 @@ def test_stream_chat_persists_user_and_assistant_messages(tmp_path: Path):
     app.dependency_overrides.clear()
 
 
+def test_stream_chat_returns_readable_error_when_ai_stream_fails(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+    session_response = client.post("/api/sessions", json={"title": "微积分", "model": "gpt-5.4-mini"})
+    session_id = session_response.json()["id"]
+
+    async def broken_stream(_history, _model, _config):
+        raise RuntimeError("upstream failed")
+        yield ""
+
+    monkeypatch.setattr("app.chat.routes.stream_chat_completion", broken_stream)
+
+    with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={"session_id": session_id, "content": "解释导数", "model": "gpt-5.4-mini", "attachment_ids": []},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "AI 服务连接失败，请稍后重试。" in body
+    assert "data: [DONE]" in body
+    with session_factory() as db:
+        messages = db.scalars(select(Message).order_by(Message.id)).all()
+
+    assert [message.role for message in messages] == ["user", "assistant"]
+    assert messages[1].content == "AI 服务连接失败，请稍后重试。"
+    app.dependency_overrides.clear()
+
+
 def test_get_session_messages_is_scoped_to_current_user(tmp_path: Path):
     client, session_factory = make_client(tmp_path)
     register_user(client, "student@example.com")

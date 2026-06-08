@@ -192,6 +192,15 @@ textarea:focus {
   font-size: 13px;
 }
 
+.form-success {
+  color: #111111;
+  background: #ffffff;
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -409,27 +418,16 @@ textarea:focus {
 }
 
 .ai-avatar {
-  color: #fffffe;
-  background: var(--headline);
+  background: #ffffff;
+  border: 1px solid var(--stroke);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
 }
 
-.ai-avatar svg {
-  width: 26px;
-  height: 26px;
+.ai-avatar img {
+  width: 25px;
+  height: 25px;
   display: block;
-}
-
-.ai-avatar path:first-child {
-  fill: currentColor;
-}
-
-.ai-avatar path:last-child {
-  fill: none;
-  stroke: var(--headline);
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  border-radius: 0;
 }
 
 .message-content {
@@ -514,7 +512,7 @@ textarea:focus {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 46px;
   gap: 10px;
-  align-items: end;
+  align-items: center;
   padding: 12px;
   background: var(--surface);
   border: 1px solid var(--stroke);
@@ -553,12 +551,14 @@ textarea:focus {
 
 .composer textarea {
   resize: none;
-  min-height: 42px;
-  max-height: 150px;
+  line-height: 22px;
+  min-height: 22px;
+  max-height: 88px;
+  overflow-y: auto;
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 10px 2px;
+  padding: 0 2px;
   box-shadow: none;
 }
 
@@ -659,9 +659,37 @@ textarea:focus {
 }
 
 .admin-panel {
+  display: grid;
+  gap: 18px;
   max-width: 920px;
   margin: 0 auto;
   padding: 24px;
+}
+
+.admin-section {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-form {
+  display: grid;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-actions span {
+  font-size: 13px;
+  font-weight: 680;
 }
 
 .invite-table {
@@ -688,6 +716,7 @@ textarea:focus {
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .app-nav {
@@ -695,37 +724,62 @@ textarea:focus {
     flex-direction: row;
     overflow-x: auto;
     padding: 10px;
+    box-shadow: 0 1px 0 var(--stroke) inset;
   }
 
-  .nav-brand,
+  .nav-brand span,
   .nav-spacer,
   .user-chip {
     display: none;
   }
 
+  .app-content {
+    min-height: 0;
+  }
+
   .workspace,
   .report-layout {
-    height: calc(100vh - 62px);
+    height: calc(100dvh - 62px);
     grid-template-columns: 1fr;
   }
 
   .workspace.sidebar-collapsed {
-    grid-template-columns: 0 minmax(0, 1fr);
+    grid-template-columns: 1fr;
   }
 
-  .sessions-pane,
+  .sessions-pane {
+    position: fixed;
+    top: 62px;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(82vw, 320px);
+    max-height: none;
+    border-right: 1px solid var(--stroke);
+    border-bottom: 0;
+    box-shadow: 18px 0 42px rgba(0, 0, 0, 0.16);
+    transform: translateX(0);
+    transition: transform 180ms ease;
+  }
+
+  .workspace.sidebar-collapsed .sessions-pane {
+    transform: translateX(-100%);
+    box-shadow: none;
+  }
+
   .report-sidebar {
-    max-height: 170px;
+    max-height: 180px;
     border-right: 0;
     border-bottom: 1px solid var(--stroke);
   }
 
   .chat-pane {
-    height: auto;
+    height: calc(100dvh - 62px);
     min-height: 0;
   }
 
   .pane-header {
+    min-height: 60px;
     padding: 14px 16px;
   }
 
@@ -735,21 +789,40 @@ textarea:focus {
 
   .composer {
     padding: 0 14px 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
 
   .message-content {
     max-width: calc(100vw - 92px);
   }
+
+  .admin-panel {
+    height: calc(100dvh - 62px);
+    overflow-y: auto;
+    padding: 16px;
+  }
 }
 
 @media (max-width: 620px) {
   .pane-header {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .pane-header p {
+    display: none;
+  }
+
+  .pane-header h2 {
+    max-width: calc(100vw - 170px);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 17px;
   }
 
   .pane-header select {
-    width: 100%;
+    width: 128px;
   }
 
   .composer-row {
@@ -766,5 +839,43 @@ textarea:focus {
   .attachment-preview {
     width: 64px;
     height: 64px;
+  }
+
+  .messages {
+    padding: 18px 12px;
+  }
+
+  .message {
+    gap: 9px;
+    margin-bottom: 16px;
+  }
+
+  .message.assistant {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .message-avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .ai-avatar img {
+    width: 22px;
+    height: 22px;
+  }
+
+  .message-content {
+    max-width: calc(100vw - 64px);
+    border-radius: 18px;
+    padding: 11px 13px;
+  }
+
+  .admin-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .invite-row {
+    grid-template-columns: 1fr;
   }
 }
