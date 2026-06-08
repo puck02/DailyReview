@@ -86,10 +86,11 @@ def test_sessions_list_only_current_user_recent_sessions(tmp_path: Path):
 def test_image_upload_creates_expiring_attachment(tmp_path: Path):
     client, session_factory = make_client(tmp_path)
     register_user(client, "student@example.com")
+    image_bytes = b"\x89PNG\r\n\x1a\n" + b"image"
 
     response = client.post(
         "/api/attachments",
-        files={"file": ("note.png", b"fake image", "image/png")},
+        files={"file": ("note.png", image_bytes, "image/png")},
     )
 
     assert response.status_code == 200
@@ -101,6 +102,47 @@ def test_image_upload_creates_expiring_attachment(tmp_path: Path):
     assert attachment.mime_type == "image/png"
     assert attachment.expires_at > datetime.utcnow() + timedelta(days=6)
     assert Path(attachment.file_path).exists()
+    app.dependency_overrides.clear()
+
+
+def test_image_upload_accepts_clipboard_png_with_generic_mime(tmp_path: Path):
+    client, session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+    image_bytes = b"\x89PNG\r\n\x1a\n" + b"clipboard"
+
+    response = client.post(
+        "/api/attachments",
+        files={"file": ("clipboard", image_bytes, "application/octet-stream")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    with session_factory() as session:
+        attachment = session.get(Attachment, payload["id"])
+
+    assert attachment is not None
+    assert attachment.mime_type == "image/png"
+    assert Path(attachment.file_path).suffix == ".png"
+    app.dependency_overrides.clear()
+
+
+def test_image_upload_rejects_empty_or_invalid_images(tmp_path: Path):
+    client, _session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+
+    empty = client.post(
+        "/api/attachments",
+        files={"file": ("empty.png", b"", "image/png")},
+    )
+    invalid = client.post(
+        "/api/attachments",
+        files={"file": ("fake.png", b"not an image", "image/png")},
+    )
+
+    assert empty.status_code == 400
+    assert empty.json()["detail"] == "图片为空，请重新粘贴或选择图片"
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"] == "只支持 PNG、JPEG、WebP 或 GIF 图片"
     app.dependency_overrides.clear()
 
 

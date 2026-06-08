@@ -603,8 +603,12 @@ textarea:focus {
   backdrop-filter: blur(18px);
 }
 
+.attachment-grid + .upload-status + .composer-row,
+.attachment-grid + .upload-status + .form-error + .composer-row,
 .attachment-grid + .form-error + .composer-row,
-.attachment-grid + .composer-row {
+.attachment-grid + .composer-row,
+.upload-status + .form-error + .composer-row,
+.upload-status + .composer-row {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
@@ -629,6 +633,24 @@ textarea:focus {
 .icon-button:hover {
   background: #e7e7e7;
   transform: translateY(-1px);
+}
+
+.icon-button.disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+}
+
+.upload-status {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 9px 14px 0;
+  color: var(--paragraph);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-bottom: 0;
+  border-radius: 20px 20px 0 0;
+  font-size: 13px;
 }
 
 .composer textarea {

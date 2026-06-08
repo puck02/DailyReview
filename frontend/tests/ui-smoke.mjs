@@ -6,7 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const chromePort = process.env.CHROME_PORT || "9334";
 const appUrl = process.env.APP_URL || "http://127.0.0.1:8082";
 const screenshotPath = process.env.SCREENSHOT_PATH || "/tmp/dailyreview-ui-smoke.png";
-const imagePath = process.env.IMAGE_PATH || "/tmp/dailyreview-smoke-image.svg";
+const imagePath = process.env.IMAGE_PATH || "/tmp/dailyreview-smoke-image.png";
 
 function parseEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return {};
@@ -52,6 +52,7 @@ class Cdp {
   constructor(wsUrl) {
     this.nextId = 1;
     this.pending = new Map();
+    this.events = new Map();
     this.ws = new WebSocket(wsUrl);
     this.opened = new Promise((resolve, reject) => {
       this.ws.onopen = resolve;
@@ -59,7 +60,12 @@ class Cdp {
     });
     this.ws.onmessage = (event) => {
       const payload = JSON.parse(event.data);
-      if (!payload.id) return;
+      if (!payload.id) {
+        const listeners = this.events.get(payload.method) || [];
+        this.events.set(payload.method, []);
+        for (const listener of listeners) listener(payload.params || {});
+        return;
+      }
       const callbacks = this.pending.get(payload.id);
       if (!callbacks) return;
       this.pending.delete(payload.id);
@@ -80,10 +86,18 @@ class Cdp {
   close() {
     this.ws.close();
   }
+
+  once(method) {
+    return new Promise((resolve) => {
+      const listeners = this.events.get(method) || [];
+      listeners.push(resolve);
+      this.events.set(method, listeners);
+    });
+  }
 }
 
 async function openPage() {
-  const response = await fetch(`http://127.0.0.1:${chromePort}/json/new?${encodeURIComponent(appUrl)}`, {
+  const response = await fetch(`http://127.0.0.1:${chromePort}/json/new?about:blank`, {
     method: "PUT"
   });
   if (!response.ok) throw new Error(`cannot open chrome target: ${response.status}`);
@@ -92,6 +106,9 @@ async function openPage() {
   await client.send("Page.enable");
   await client.send("Runtime.enable");
   await client.send("DOM.enable");
+  const loaded = client.once("Page.loadEventFired");
+  await client.send("Page.navigate", { url: appUrl });
+  await loaded;
   return client;
 }
 
@@ -141,25 +158,23 @@ async function loginIfNeeded(client, credentials) {
   await waitFor(client, "Boolean(document.querySelector('.workspace'))", "chat workspace");
 }
 
-async function uploadImage(client) {
-  fs.writeFileSync(
-    imagePath,
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
-      <rect width="160" height="160" rx="26" fill="#faae2b"/>
-      <circle cx="80" cy="74" r="34" fill="#00473e"/>
-      <path d="M42 119h76" stroke="#00473e" stroke-width="12" stroke-linecap="round"/>
-    </svg>`
+async function pasteImage(client) {
+  const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9u2wAAAABJRU5ErkJggg==";
+  fs.writeFileSync(imagePath, Buffer.from(pngBase64, "base64"));
+  await evaluate(
+    client,
+    `(() => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(pngBase64)}), (char) => char.charCodeAt(0));
+      const file = new File([bytes], "clipboard", { type: "application/octet-stream" });
+      const data = new DataTransfer();
+      data.items.add(file);
+      document.dispatchEvent(new ClipboardEvent("paste", {
+        clipboardData: data,
+        bubbles: true,
+        cancelable: true
+      }));
+    })()`
   );
-  const document = await client.send("DOM.getDocument");
-  const input = await client.send("DOM.querySelector", {
-    nodeId: document.root.nodeId,
-    selector: 'input[type="file"]'
-  });
-  if (!input.nodeId) throw new Error("file input not found");
-  await client.send("DOM.setFileInputFiles", {
-    nodeId: input.nodeId,
-    files: [imagePath]
-  });
   await waitFor(
     client,
     `Boolean(document.querySelector('.attachment-preview img')?.complete && document.querySelector('.attachment-remove'))`,
@@ -214,7 +229,7 @@ async function capture(client) {
 const client = await openPage();
 try {
   await loginIfNeeded(client, requireLoginConfig());
-  await uploadImage(client);
+  await pasteImage(client);
   await checkLayout(client);
   await capture(client);
   await removePreview(client);

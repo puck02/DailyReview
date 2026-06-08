@@ -105,16 +105,23 @@ export const api = {
   upload: async (file: File): Promise<Attachment> => {
     const form = new FormData();
     form.append("file", file);
-    const response = await fetch("/api/attachments", {
-      method: "POST",
-      body: form,
-      credentials: "same-origin"
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/attachments", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin"
+      });
+    } catch (error) {
+      throw new Error("图片上传失败，请检查网络后重试");
+    }
     if (!response.ok) {
       const data = await response.json().catch(() => ({ detail: "上传失败" }));
       throw new Error(data.detail || "上传失败");
     }
-    return response.json();
+    return response.json().catch(() => {
+      throw new Error("上传失败");
+    });
   },
   reports: (reportType: ReportItem["report_type"], month: string) =>
     request<ReportItem[]>(`/api/reports?report_type=${reportType}&month=${month}`),

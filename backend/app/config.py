@@ -29,6 +29,7 @@ class Settings:
     ai_default_model: str = os.getenv("AI_DEFAULT_MODEL", "gpt-5.4-mini")
     ai_complex_model: str = os.getenv("AI_COMPLEX_MODEL", "5.5")
     app_port: int = int(os.getenv("APP_PORT", "8082"))
+    max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 
 
 settings = Settings()

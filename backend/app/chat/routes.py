@@ -16,7 +16,7 @@ from app.config import settings
 from app.db import get_db
 from app.models import Attachment, ChatSession, Message, User
 from app.security import get_current_user
-from app.storage.files import save_upload
+from app.storage.files import UploadTooLargeError, UploadValidationError, save_upload
 
 
 router = APIRouter(tags=["chat"])
@@ -143,13 +143,16 @@ def upload_attachment(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> AttachmentResponse:
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只支持图片上传")
-    path, size = save_upload(file, user.id)
+    try:
+        path, size, mime_type = save_upload(file, user.id)
+    except UploadTooLargeError as error:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(error)) from error
+    except UploadValidationError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
     attachment = Attachment(
         user_id=user.id,
         file_path=str(path),
-        mime_type=file.content_type,
+        mime_type=mime_type,
         size=size,
         expires_at=datetime.utcnow() + timedelta(days=7),
     )

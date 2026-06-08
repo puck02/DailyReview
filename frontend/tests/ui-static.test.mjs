@@ -41,6 +41,16 @@ test("pending image previews are removable above the composer", () => {
   assert.match(styles, /\.attachment-remove\s*{[^}]*position:\s*absolute;/s);
 });
 
+test("composer blocks sending while image upload is still running", () => {
+  assert.ok(app.includes("uploadingCount"));
+  assert.ok(app.includes("图片上传中，请稍等"));
+  assert.ok(app.includes("图片上传中..."));
+  assert.ok(app.includes("disabled={busy || isUploading}"));
+  assert.ok(app.includes("aria-disabled={isUploading}"));
+  assert.match(styles, /\.upload-status\s*{/);
+  assert.match(styles, /\.icon-button\.disabled\s*{/);
+});
+
 test("app icon is used for favicon and brand", () => {
   assert.ok(main.includes("link[rel='icon']"));
   assert.ok(app.includes("AppIcon"));

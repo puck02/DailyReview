@@ -150,6 +150,7 @@ function ChatView() {
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
   const [error, setError] = useState("");
   const [openingLine, setOpeningLine] = useState(randomOpeningLine);
 
@@ -241,16 +242,21 @@ function ChatView() {
   }
 
   async function uploadFile(file: File) {
-    const uploaded = await api.upload(file);
-    setError("");
-    setAttachments((current) => [
-      ...current,
-      {
-        ...uploaded,
-        previewUrl: URL.createObjectURL(file),
-        name: file.name || "图片"
-      }
-    ]);
+    setUploadingCount((current) => current + 1);
+    try {
+      const uploaded = await api.upload(file);
+      setError("");
+      setAttachments((current) => [
+        ...current,
+        {
+          ...uploaded,
+          previewUrl: URL.createObjectURL(file),
+          name: file.name || "图片"
+        }
+      ]);
+    } finally {
+      setUploadingCount((current) => Math.max(0, current - 1));
+    }
   }
 
   function removeAttachment(id: number) {
@@ -277,6 +283,10 @@ function ChatView() {
   async function sendMessage() {
     const content = input.trim();
     if (!content || busy) return;
+    if (uploadingCount > 0) {
+      setError("图片上传中，请稍等");
+      return;
+    }
     let session = active;
     if (!session) {
       session = await api.createSession(content.slice(0, 24), model);
@@ -329,6 +339,7 @@ function ChatView() {
   }
 
   const isEmptyChat = messages.length === 0;
+  const isUploading = uploadingCount > 0;
   const composer = (
     <footer className={`composer ${isEmptyChat ? "composer-floating" : ""}`}>
       {attachments.length > 0 && (
@@ -348,11 +359,12 @@ function ChatView() {
           ))}
         </div>
       )}
+      {isUploading && <div className="upload-status">图片上传中...</div>}
       {error && <div className="form-error">{error}</div>}
       <div className="composer-row">
-        <label className="icon-button" title="上传图片">
+        <label className={`icon-button ${isUploading ? "disabled" : ""}`} title="上传图片" aria-disabled={isUploading}>
           <ImagePlus size={18} />
-          <input type="file" accept="image/*" hidden onChange={handleFileSelect} />
+          <input type="file" accept="image/*" hidden onChange={handleFileSelect} disabled={isUploading} />
         </label>
         <textarea
           ref={textareaRef}
@@ -362,7 +374,7 @@ function ChatView() {
           placeholder="输入问题，或直接粘贴图片..."
           rows={1}
         />
-        <button className="send-button" onClick={sendMessage} disabled={busy}>
+        <button className="send-button" onClick={sendMessage} disabled={busy || isUploading}>
           <Send size={18} />
         </button>
       </div>
