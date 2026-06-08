@@ -242,6 +242,20 @@ test("chat top bar is compact and keeps retention copy in the expanded sidebar",
   assert.match(styles, /\.pane-header\s*{[^}]*min-height:\s*58px;[^}]*padding:\s*8px 20px;/s);
 });
 
+test("reports can be exported as stable four-page PDF print layouts", () => {
+  assert.ok(app.includes("Download"));
+  assert.ok(app.includes("function exportReportPdf"));
+  assert.ok(app.includes("window.print()"));
+  assert.ok(app.includes("report-toolbar"));
+  assert.ok(app.includes("print-export-button"));
+  assert.ok(app.includes("导出 PDF"));
+  assert.match(styles, /@media print\s*{[\s\S]*@page\s*{[\s\S]*size:\s*A4;/);
+  assert.match(styles, /@media print\s*{[\s\S]*\.app-nav,[\s\S]*\.report-sidebar,[\s\S]*\.report-toolbar\s*{[\s\S]*display:\s*none !important;/);
+  assert.match(styles, /@media print\s*{[\s\S]*\.report-content\s*{[\s\S]*overflow:\s*visible;/);
+  assert.match(styles, /@media print\s*{[\s\S]*\.markdown-preview\s*{[\s\S]*max-width:\s*none;[\s\S]*box-shadow:\s*none;/);
+  assert.match(styles, /@media print\s*{[\s\S]*\.markdown-preview h2,[\s\S]*\.markdown-preview h3,[\s\S]*\.markdown-preview table,[\s\S]*\.markdown-preview pre,[\s\S]*\.markdown-preview blockquote\s*{[\s\S]*break-inside:\s*avoid;/);
+});
+
 test("mobile chat uses a slide-over session drawer", () => {
   assert.ok(app.includes("isMobileViewport()"));
   assert.ok(app.includes("if (isMobileViewport()) setSidebarOpen(false);"));

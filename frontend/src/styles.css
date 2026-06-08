@@ -1169,6 +1169,33 @@ textarea:focus {
   padding: 24px;
 }
 
+.report-toolbar {
+  max-width: 860px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.report-toolbar div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-text);
+  font-size: 13px;
+}
+
+.report-toolbar strong {
+  color: var(--headline);
+  font-size: 14px;
+}
+
+.print-export-button {
+  min-height: 38px;
+  border-radius: 12px;
+}
+
 .markdown-preview {
   max-width: 860px;
   background: var(--surface);
@@ -1474,5 +1501,99 @@ textarea:focus {
 
   .invite-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm 14mm;
+  }
+
+  html,
+  body,
+  #root {
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    color: #111111 !important;
+    background: #ffffff !important;
+  }
+
+  .app-shell,
+  .app-content,
+  .report-layout {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+
+  .app-nav,
+  .report-sidebar,
+  .report-toolbar {
+    display: none !important;
+  }
+
+  .report-content {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .markdown-preview {
+    max-width: none;
+    width: 100%;
+    color: #111111;
+    background: #ffffff;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .markdown-preview h1 {
+    margin: 0 0 10mm;
+    font-size: 22pt;
+    line-height: 1.18;
+  }
+
+  .markdown-preview h2 {
+    margin: 7mm 0 3mm;
+    padding-bottom: 2mm;
+    font-size: 13.5pt;
+    break-after: avoid;
+  }
+
+  .markdown-preview h3 {
+    margin: 5mm 0 2mm;
+    font-size: 11.5pt;
+    break-after: avoid;
+  }
+
+  .markdown-preview p,
+  .markdown-preview li {
+    color: #222222;
+    font-size: 10.2pt;
+    line-height: 1.48;
+  }
+
+  .markdown-preview ul,
+  .markdown-preview ol {
+    padding-left: 16pt;
+  }
+
+  .markdown-preview h2,
+  .markdown-preview h3,
+  .markdown-preview table,
+  .markdown-preview pre,
+  .markdown-preview blockquote {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .markdown-preview .markdown-code,
+  .markdown-preview .markdown-inline-code {
+    color: #111111;
+    background: #f6f6f6;
+    border-color: #dddddd;
   }
 }

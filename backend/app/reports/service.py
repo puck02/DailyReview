@@ -13,6 +13,9 @@ from app.config import settings
 from app.models import ChatSession, Message, Report, User
 from app.storage.files import report_root
 
+DAILY_REPORT_MAX_CHARS = 1800
+DAILY_REPORT_SECTION_ITEM_LIMIT = 4
+
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
     return datetime.combine(day, time.min), datetime.combine(day + timedelta(days=1), time.min)
@@ -85,8 +88,8 @@ def _recent_daily_paths(db: Session, user_id: int, day: date) -> list[Path]:
 
 def _fallback_daily_markdown(day: date, conversation: str, keywords: list[str], related_blocks: list[str]) -> str:
     highlights = "\n".join(f"- {keyword}" for keyword in keywords[:6]) or "- 今日内容较少"
-    related = "\n".join(f"- {block}" for block in related_blocks[:4]) or "- 暂无明显历史关联"
-    first_lines = "\n".join(f"- {line[:140]}" for line in conversation.splitlines()[:8]) or "- 暂无"
+    related = "\n".join(f"- {block[:120]}" for block in related_blocks[:3]) or "- 暂无明显历史关联"
+    first_lines = "\n".join(f"- {line[:120]}" for line in conversation.splitlines()[:6]) or "- 暂无"
     return f"""# {day:%Y-%m-%d} 学习日报
 
 ## 1. 今日学习概览
@@ -96,10 +99,10 @@ def _fallback_daily_markdown(day: date, conversation: str, keywords: list[str], 
 {highlights}
 
 ## 3. 典型问题与解法
-- 回顾今日问答，优先把反复追问的问题整理成自己的解题步骤。
+- 只保留今日最典型的 1-2 个问题，并整理成可复述的解题步骤。
 
 ## 4. 易错点 / 未解决问题
-- 标记仍然含糊的概念，并在下一次学习时用例题验证。
+- 标记仍然含糊的概念，下一次用例题验证。
 
 ## 5. 与历史内容的关联
 {related}
@@ -109,8 +112,44 @@ def _fallback_daily_markdown(day: date, conversation: str, keywords: list[str], 
 - 针对最不确定的问题补 1-2 道练习题。
 
 ## 7. 简短复盘
-- 今日报告由系统根据聊天记录自动生成，建议人工快速校对后用于后续复习。
+- 控制篇幅，适合直接导出为 A4 PDF 4 页以内的复习材料。
 """
+
+
+def _compact_daily_markdown(markdown: str) -> str:
+    if len(markdown) <= DAILY_REPORT_MAX_CHARS:
+        return markdown
+
+    compacted: list[str] = []
+    item_count = 0
+    in_section = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            compacted.append(stripped)
+            in_section = stripped.startswith("## ")
+            item_count = 0
+            continue
+        if not in_section:
+            if stripped:
+                compacted.append(stripped[:120])
+            continue
+        if not stripped:
+            continue
+        if stripped.startswith(("- ", "* ")):
+            if item_count >= DAILY_REPORT_SECTION_ITEM_LIMIT:
+                continue
+            compacted.append(f"{stripped[:140]}{'...' if len(stripped) > 140 else ''}")
+            item_count += 1
+            continue
+        if item_count < DAILY_REPORT_SECTION_ITEM_LIMIT:
+            compacted.append(stripped[:140])
+            item_count += 1
+
+    result = "\n".join(compacted)
+    if len(result) > DAILY_REPORT_MAX_CHARS:
+        result = result[: DAILY_REPORT_MAX_CHARS - 34].rstrip()
+    return f"{result}\n\n> 内容已按 PDF 篇幅要求压缩。"
 
 
 async def _ai_daily_markdown(
@@ -120,7 +159,9 @@ async def _ai_daily_markdown(
     keywords: list[str],
     related_blocks: list[str],
 ) -> str:
-    prompt = f"""请根据以下学习问答生成一份 5 页以内的 Markdown 学习日报。
+    prompt = f"""请根据以下学习问答生成一份适合导出为 A4 PDF 4 页以内的 Markdown 学习日报。
+排版目标：结构清晰、留白稳定、适合打印；内容过多时只保留最重要的结论、错因和下一步建议，不要堆砌完整聊天流水。
+篇幅控制：每节使用短段落或 2-5 条项目符号，整篇不超过 1400 个中文字符；历史关联最多 3 条，典型问题最多 2 个。
 必须使用这些标题：
 # {day:%Y-%m-%d} 学习日报
 ## 1. 今日学习概览
@@ -139,12 +180,13 @@ async def _ai_daily_markdown(
 今日问答：
 {conversation}
 """
-    return await complete_chat(
+    markdown = await complete_chat(
         [{"role": "user", "content": prompt}],
         model=settings.ai_default_model,
         fallback=_fallback_daily_markdown(day, conversation, keywords, related_blocks),
         ai_config=get_ai_config(db),
     )
+    return _compact_daily_markdown(markdown)
 
 
 def _write_report(db: Session, user_id: int, report_type: str, period: str, path: Path, markdown: str, stats: dict) -> Report:

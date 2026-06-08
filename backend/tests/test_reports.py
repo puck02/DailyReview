@@ -8,7 +8,8 @@ from app.config import Settings, settings
 from app.db import create_session_factory, get_db, initialize_database
 from app.main import app
 from app.models import ChatSession, Message, Report, User
-from app.reports.service import generate_daily_report, search_markdown_blocks
+from app.reports import service as report_service
+from app.reports.service import generate_daily_report, generate_daily_report_async, search_markdown_blocks
 
 
 def make_client(tmp_path: Path) -> tuple[TestClient, object]:
@@ -71,6 +72,90 @@ def test_generate_daily_report_writes_markdown_and_index(tmp_path: Path):
     assert path.exists()
     assert "2026-06-08 学习日报" in path.read_text(encoding="utf-8")
     assert "下一步建议" in path.read_text(encoding="utf-8")
+    app.dependency_overrides.clear()
+
+
+def test_ai_daily_report_prompt_limits_pdf_to_four_pages(tmp_path: Path, monkeypatch):
+    _client, session_factory = make_client(tmp_path)
+    captured: dict[str, str] = {}
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        captured["prompt"] = messages[0]["content"]
+        return fallback
+
+    monkeypatch.setattr(report_service, "complete_chat", fake_complete_chat)
+
+    with session_factory() as db:
+        user = db.scalar(select(User).where(User.email == "owner@example.com"))
+        chat = ChatSession(user_id=user.id, title="数学", default_model="gpt-5.4-mini")
+        db.add(chat)
+        db.flush()
+        db.add(Message(session_id=chat.id, role="user", content="今天学习了导数、链式法则和泰勒展开", created_at=datetime(2026, 6, 8, 10, 0, 0)))
+        db.add(Message(session_id=chat.id, role="assistant", content="重点是复合函数求导和常见等价无穷小。", created_at=datetime(2026, 6, 8, 10, 1, 0)))
+        db.commit()
+
+        report = generate_daily_report_async(db, user.id, date(2026, 6, 8))
+
+    import asyncio
+
+    assert asyncio.run(report) is not None
+    assert "A4 PDF 4 页以内" in captured["prompt"]
+    assert "内容过多时只保留最重要的结论、错因和下一步建议" in captured["prompt"]
+    assert "不要堆砌完整聊天流水" in captured["prompt"]
+    app.dependency_overrides.clear()
+
+
+def test_ai_daily_report_compacts_overlong_model_output(tmp_path: Path, monkeypatch):
+    _client, session_factory = make_client(tmp_path)
+    overlong_section = "\n".join(f"- 第 {index} 条完整聊天流水，包含大量细节。" for index in range(40))
+    overlong_report = f"""# 2026-06-08 学习日报
+
+## 1. 今日学习概览
+{overlong_section}
+
+## 2. 核心知识点
+{overlong_section}
+
+## 3. 典型问题与解法
+{overlong_section}
+
+## 4. 易错点 / 未解决问题
+{overlong_section}
+
+## 5. 与历史内容的关联
+{overlong_section}
+
+## 6. 下一步建议
+{overlong_section}
+
+## 7. 简短复盘
+{overlong_section}
+"""
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        return overlong_report
+
+    monkeypatch.setattr(report_service, "complete_chat", fake_complete_chat)
+
+    with session_factory() as db:
+        user = db.scalar(select(User).where(User.email == "owner@example.com"))
+        chat = ChatSession(user_id=user.id, title="数学", default_model="gpt-5.4-mini")
+        db.add(chat)
+        db.flush()
+        db.add(Message(session_id=chat.id, role="user", content="今天学习了很多内容", created_at=datetime(2026, 6, 8, 10, 0, 0)))
+        db.commit()
+
+        report = generate_daily_report_async(db, user.id, date(2026, 6, 8))
+
+    import asyncio
+
+    written_report = asyncio.run(report)
+
+    assert written_report is not None
+    markdown = Path(written_report.markdown_path).read_text(encoding="utf-8")
+    assert len(markdown) <= 1800
+    assert markdown.count("完整聊天流水") <= 28
+    assert "内容已按 PDF 篇幅要求压缩" in markdown
     app.dependency_overrides.clear()
 
 

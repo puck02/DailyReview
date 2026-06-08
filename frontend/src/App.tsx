@@ -18,6 +18,7 @@ import {
   CalendarDays,
   Check,
   Copy,
+  Download,
   ImagePlus,
   KeyRound,
   Moon,
@@ -728,6 +729,12 @@ function ReportsView() {
     () => items.reduce((sum, item) => sum + Number(item.stats.message_count || 0), 0),
     [items]
   );
+  const reportTypeLabel = type === "daily" ? "日报" : type === "weekly" ? "周报" : "月报";
+
+  function exportReportPdf() {
+    if (!active) return;
+    window.print();
+  }
 
   return (
     <div className="report-layout">
@@ -752,7 +759,23 @@ function ReportsView() {
         ))}
       </section>
       <section className="report-content">
-        {active ? <MarkdownPreview markdown={active.markdown} /> : <div className="empty-state">这个月份还没有报告。</div>}
+        {active ? (
+          <>
+            <div className="report-toolbar">
+              <div>
+                <span>{active.period}</span>
+                <strong>{reportTypeLabel}</strong>
+              </div>
+              <button className="secondary-button compact print-export-button" onClick={exportReportPdf}>
+                <Download size={16} />
+                导出 PDF
+              </button>
+            </div>
+            <MarkdownPreview markdown={active.markdown} />
+          </>
+        ) : (
+          <div className="empty-state">这个月份还没有报告。</div>
+        )}
       </section>
     </div>
   );
