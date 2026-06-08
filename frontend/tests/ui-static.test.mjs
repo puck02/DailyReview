@@ -73,6 +73,17 @@ test("composer textarea starts as one centered line and grows to four lines", ()
   assert.match(styles, /\.composer-row\s*{[^}]*align-items:\s*center;/s);
 });
 
+test("empty chat shows a centered greeting with the composer below it", () => {
+  assert.ok(app.includes("const isEmptyChat = messages.length === 0;"));
+  assert.ok(app.includes("准备好了，随时开始"));
+  assert.ok(app.includes("empty-chat"));
+  assert.ok(app.includes("composer ${isEmptyChat ? \"composer-floating\" : \"\"}"));
+  assert.match(styles, /\.empty-chat\s*{[^}]*place-items:\s*center;/s);
+  assert.match(styles, /\.empty-chat-content\s*{[^}]*transform:\s*translateY\(8vh\);/s);
+  assert.match(styles, /\.empty-chat-greeting\s*{[^}]*text-align:\s*center;/s);
+  assert.match(styles, /\.composer-floating\s*{[^}]*padding:\s*0;/s);
+});
+
 test("admin page can update AI config without echoing the key", () => {
   assert.match(app, /AI 设置/);
   assert.ok(!app.includes(">邀请码</button>"));

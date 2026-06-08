@@ -406,6 +406,28 @@ textarea:focus {
   padding: 28px 24px;
 }
 
+.empty-chat {
+  display: grid;
+  place-items: center;
+}
+
+.empty-chat-content {
+  width: min(860px, 100%);
+  display: grid;
+  gap: 24px;
+  transform: translateY(8vh);
+}
+
+.empty-chat-greeting {
+  margin: 0;
+  color: var(--headline);
+  text-align: center;
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
 .message {
   max-width: 860px;
   display: grid;
@@ -468,6 +490,11 @@ textarea:focus {
 .composer {
   padding: 0 24px 22px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--background) 28%);
+}
+
+.composer-floating {
+  padding: 0;
+  background: transparent;
 }
 
 .attachment-grid,
@@ -810,9 +837,17 @@ textarea:focus {
     padding: 22px 14px;
   }
 
+  .empty-chat-content {
+    transform: translateY(4vh);
+  }
+
   .composer {
     padding: 0 14px 16px;
     padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .composer-floating {
+    padding: 0;
   }
 
   .message-content {
@@ -866,6 +901,10 @@ textarea:focus {
 
   .messages {
     padding: 18px 12px;
+  }
+
+  .empty-chat-greeting {
+    font-size: 24px;
   }
 
   .message {

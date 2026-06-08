@@ -283,6 +283,46 @@ function ChatView() {
     }
   }
 
+  const isEmptyChat = messages.length === 0;
+  const composer = (
+    <footer className={`composer ${isEmptyChat ? "composer-floating" : ""}`}>
+      {attachments.length > 0 && (
+        <div className="attachment-grid" aria-label="已附加图片">
+          {attachments.map((attachment) => (
+            <div key={attachment.id} className="attachment-preview">
+              <img src={attachment.previewUrl} alt={attachment.name} />
+              <button
+                type="button"
+                className="attachment-remove"
+                onClick={() => removeAttachment(attachment.id)}
+                aria-label="删除图片"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <div className="form-error">{error}</div>}
+      <div className="composer-row">
+        <label className="icon-button" title="上传图片">
+          <ImagePlus size={18} />
+          <input type="file" accept="image/*" hidden onChange={handleFileSelect} />
+        </label>
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder="输入问题，或直接粘贴图片..."
+          rows={1}
+        />
+        <button className="send-button" onClick={sendMessage} disabled={busy}>
+          <Send size={18} />
+        </button>
+      </div>
+    </footer>
+  );
+
   return (
     <div className={sidebarOpen ? "workspace" : "workspace sidebar-collapsed"}>
       <aside className="sessions-pane">
@@ -329,45 +369,22 @@ function ChatView() {
             <option value={complexModel}>{complexModel}</option>
           </select>
         </header>
-        <div className="messages">
-          {messages.map((message) => (
-            <div key={message.id} className={`message ${message.role}`}>
-              {message.role === "assistant" && <ChatGptAvatar />}
-              <div className="message-content">{message.content}</div>
+        <div className={isEmptyChat ? "messages empty-chat" : "messages"}>
+          {isEmptyChat ? (
+            <div className="empty-chat-content">
+              <h1 className="empty-chat-greeting">准备好了，随时开始</h1>
+              {composer}
             </div>
-          ))}
-        </div>
-        <footer className="composer">
-          {attachments.length > 0 && (
-            <div className="attachment-grid" aria-label="已附加图片">
-              {attachments.map((attachment) => (
-                <div key={attachment.id} className="attachment-preview">
-                  <img src={attachment.previewUrl} alt={attachment.name} />
-                  <button type="button" className="attachment-remove" onClick={() => removeAttachment(attachment.id)} aria-label="删除图片">
-                    <X size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
+          ) : (
+            messages.map((message) => (
+              <div key={message.id} className={`message ${message.role}`}>
+                {message.role === "assistant" && <ChatGptAvatar />}
+                <div className="message-content">{message.content}</div>
+              </div>
+            ))
           )}
-          {error && <div className="form-error">{error}</div>}
-          <div className="composer-row">
-            <label className="icon-button" title="上传图片">
-              <ImagePlus size={18} />
-              <input type="file" accept="image/*" hidden onChange={handleFileSelect} />
-            </label>
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="输入问题，或直接粘贴图片..."
-              rows={1}
-            />
-            <button className="send-button" onClick={sendMessage} disabled={busy}>
-              <Send size={18} />
-            </button>
-          </div>
-        </footer>
+        </div>
+        {!isEmptyChat && composer}
       </section>
     </div>
   );
