@@ -6,6 +6,23 @@ import httpx
 from app.config import settings
 
 
+async def complete_chat(messages: list[dict], model: str, fallback: str) -> str:
+    if not settings.ai_base_url or not settings.ai_api_key or settings.ai_api_key == "change-me":
+        return fallback
+
+    url = settings.ai_base_url.rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {settings.ai_api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {"model": model, "messages": messages, "stream": False}
+    async with httpx.AsyncClient(timeout=180) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("choices", [{}])[0].get("message", {}).get("content") or fallback
+
+
 async def stream_chat_completion(messages: list[dict], model: str) -> AsyncIterator[str]:
     if not settings.ai_base_url or not settings.ai_api_key or settings.ai_api_key == "change-me":
         yield "这是一个本地测试回答。生产环境会使用配置的 AI API。"
