@@ -74,10 +74,14 @@ test("composer textarea starts as one centered line and grows to four lines", ()
 });
 
 test("admin page can update AI config without echoing the key", () => {
+  assert.match(app, /AI 设置/);
+  assert.ok(!app.includes(">邀请码</button>"));
   assert.ok(app.includes("api.aiConfig()"));
   assert.ok(app.includes("api.updateAiConfig(baseUrl, apiKey)"));
+  assert.ok(app.includes("api.testAiConfig(baseUrl, apiKey)"));
   assert.ok(app.includes("留空则保持当前密钥"));
   assert.ok(app.includes("密钥已配置"));
+  assert.ok(app.includes("测试连接"));
   assert.ok(app.includes("setApiKey(\"\")"));
   assert.match(styles, /\.admin-form\s*{/);
   assert.match(styles, /\.admin-section\s*{/);

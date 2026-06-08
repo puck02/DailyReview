@@ -4,7 +4,7 @@ from app import ai_client
 from app.config import settings
 
 
-def test_stream_chat_completion_ignores_proxy_environment(monkeypatch):
+def test_stream_chat_completion_uses_proxy_environment(monkeypatch):
     monkeypatch.setattr(settings, "ai_base_url", "https://example.test/v1")
     monkeypatch.setattr(settings, "ai_api_key", "test-key")
     monkeypatch.setattr(settings, "ai_default_model", "gpt-5.4-mini")
@@ -19,6 +19,8 @@ def test_stream_chat_completion_ignores_proxy_environment(monkeypatch):
             return False
 
         async def aiter_lines(self):
+            yield 'data: {"choices":[]}'
+            yield 'data: {"choices":[{"delta":{"content":"ok"}}]}'
             yield "data: [DONE]"
 
         def raise_for_status(self):
@@ -47,5 +49,5 @@ def test_stream_chat_completion_ignores_proxy_environment(monkeypatch):
 
     tokens = asyncio.run(collect_tokens())
 
-    assert tokens == []
-    assert captured["trust_env"] is False
+    assert tokens == ["ok"]
+    assert captured["trust_env"] is True

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import httpx
 
 from app.config import Settings
 from app.db import create_session_factory, get_db, initialize_database
@@ -78,6 +79,53 @@ def test_admin_can_change_base_url_without_replacing_existing_key(tmp_path: Path
     app.dependency_overrides.clear()
 
 
+def test_admin_can_test_unsaved_ai_config_without_key_echo(tmp_path: Path, monkeypatch):
+    client = make_client(tmp_path)
+    login_admin(client)
+    captured: dict[str, str] = {}
+
+    async def fake_test_connection(ai_config):
+        captured["base_url"] = ai_config.base_url
+        captured["api_key"] = ai_config.api_key
+        return "AI 连接正常"
+
+    monkeypatch.setattr("app.admin.routes.test_ai_connection", fake_test_connection)
+
+    response = client.post(
+        "/api/admin/ai-config/test",
+        json={"base_url": "https://example.test/v1", "api_key": "secret-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": "AI 连接正常"}
+    assert captured == {"base_url": "https://example.test/v1", "api_key": "secret-key"}
+    assert "secret-key" not in response.text
+    app.dependency_overrides.clear()
+
+
+def test_admin_ai_config_test_returns_safe_failure_message(tmp_path: Path, monkeypatch):
+    client = make_client(tmp_path)
+    login_admin(client)
+
+    async def fake_test_connection(_ai_config):
+        request = httpx.Request("POST", "https://example.test/private-path/v1/chat/completions")
+        response = httpx.Response(401, request=request)
+        raise httpx.HTTPStatusError("upstream failed", request=request, response=response)
+
+    monkeypatch.setattr("app.admin.routes.test_ai_connection", fake_test_connection)
+
+    response = client.post(
+        "/api/admin/ai-config/test",
+        json={"base_url": "https://example.test/private-path/v1", "api_key": "secret-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": False, "message": "上游返回 HTTP 401"}
+    assert "secret-key" not in response.text
+    assert "private-path" not in response.text
+    app.dependency_overrides.clear()
+
+
 def test_saved_ai_config_is_used_by_chat_stream(tmp_path: Path, monkeypatch):
     client = make_client(tmp_path)
     login_admin(client)
@@ -117,7 +165,12 @@ def test_non_admin_cannot_manage_ai_config(tmp_path: Path):
         "/api/admin/ai-config",
         json={"base_url": "https://example.test/v1", "api_key": "secret-key"},
     )
+    test = client.post(
+        "/api/admin/ai-config/test",
+        json={"base_url": "https://example.test/v1", "api_key": "secret-key"},
+    )
 
     assert read.status_code == 403
     assert update.status_code == 403
+    assert test.status_code == 403
     app.dependency_overrides.clear()

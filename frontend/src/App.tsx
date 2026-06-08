@@ -428,6 +428,8 @@ function AdminView() {
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const [testResult, setTestResult] = useState("");
+  const [testing, setTesting] = useState(false);
 
   async function refresh() {
     const [inviteItems, config] = await Promise.all([api.invites(), api.aiConfig()]);
@@ -455,6 +457,7 @@ function AdminView() {
     try {
       setError("");
       setSaved("");
+      setTestResult("");
       const config = await api.updateAiConfig(baseUrl, apiKey);
       setAiConfig(config);
       setBaseUrl(config.base_url);
@@ -465,8 +468,24 @@ function AdminView() {
     }
   }
 
+  async function testAiConfig() {
+    try {
+      setError("");
+      setSaved("");
+      setTestResult("");
+      setTesting(true);
+      const result = await api.testAiConfig(baseUrl, apiKey);
+      setTestResult(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "测试失败");
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <section className="admin-panel">
+      {error && <div className="form-error admin-error">{error}</div>}
       <section className="admin-section">
         <header className="pane-header">
           <div>
@@ -490,11 +509,17 @@ function AdminView() {
           </label>
           <div className="admin-actions">
             <span>{aiConfig?.has_api_key ? "密钥已配置" : "密钥未配置"}</span>
-            <button className="primary-button compact" type="submit">
-              保存 AI 配置
-            </button>
+            <div className="admin-action-buttons">
+              <button className="secondary-button compact" type="button" onClick={testAiConfig} disabled={testing}>
+                {testing ? "测试中..." : "测试连接"}
+              </button>
+              <button className="primary-button compact" type="submit">
+                保存 AI 配置
+              </button>
+            </div>
           </div>
         </form>
+        {testResult && <div className="form-success">{testResult}</div>}
         {saved && <div className="form-success">{saved}</div>}
       </section>
       <section className="admin-section">
@@ -508,7 +533,6 @@ function AdminView() {
             生成邀请码
           </button>
         </header>
-      {error && <div className="form-error">{error}</div>}
       <div className="invite-table">
         {invites.map((invite) => (
           <div key={invite.code} className="invite-row">
@@ -562,7 +586,7 @@ export default function App() {
         {user.role === "admin" && (
           <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>
             <KeyRound size={17} />
-            邀请码
+            AI 设置
           </button>
         )}
         <div className="nav-spacer" />

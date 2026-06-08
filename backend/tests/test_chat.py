@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import logging
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -154,6 +155,34 @@ def test_stream_chat_returns_readable_error_when_ai_stream_fails(tmp_path: Path,
 
     assert [message.role for message in messages] == ["user", "assistant"]
     assert messages[1].content == "AI 服务连接失败，请稍后重试。"
+    app.dependency_overrides.clear()
+
+
+def test_stream_chat_logs_safe_diagnostic_when_ai_stream_fails(tmp_path: Path, monkeypatch, caplog):
+    client, _session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+    session_response = client.post("/api/sessions", json={"title": "微积分", "model": "gpt-5.4-mini"})
+    session_id = session_response.json()["id"]
+
+    async def broken_stream(_history, _model, _config):
+        raise RuntimeError("secret-key private-path")
+        yield ""
+
+    monkeypatch.setattr("app.chat.routes.stream_chat_completion", broken_stream)
+    caplog.set_level(logging.WARNING)
+
+    with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={"session_id": session_id, "content": "解释导数", "model": "gpt-5.4-mini", "attachment_ids": []},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert "AI 服务连接失败，请稍后重试。" in body
+    assert "RuntimeError" in caplog.text
+    assert "secret-key" not in caplog.text
+    assert "private-path" not in caplog.text
     app.dependency_overrides.clear()
 
 

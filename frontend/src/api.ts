@@ -51,6 +51,11 @@ export type AiConfig = {
   has_api_key: boolean;
 };
 
+export type AiConfigTest = {
+  ok: boolean;
+  message: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -114,6 +119,11 @@ export const api = {
   updateAiConfig: (baseUrl: string, apiKey: string) =>
     request<AiConfig>("/api/admin/ai-config", {
       method: "PUT",
+      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey })
+    }),
+  testAiConfig: (baseUrl: string, apiKey: string) =>
+    request<AiConfigTest>("/api/admin/ai-config/test", {
+      method: "POST",
       body: JSON.stringify({ base_url: baseUrl, api_key: apiKey })
     })
 };

@@ -1,6 +1,8 @@
 import base64
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -18,6 +20,7 @@ from app.storage.files import save_upload
 
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 class SessionCreateRequest(BaseModel):
@@ -222,7 +225,15 @@ async def stream_chat(
             async for token in stream_chat_completion(history, payload.model, ai_config):
                 assistant_parts.append(token)
                 yield f"data: {token}\n\n"
-        except Exception:
+        except Exception as error:
+            logger.warning(
+                "AI stream failed type=%s status_code=%s host=%s has_base_url=%s has_api_key=%s",
+                error.__class__.__name__,
+                getattr(getattr(error, "response", None), "status_code", None),
+                urlparse(ai_config.base_url).hostname or "",
+                bool(ai_config.base_url),
+                bool(ai_config.api_key),
+            )
             token = "AI 服务连接失败，请稍后重试。"
             assistant_parts.append(token)
             yield f"data: {token}\n\n"

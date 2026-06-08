@@ -140,6 +140,7 @@ textarea:focus {
 }
 
 .primary-button,
+.secondary-button,
 .send-button,
 .new-session {
   display: inline-flex;
@@ -164,6 +165,7 @@ textarea:focus {
 }
 
 .primary-button:disabled,
+.secondary-button:disabled,
 .send-button:disabled {
   opacity: 0.55;
   cursor: default;
@@ -171,7 +173,20 @@ textarea:focus {
   box-shadow: none;
 }
 
-.primary-button.compact {
+.secondary-button {
+  color: var(--headline);
+  background: #ffffff;
+  border: 1px solid var(--stroke);
+  box-shadow: none;
+}
+
+.secondary-button:hover {
+  background: #f4f4f4;
+  transform: translateY(-1px);
+}
+
+.primary-button.compact,
+.secondary-button.compact {
   width: auto;
 }
 
@@ -687,6 +702,14 @@ textarea:focus {
   gap: 12px;
 }
 
+.admin-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .admin-actions span {
   font-size: 13px;
   font-weight: 680;
@@ -873,6 +896,15 @@ textarea:focus {
   .admin-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-action-buttons {
+    justify-content: stretch;
+  }
+
+  .admin-action-buttons .primary-button,
+  .admin-action-buttons .secondary-button {
+    width: 100%;
   }
 
   .invite-row {
