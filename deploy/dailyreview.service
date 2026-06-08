@@ -1,0 +1,14 @@
+[Unit]
+Description=DailyReview AI learning app
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/admin/workspace/DailyReview/backend
+EnvironmentFile=/home/admin/workspace/DailyReview/.env
+ExecStart=/home/admin/workspace/DailyReview/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8082
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
