@@ -1,17 +1,18 @@
 :root {
-  --background: #f2f7f5;
-  --headline: #00473e;
-  --paragraph: #475d5b;
-  --surface: rgba(255, 255, 255, 0.72);
+  --background: #ffffff;
+  --headline: #111111;
+  --paragraph: #111111;
+  --surface: rgba(255, 255, 255, 0.88);
   --surface-solid: #ffffff;
-  --surface-soft: rgba(242, 247, 245, 0.84);
-  --stroke: rgba(0, 71, 62, 0.14);
-  --stroke-strong: rgba(0, 71, 62, 0.22);
-  --highlight: #faae2b;
-  --secondary: #ffa8ba;
-  --tertiary: #fa5246;
-  --shadow-soft: 0 18px 48px rgba(0, 71, 62, 0.1);
-  --shadow-pop: 0 14px 32px rgba(0, 71, 62, 0.16);
+  --surface-soft: rgba(248, 248, 248, 0.92);
+  --stroke: rgba(0, 0, 0, 0.12);
+  --stroke-strong: rgba(0, 0, 0, 0.22);
+  --highlight: #111111;
+  --secondary: #f3f0ff;
+  --tertiary: #e7e7e7;
+  --sidebar-tint: #f3f0ff;
+  --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.08);
+  --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.12);
   color: var(--headline);
   background: var(--background);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
@@ -31,9 +32,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(242, 247, 245, 0) 30%),
-    var(--background);
+  background: var(--background);
 }
 
 button,
@@ -58,7 +57,7 @@ textarea {
 .app-icon {
   display: block;
   border-radius: 8px;
-  box-shadow: 0 6px 16px rgba(0, 71, 62, 0.14);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
 .loading,
@@ -131,8 +130,8 @@ input:focus,
 select:focus,
 textarea:focus {
   background: var(--surface-solid);
-  border-color: rgba(0, 71, 62, 0.34);
-  box-shadow: 0 0 0 4px rgba(250, 174, 43, 0.22);
+  border-color: rgba(0, 0, 0, 0.34);
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.1);
 }
 
 .auth-form {
@@ -149,18 +148,17 @@ textarea:focus {
   gap: 8px;
   min-height: 42px;
   color: #fffffe;
-  background: var(--headline);
+  background: #111111;
   border-radius: 14px;
   padding: 0 15px;
   font-weight: 730;
-  box-shadow: 0 10px 24px rgba(0, 71, 62, 0.16);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
   transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
 .primary-button:hover,
-.send-button:hover,
-.new-session:hover {
-  background: #006456;
+.send-button:hover {
+  background: #000000;
   box-shadow: var(--shadow-pop);
   transform: translateY(-1px);
 }
@@ -186,9 +184,9 @@ textarea:focus {
 }
 
 .form-error {
-  color: #8f1d15;
-  background: rgba(250, 82, 70, 0.1);
-  border: 1px solid rgba(250, 82, 70, 0.25);
+  color: #111111;
+  background: #f4f4f4;
+  border: 1px solid #dddddd;
   border-radius: 14px;
   padding: 10px 12px;
   font-size: 13px;
@@ -205,10 +203,10 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: rgba(0, 71, 62, 0.94);
-  color: #fffffe;
+  background: var(--sidebar-tint);
+  color: var(--headline);
   padding: 18px 12px;
-  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.12) inset;
+  box-shadow: 1px 0 0 var(--stroke) inset;
 }
 
 .app-nav button {
@@ -216,7 +214,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: rgba(255, 255, 254, 0.78);
+  color: var(--headline);
   background: transparent;
   border-radius: 14px;
   padding: 0 11px;
@@ -226,15 +224,15 @@ textarea:focus {
 
 .app-nav button:hover,
 .app-nav button.active {
-  color: #fffffe;
-  background: rgba(255, 255, 255, 0.13);
+  color: var(--headline);
+  background: rgba(0, 0, 0, 0.07);
 }
 
 .nav-brand {
   min-height: 46px;
   margin-bottom: 16px;
   padding: 0 8px;
-  color: #fffffe;
+  color: var(--headline);
 }
 
 .nav-spacer {
@@ -243,8 +241,8 @@ textarea:focus {
 
 .user-chip {
   overflow-wrap: anywhere;
-  color: rgba(255, 255, 254, 0.68);
-  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--paragraph);
+  border-top: 1px solid var(--stroke);
   padding: 14px 8px 4px;
   font-size: 12px;
 }
@@ -278,8 +276,14 @@ textarea:focus {
   background: #ffffff;
   width: 100%;
   margin-bottom: 14px;
-  border: 1px solid rgba(0, 71, 62, 0.12);
-  box-shadow: 0 8px 18px rgba(0, 71, 62, 0.06);
+  border: 1px solid var(--stroke);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.05);
+}
+
+.new-session:hover {
+  background: #f4f4f4;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
 }
 
 .session-list {
@@ -312,8 +316,8 @@ textarea:focus {
 .session-item:hover,
 .session-item.active,
 .report-item:hover {
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 8px 20px rgba(0, 71, 62, 0.08);
+  background: #f4f4f4;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
 }
 
 .chat-pane {
@@ -332,7 +336,7 @@ textarea:focus {
   gap: 16px;
   padding: 16px 24px;
   border-bottom: 1px solid var(--stroke);
-  background: rgba(242, 247, 245, 0.72);
+  background: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(18px);
 }
 
@@ -407,7 +411,7 @@ textarea:focus {
 .ai-avatar {
   color: #fffffe;
   background: var(--headline);
-  box-shadow: 0 8px 20px rgba(0, 71, 62, 0.16);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
 }
 
 .ai-avatar svg {
@@ -440,7 +444,7 @@ textarea:focus {
 }
 
 .message.assistant .message-content {
-  box-shadow: 0 10px 26px rgba(0, 71, 62, 0.07);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.06);
 }
 
 .message.user .message-content {
@@ -450,7 +454,7 @@ textarea:focus {
 
 .composer {
   padding: 0 24px 22px;
-  background: linear-gradient(180deg, rgba(242, 247, 245, 0), var(--background) 28%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--background) 28%);
 }
 
 .attachment-grid,
@@ -477,9 +481,9 @@ textarea:focus {
   height: 72px;
   border-radius: 16px;
   overflow: visible;
-  border: 1px solid rgba(0, 71, 62, 0.14);
+  border: 1px solid var(--stroke);
   background: var(--surface-solid);
-  box-shadow: 0 8px 18px rgba(0, 71, 62, 0.1);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
 }
 
 .attachment-preview img {
@@ -499,11 +503,11 @@ textarea:focus {
   display: grid;
   place-items: center;
   color: #fffffe;
-  background: rgba(0, 71, 62, 0.92);
+  background: rgba(17, 17, 17, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.82);
   border-radius: 50%;
   padding: 0;
-  box-shadow: 0 6px 14px rgba(0, 71, 62, 0.2);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
 }
 
 .composer-row {
@@ -536,14 +540,14 @@ textarea:focus {
   display: grid;
   place-items: center;
   color: var(--headline);
-  background: rgba(0, 71, 62, 0.08);
+  background: #f4f4f4;
   border-radius: 14px;
   cursor: pointer;
   transition: background 160ms ease, transform 160ms ease;
 }
 
 .icon-button:hover {
-  background: rgba(0, 71, 62, 0.13);
+  background: #e7e7e7;
   transform: translateY(-1px);
 }
 
@@ -577,7 +581,7 @@ textarea:focus {
 
 .report-sidebar {
   border-right: 1px solid var(--stroke);
-  background: rgba(255, 255, 255, 0.36);
+  background: #ffffff;
   padding: 14px;
   overflow-y: auto;
 }
@@ -612,7 +616,7 @@ textarea:focus {
 .markdown-preview {
   max-width: 860px;
   background: var(--surface);
-  border: 1px solid rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--stroke);
   border-radius: 22px;
   padding: 30px;
   box-shadow: var(--shadow-soft);

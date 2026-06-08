@@ -6,9 +6,21 @@ const app = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 
-test("uses Happy Hues palette 5 tokens", () => {
-  for (const color of ["#f2f7f5", "#00473e", "#475d5b", "#faae2b", "#ffa8ba", "#fa5246"]) {
-    assert.ok(styles.includes(color), `${color} missing`);
+const appIcon = fs.readFileSync(new URL("../src/assets/app-icon.svg", import.meta.url), "utf8");
+
+test("uses black and white surfaces with a pale purple global sidebar", () => {
+  assert.match(styles, /--background:\s*#ffffff;/);
+  assert.match(styles, /--headline:\s*#111111;/);
+  assert.match(styles, /--paragraph:\s*#111111;/);
+  assert.match(styles, /--sidebar-tint:\s*#f3f0ff;/);
+  assert.match(styles, /\.app-nav\s*{[^}]*background:\s*var\(--sidebar-tint\);/s);
+  assert.match(styles, /\.app-nav button\s*{[^}]*color:\s*var\(--headline\);/s);
+  assert.match(styles, /\.send-button[^,{]*,[\s\S]*?\.new-session\s*{[^}]*background:\s*#111111;/s);
+  assert.match(styles, /\.message-content\s*{[^}]*background:\s*#f4f4f4;/s);
+
+  for (const color of ["#00473e", "#475d5b", "#faae2b", "#ffa8ba", "#fa5246", "0, 71, 62"]) {
+    assert.ok(!styles.includes(color), `${color} should not remain in styles`);
+    assert.ok(!appIcon.includes(color), `${color} should not remain in app icon`);
   }
 });
 
