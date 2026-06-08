@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ImagePlus,
@@ -8,13 +8,16 @@ import {
   Plus,
   Send,
   FileText,
-  Sparkles
+  X
 } from "lucide-react";
 import { api, Attachment, ChatSession, Invite, Message, ReportContent, ReportItem, streamChat, User } from "./api";
+import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
+import appIconUrl from "./assets/app-icon.svg?url";
 
 type View = "chat" | "reports" | "admin";
 type AuthMode = "login" | "register";
+type PendingAttachment = Attachment & { previewUrl: string; name: string };
 
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
@@ -33,6 +36,21 @@ function MarkdownPreview({ markdown }: { markdown: string }) {
     return <p key={index}>{line}</p>;
   });
   return <article className="markdown-preview">{nodes}</article>;
+}
+
+function AppIcon({ size = 22 }: { size?: number }) {
+  return <img className="app-icon" src={appIconUrl} width={size} height={size} alt="" />;
+}
+
+function ChatGptAvatar() {
+  return (
+    <div className="message-avatar ai-avatar" aria-label="AI">
+      <svg viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M20 5.5c3.3 0 5.9 1.8 7.3 4.4 3 .2 5.6 2.2 6.7 5.1 1.1 3 .3 6-1.7 8.1.4 3-1.1 6-3.8 7.6-2.7 1.6-5.9 1.3-8.3-.3-2.5 1.8-5.8 2.1-8.5.5-2.8-1.6-4.2-4.6-3.8-7.6-2.2-2.1-3-5.2-1.9-8.1 1.1-3 3.8-4.9 6.8-5.1A8.1 8.1 0 0 1 20 5.5Z" />
+        <path d="M19.9 11.2v8l6.9 4M27.1 14.6l-6.9 4-6.9-4M12.9 25.4l6.9-4 6.9 4M20.1 28.8v-8l-6.9-4" />
+      </svg>
+    </div>
+  );
 }
 
 function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
@@ -62,7 +80,7 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
     <main className="auth-shell">
       <section className="auth-panel">
         <div className="auth-brand">
-          <Sparkles size={22} />
+          <AppIcon />
           <span>DailyReview</span>
         </div>
         <h1>AI 学习工作台</h1>
@@ -101,7 +119,8 @@ function ChatView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [model, setModel] = useState(defaultModel);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -126,6 +145,16 @@ function ChatView() {
   }, [active?.id]);
 
   useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(() => {
+    return () => {
+      attachmentsRef.current.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+    };
+  }, []);
+
+  useEffect(() => {
     function handleDocumentPaste(event: globalThis.ClipboardEvent) {
       const file = firstClipboardImage(event.clipboardData);
       if (!file) return;
@@ -147,7 +176,36 @@ function ChatView() {
 
   async function uploadFile(file: File) {
     const uploaded = await api.upload(file);
-    setAttachments((current) => [...current, uploaded]);
+    setError("");
+    setAttachments((current) => [
+      ...current,
+      {
+        ...uploaded,
+        previewUrl: URL.createObjectURL(file),
+        name: file.name || "图片"
+      }
+    ]);
+  }
+
+  function removeAttachment(id: number) {
+    setAttachments((current) => {
+      const result = removeAttachmentPreview(current, id);
+      if (result.removed) URL.revokeObjectURL(result.removed.previewUrl);
+      return result.remaining;
+    });
+  }
+
+  function clearAttachments() {
+    setAttachments((current) => {
+      current.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+      return [];
+    });
+  }
+
+  function handleFileSelect(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (file) uploadFile(file).catch((err) => setError(err.message));
   }
 
   async function sendMessage() {
@@ -174,7 +232,7 @@ function ChatView() {
       created_at: new Date().toISOString()
     };
     setInput("");
-    setAttachments([]);
+    clearAttachments();
     setMessages((current) => [...current, pendingUser, assistant]);
     setBusy(true);
     setError("");
@@ -231,20 +289,30 @@ function ChatView() {
         <div className="messages">
           {messages.map((message) => (
             <div key={message.id} className={`message ${message.role}`}>
-              <div className="message-role">{message.role === "user" ? "我" : "AI"}</div>
+              {message.role === "assistant" && <ChatGptAvatar />}
               <div className="message-content">{message.content}</div>
+              {message.role === "user" && <div className="message-avatar user-avatar">我</div>}
             </div>
           ))}
         </div>
         <footer className="composer">
           {attachments.length > 0 && (
-            <div className="attachment-row">{attachments.length} 张图片已附加，7 天后自动清理。</div>
+            <div className="attachment-grid" aria-label="已附加图片">
+              {attachments.map((attachment) => (
+                <div key={attachment.id} className="attachment-preview">
+                  <img src={attachment.previewUrl} alt={attachment.name} />
+                  <button type="button" className="attachment-remove" onClick={() => removeAttachment(attachment.id)} aria-label="删除图片">
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
           {error && <div className="form-error">{error}</div>}
           <div className="composer-row">
             <label className="icon-button" title="上传图片">
               <ImagePlus size={18} />
-              <input type="file" accept="image/*" hidden onChange={(event) => event.target.files?.[0] && uploadFile(event.target.files[0])} />
+              <input type="file" accept="image/*" hidden onChange={handleFileSelect} />
             </label>
             <textarea
               value={input}
@@ -378,7 +446,7 @@ export default function App() {
     <main className="app-shell">
       <nav className="app-nav">
         <div className="nav-brand">
-          <Sparkles size={20} />
+          <AppIcon size={20} />
           <span>DailyReview</span>
         </div>
         <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}>
