@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
@@ -14,6 +18,12 @@ app.include_router(invites_router)
 app.include_router(chat_router)
 app.include_router(reports_router)
 
+frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if frontend_dist.exists():
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
 
 @app.on_event("startup")
 def startup() -> None:
@@ -26,3 +36,13 @@ def startup() -> None:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/{full_path:path}")
+def serve_frontend(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    index = frontend_dist / "index.html"
+    if not index.exists():
+        raise HTTPException(status_code=404, detail="Frontend not built")
+    return FileResponse(index)

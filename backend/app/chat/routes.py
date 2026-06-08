@@ -39,6 +39,14 @@ class AttachmentResponse(BaseModel):
     expires_at: datetime
 
 
+class MessageResponse(BaseModel):
+    id: int
+    role: str
+    content: str
+    model: str | None
+    created_at: datetime
+
+
 class ChatStreamRequest(BaseModel):
     session_id: int
     content: str = Field(min_length=1)
@@ -81,6 +89,30 @@ def list_sessions(
         .order_by(ChatSession.updated_at.desc())
     ).all()
     return [session_response(item) for item in sessions]
+
+
+@router.get("/api/sessions/{session_id}/messages", response_model=list[MessageResponse])
+def list_messages(
+    session_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[MessageResponse]:
+    session = db.get(ChatSession, session_id)
+    if session is None or session.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    messages = db.scalars(
+        select(Message).where(Message.session_id == session.id).order_by(Message.created_at.asc())
+    ).all()
+    return [
+        MessageResponse(
+            id=message.id,
+            role=message.role,
+            content=message.content,
+            model=message.model,
+            created_at=message.created_at,
+        )
+        for message in messages
+    ]
 
 
 @router.delete("/api/sessions/{session_id}")

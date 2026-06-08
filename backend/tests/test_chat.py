@@ -125,3 +125,19 @@ def test_stream_chat_persists_user_and_assistant_messages(tmp_path: Path):
     assert messages[0].content == "解释导数"
     assert messages[1].content
     app.dependency_overrides.clear()
+
+
+def test_get_session_messages_is_scoped_to_current_user(tmp_path: Path):
+    client, session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+    session_response = client.post("/api/sessions", json={"title": "物理", "model": "gpt-5.4-mini"})
+    session_id = session_response.json()["id"]
+    with session_factory() as db:
+        db.add(Message(session_id=session_id, role="user", content="牛顿第二定律"))
+        db.commit()
+
+    response = client.get(f"/api/sessions/{session_id}/messages")
+
+    assert response.status_code == 200
+    assert response.json()[0]["content"] == "牛顿第二定律"
+    app.dependency_overrides.clear()
