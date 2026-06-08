@@ -587,6 +587,7 @@ function ChatView() {
               <Plus size={16} />
               新会话
             </button>
+            <p className="session-retention-note">最近 7 天会话会保留，报告长期保存。</p>
             <div className="session-list">
               {sessions.map((session) => (
                 <div key={session.id} className={active?.id === session.id ? "session-row active" : "session-row"}>
@@ -623,7 +624,6 @@ function ChatView() {
             </button>
             <div>
               <h2>{active?.title || "新会话"}</h2>
-              <p>最近 7 天会话会保留，报告长期保存。</p>
             </div>
           </div>
           <select value={model} onChange={(event) => setModel(event.target.value)}>
@@ -804,7 +804,7 @@ function AdminView() {
             />
           </label>
           <div className="admin-actions">
-            <span>{aiConfig?.has_api_key ? "密钥已配置" : "密钥未配置"}</span>
+            <span>{aiConfig?.api_key_preview ? `当前密钥 ${aiConfig.api_key_preview}` : "密钥未配置"}</span>
             <div className="admin-action-buttons">
               <button className="secondary-button compact" type="button" onClick={testAiConfig} disabled={testing}>
                 {testing ? "测试中..." : "测试连接"}

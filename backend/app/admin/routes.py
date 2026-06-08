@@ -20,6 +20,7 @@ class AiConfigRequest(BaseModel):
 class AiConfigResponse(BaseModel):
     base_url: str
     has_api_key: bool
+    api_key_preview: str | None = None
 
 
 class AiConfigTestResponse(BaseModel):
@@ -27,8 +28,16 @@ class AiConfigTestResponse(BaseModel):
     message: str
 
 
+def mask_api_key(api_key: str) -> str | None:
+    if not api_key:
+        return None
+    if len(api_key) <= 8:
+        return f"{api_key[:2]}****{api_key[-2:]}"
+    return f"{api_key[:6]}****{api_key[-4:]}"
+
+
 def ai_config_response(base_url: str, api_key: str) -> AiConfigResponse:
-    return AiConfigResponse(base_url=base_url, has_api_key=bool(api_key))
+    return AiConfigResponse(base_url=base_url, has_api_key=bool(api_key), api_key_preview=mask_api_key(api_key))
 
 
 @router.get("/ai-config", response_model=AiConfigResponse)

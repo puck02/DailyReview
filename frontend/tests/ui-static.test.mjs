@@ -84,8 +84,10 @@ test("chat sidebar can collapse from the top-left control", () => {
   assert.ok(app.includes("sidebarOpen"));
   assert.ok(app.includes("sidebar-collapsed"));
   assert.ok(app.includes("sidebar-toggle"));
+  assert.ok(app.includes('className="session-retention-note"'));
   assert.match(styles, /\.workspace\.sidebar-collapsed\s*{/);
   assert.match(styles, /\.workspace\.sidebar-collapsed \.sessions-pane\s*{[^}]*border-right:\s*0;/s);
+  assert.match(styles, /\.session-retention-note\s*{/);
 });
 
 test("sidebar and chat bubbles follow ChatGPT-style light surfaces", () => {
@@ -143,12 +145,19 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("api.aiConfig()"));
   assert.ok(app.includes("api.updateAiConfig(baseUrl, apiKey)"));
   assert.ok(app.includes("api.testAiConfig(baseUrl, apiKey)"));
+  assert.ok(app.includes("api_key_preview"));
+  assert.ok(app.includes("当前密钥"));
   assert.ok(app.includes("留空则保持当前密钥"));
-  assert.ok(app.includes("密钥已配置"));
   assert.ok(app.includes("测试连接"));
   assert.ok(app.includes("setApiKey(\"\")"));
   assert.match(styles, /\.admin-form\s*{/);
   assert.match(styles, /\.admin-section\s*{/);
+});
+
+test("chat top bar is compact and keeps retention copy in the expanded sidebar", () => {
+  assert.match(app, /<aside className="sessions-pane">[\s\S]*最近 7 天会话会保留，报告长期保存。[\s\S]*<div className="session-list">/);
+  assert.doesNotMatch(app, /<header className="pane-header">[\s\S]*<h2>\{active\?\.title \|\| "新会话"\}<\/h2>[\s\S]*最近 7 天会话会保留，报告长期保存。[\s\S]*<\/header>/);
+  assert.match(styles, /\.pane-header\s*{[^}]*min-height:\s*58px;[^}]*padding:\s*8px 20px;/s);
 });
 
 test("mobile chat uses a slide-over session drawer", () => {

@@ -55,15 +55,23 @@ def test_admin_can_update_ai_config_without_key_echo(tmp_path: Path):
 
     update = client.put(
         "/api/admin/ai-config",
-        json={"base_url": "https://example.test/v1", "api_key": "secret-key"},
+        json={"base_url": "https://example.test/v1", "api_key": "test-secret-key"},
     )
     read = client.get("/api/admin/ai-config")
 
     assert update.status_code == 200
-    assert update.json() == {"base_url": "https://example.test/v1", "has_api_key": True}
+    assert update.json() == {
+        "base_url": "https://example.test/v1",
+        "has_api_key": True,
+        "api_key_preview": "test-s****-key",
+    }
     assert read.status_code == 200
-    assert read.json() == {"base_url": "https://example.test/v1", "has_api_key": True}
-    assert "secret-key" not in read.text
+    assert read.json() == {
+        "base_url": "https://example.test/v1",
+        "has_api_key": True,
+        "api_key_preview": "test-s****-key",
+    }
+    assert "test-secret-key" not in read.text
     app.dependency_overrides.clear()
 
 
@@ -75,7 +83,11 @@ def test_admin_can_change_base_url_without_replacing_existing_key(tmp_path: Path
     update = client.put("/api/admin/ai-config", json={"base_url": "https://second.test/v1", "api_key": ""})
 
     assert update.status_code == 200
-    assert update.json() == {"base_url": "https://second.test/v1", "has_api_key": True}
+    assert update.json() == {
+        "base_url": "https://second.test/v1",
+        "has_api_key": True,
+        "api_key_preview": "secret****-key",
+    }
     app.dependency_overrides.clear()
 
 

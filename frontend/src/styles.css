@@ -302,7 +302,7 @@ textarea:focus {
   color: var(--headline);
   background: #ffffff;
   width: 100%;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   border: 1px solid var(--stroke);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.05);
 }
@@ -316,6 +316,17 @@ textarea:focus {
 .session-list {
   display: grid;
   gap: 6px;
+}
+
+.session-retention-note {
+  margin: 0 0 12px;
+  color: rgba(17, 17, 17, 0.72);
+  background: #f7f7f7;
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  padding: 9px 10px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .session-row {
@@ -396,12 +407,12 @@ textarea:focus {
 }
 
 .pane-header {
-  min-height: 74px;
+  min-height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 24px;
+  padding: 8px 20px;
   border-bottom: 1px solid var(--stroke);
   background: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(18px);

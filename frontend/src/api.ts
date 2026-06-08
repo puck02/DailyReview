@@ -51,6 +51,7 @@ export type ReportContent = ReportItem & {
 export type AiConfig = {
   base_url: string;
   has_api_key: boolean;
+  api_key_preview: string | null;
 };
 
 export type AiConfigTest = {
