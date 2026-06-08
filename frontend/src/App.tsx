@@ -10,6 +10,7 @@ import {
   useState
 } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -266,7 +267,7 @@ function MarkdownRenderer({
       <ReactMarkdown
         key={normalizedMarkdown}
         components={components}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={[rehypeKatex, [rehypeHighlight, { ignoreMissing: true, detect: true }]]}
         remarkPlugins={[remarkGfm, remarkMath]}
         skipHtml
         urlTransform={(url) => safeMarkdownUrl(url)}

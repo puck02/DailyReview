@@ -31,6 +31,13 @@
   --primary-text: #fffffe;
   --remove-bg: rgba(17, 17, 17, 0.94);
   --remove-border: rgba(255, 255, 255, 0.82);
+  --syntax-keyword: #cf222e;
+  --syntax-string: #0a7f42;
+  --syntax-number: #953800;
+  --syntax-function: #8250df;
+  --syntax-variable: #0550ae;
+  --syntax-comment: #6e7781;
+  --syntax-operator: #0550ae;
   --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.08);
   --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.12);
   color-scheme: light dark;
@@ -78,6 +85,13 @@
   --primary-text: #111111;
   --remove-bg: rgba(245, 245, 245, 0.94);
   --remove-border: rgba(17, 17, 17, 0.82);
+  --syntax-keyword: #ff7b72;
+  --syntax-string: #a5d6ff;
+  --syntax-number: #79c0ff;
+  --syntax-function: #d2a8ff;
+  --syntax-variable: #ffa657;
+  --syntax-comment: #8b949e;
+  --syntax-operator: #79c0ff;
   --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.36);
   --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.44);
   color-scheme: dark;
@@ -117,6 +131,13 @@
     --primary-text: #111111;
     --remove-bg: rgba(245, 245, 245, 0.94);
     --remove-border: rgba(17, 17, 17, 0.82);
+    --syntax-keyword: #ff7b72;
+    --syntax-string: #a5d6ff;
+    --syntax-number: #79c0ff;
+    --syntax-function: #d2a8ff;
+    --syntax-variable: #ffa657;
+    --syntax-comment: #8b949e;
+    --syntax-operator: #79c0ff;
     --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.36);
     --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.44);
     color-scheme: dark;
@@ -822,6 +843,61 @@ textarea:focus {
   border-radius: 0;
   padding: 0;
   font-size: inherit;
+}
+
+.markdown-code .hljs-keyword,
+.markdown-code .hljs-selector-tag,
+.markdown-code .hljs-built_in,
+.markdown-code .hljs-type,
+.markdown-code .hljs-literal,
+.markdown-code .hljs-title.class_ {
+  color: var(--syntax-keyword);
+}
+
+.markdown-code .hljs-string,
+.markdown-code .hljs-regexp,
+.markdown-code .hljs-attr,
+.markdown-code .hljs-symbol {
+  color: var(--syntax-string);
+}
+
+.markdown-code .hljs-number,
+.markdown-code .hljs-meta,
+.markdown-code .hljs-bullet {
+  color: var(--syntax-number);
+}
+
+.markdown-code .hljs-title,
+.markdown-code .hljs-title.function_,
+.markdown-code .hljs-name {
+  color: var(--syntax-function);
+}
+
+.markdown-code .hljs-variable,
+.markdown-code .hljs-template-variable,
+.markdown-code .hljs-property,
+.markdown-code .hljs-params,
+.markdown-code .hljs-attribute {
+  color: var(--syntax-variable);
+}
+
+.markdown-code .hljs-comment,
+.markdown-code .hljs-quote {
+  color: var(--syntax-comment);
+}
+
+.markdown-code .hljs-operator,
+.markdown-code .hljs-punctuation,
+.markdown-code .hljs-subst {
+  color: var(--syntax-operator);
+}
+
+.markdown-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.markdown-code .hljs-strong {
+  font-weight: 760;
 }
 
 .markdown-table-wrap {

@@ -118,6 +118,19 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.match(styles, /\.markdown-table-wrap\s*{/);
 });
 
+test("message code blocks use syntax highlighting in light and dark themes", () => {
+  assert.ok(packageJson.includes("rehype-highlight"));
+  assert.ok(app.includes("import rehypeHighlight from \"rehype-highlight\";"));
+  assert.ok(app.includes("rehypeHighlight"));
+  assert.ok(app.includes("ignoreMissing: true"));
+  assert.ok(app.includes("detect: true"));
+  assert.match(styles, /--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
+  assert.match(styles, /:root\[data-theme="dark"\][\s\S]*--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
+  assert.match(styles, /\.markdown-code \.hljs-keyword[\s\S]*color:\s*var\(--syntax-keyword\);/);
+  assert.match(styles, /\.markdown-code \.hljs-string[\s\S]*color:\s*var\(--syntax-string\);/);
+  assert.match(styles, /\.markdown-code \.hljs-number[\s\S]*color:\s*var\(--syntax-number\);/);
+});
+
 test("assistant markdown text and code blocks have copy controls", () => {
   assert.ok(app.includes("CopyableMarkdownBlock"));
   assert.ok(app.includes("copyMarkdownText"));
