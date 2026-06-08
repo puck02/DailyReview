@@ -18,6 +18,8 @@ _load_env_files()
 @dataclass
 class Settings:
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///../data/app.db")
+    upload_dir: str = os.getenv("UPLOAD_DIR", "../data/uploads")
+    report_dir: str = os.getenv("REPORT_DIR", "../data/reports")
     secret_key: str = os.getenv("SECRET_KEY", "dev-secret")
     admin_email: str = os.getenv("ADMIN_EMAIL", "")
     admin_initial_password: str = os.getenv("ADMIN_INITIAL_PASSWORD", "")
