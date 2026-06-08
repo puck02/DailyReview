@@ -31,6 +31,7 @@ import {
 } from "./api";
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
+import { normalizeMarkdownMath } from "./markdown";
 import appIconUrl from "./assets/app-icon.svg?url";
 import "katex/dist/katex.min.css";
 
@@ -119,16 +120,18 @@ const markdownComponents: Components = {
 };
 
 function MarkdownRenderer({ markdown, className }: { markdown: string; className: string }) {
+  const normalizedMarkdown = normalizeMarkdownMath(markdown);
   return (
     <div className={className}>
       <ReactMarkdown
+        key={normalizedMarkdown}
         components={markdownComponents}
         rehypePlugins={[rehypeKatex]}
         remarkPlugins={[remarkGfm, remarkMath]}
         skipHtml
         urlTransform={(url) => safeMarkdownUrl(url)}
       >
-        {markdown}
+        {normalizedMarkdown}
       </ReactMarkdown>
     </div>
   );

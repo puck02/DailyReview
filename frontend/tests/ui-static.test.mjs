@@ -73,6 +73,8 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.ok(app.includes("remarkGfm"));
   assert.ok(app.includes("remarkMath"));
   assert.ok(app.includes("rehypeKatex"));
+  assert.ok(app.includes("normalizeMarkdownMath"));
+  assert.ok(app.includes("key={normalizedMarkdown}"));
   assert.ok(app.includes('import "katex/dist/katex.min.css";'));
   assert.ok(app.includes("markdown-math-block"));
   assert.ok(app.includes("markdown-math-inline"));

@@ -170,7 +170,13 @@ export async function streamChat(
       const line = event.split("\n").find((item) => item.startsWith("data:"));
       if (!line) continue;
       const token = line.replace(/^data:\s?/, "");
-      if (token !== "[DONE]") onToken(token);
+      if (token === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(token);
+        onToken(typeof parsed === "string" ? parsed : token);
+      } catch {
+        onToken(token);
+      }
     }
   }
 }

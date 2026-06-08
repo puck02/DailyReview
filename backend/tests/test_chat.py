@@ -248,6 +248,30 @@ def test_stream_chat_returns_readable_error_when_ai_stream_fails(tmp_path: Path,
     app.dependency_overrides.clear()
 
 
+def test_stream_chat_json_encodes_multiline_tokens(tmp_path: Path, monkeypatch):
+    client, _session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+    session_response = client.post("/api/sessions", json={"title": "微积分", "model": "gpt-5.4-mini"})
+    session_id = session_response.json()["id"]
+
+    async def multiline_stream(_history, _model, _config):
+        yield "第一行\n[ e^x = 1+x+\\frac{x^2}{2}+o(x^2) ]"
+
+    monkeypatch.setattr("app.chat.routes.stream_chat_completion", multiline_stream)
+
+    with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={"session_id": session_id, "content": "解释泰勒展开", "model": "gpt-5.4-mini", "attachment_ids": []},
+    ) as response:
+        body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert 'data: "第一行\\n[ e^x = 1+x+\\\\frac{x^2}{2}+o(x^2) ]"' in body
+    assert "data: [DONE]" in body
+    app.dependency_overrides.clear()
+
+
 def test_stream_chat_logs_safe_diagnostic_when_ai_stream_fails(tmp_path: Path, monkeypatch, caplog):
     client, _session_factory = make_client(tmp_path)
     register_user(client, "student@example.com")

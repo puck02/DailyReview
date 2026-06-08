@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -260,7 +261,7 @@ async def stream_chat(
         try:
             async for token in stream_chat_completion(history, payload.model, ai_config):
                 assistant_parts.append(token)
-                yield f"data: {token}\n\n"
+                yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
         except Exception as error:
             logger.warning(
                 "AI stream failed type=%s status_code=%s host=%s has_base_url=%s has_api_key=%s",
@@ -272,7 +273,7 @@ async def stream_chat(
             )
             token = "AI 服务连接失败，请稍后重试。"
             assistant_parts.append(token)
-            yield f"data: {token}\n\n"
+            yield f"data: {json.dumps(token, ensure_ascii=False)}\n\n"
         assistant_content = "".join(assistant_parts)
         with stream_session_factory() as stream_db:
             stream_session = stream_db.get(ChatSession, session_id)

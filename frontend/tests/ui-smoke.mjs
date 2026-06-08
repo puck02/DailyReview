@@ -232,12 +232,63 @@ async function removePreview(client) {
   await waitFor(client, "document.querySelectorAll('.attachment-preview').length === 0", "preview removal");
 }
 
+async function checkLiveMathRendering(client) {
+  const liveToken = "[ e^x = 1+x+\\frac{x^2}{2}+o(x^2) ]";
+  await evaluate(
+    client,
+    `(async () => {
+      const originalFetch = window.fetch.bind(window);
+      window.__dailyreviewOriginalFetch = originalFetch;
+      window.fetch = (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/chat/stream")) {
+          const encoder = new TextEncoder();
+          const body = new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode("data: " + JSON.stringify(${JSON.stringify(liveToken)}) + "\\n\\n"));
+              controller.enqueue(encoder.encode("data: [DONE]\\n\\n"));
+              controller.close();
+            }
+          });
+          return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+        }
+        return originalFetch(input, init);
+      };
+      const textarea = document.querySelector(".composer textarea");
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setter.call(textarea, "实时公式测试");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector(".send-button").click();
+      return true;
+    })()`,
+    true
+  );
+  await waitFor(
+    client,
+    `Boolean(document.querySelector('.message.assistant .katex'))`,
+    "live math rendering without refresh",
+    15000
+  );
+  await evaluate(
+    client,
+    `(() => {
+      if (window.__dailyreviewOriginalFetch) {
+        window.fetch = window.__dailyreviewOriginalFetch;
+        delete window.__dailyreviewOriginalFetch;
+      }
+      return true;
+    })()`,
+    true
+  );
+}
+
 async function createRenderedMessage(client) {
   const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9u2wAAAABJRU5ErkJggg==";
   const markdownText = [
     "# 图片复盘",
     "- 关键点：`坐标`",
     "行内公式 $E = mc^2$",
+    "[ e^x = 1+x+\\frac{x^2}{2}+o(x^2) ]",
     "",
     "$$",
     "\\frac{d}{dx}x^2 = 2x",
@@ -318,6 +369,7 @@ try {
   await pasteImage(client);
   await checkLayout(client);
   await removePreview(client);
+  await checkLiveMathRendering(client);
   createdSessionId = await createRenderedMessage(client);
   await capture(client);
   console.log(`ui-smoke-ok ${screenshotPath}`);
