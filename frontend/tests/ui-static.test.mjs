@@ -50,6 +50,18 @@ test("pending image previews are removable above the composer", () => {
   assert.match(styles, /\.attachment-remove\s*{[^}]*position:\s*absolute;/s);
 });
 
+test("sent messages render image thumbnails and markdown content", () => {
+  assert.ok(app.includes("MessageMarkdown"));
+  assert.ok(app.includes("message-attachments"));
+  assert.ok(app.includes("message-attachment-thumb"));
+  assert.ok(app.includes("attachment.url"));
+  assert.ok(app.includes("markdown-code"));
+  assert.ok(app.includes("markdown-list"));
+  assert.match(styles, /\.message-attachments\s*{/);
+  assert.match(styles, /\.message-attachment-thumb\s*{/);
+  assert.match(styles, /\.message-markdown\s*{/);
+});
+
 test("composer blocks sending while image upload is still running", () => {
   assert.ok(app.includes("uploadingCount"));
   assert.ok(app.includes("图片上传中，请稍等"));

@@ -18,6 +18,7 @@ export type Message = {
   content: string;
   model: string | null;
   created_at: string;
+  attachments: Attachment[];
 };
 
 export type Attachment = {
@@ -25,6 +26,7 @@ export type Attachment = {
   mime_type: string;
   size: number;
   expires_at: string;
+  url: string;
 };
 
 export type Invite = {

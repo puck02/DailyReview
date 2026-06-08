@@ -170,6 +170,54 @@ def test_stream_chat_persists_user_and_assistant_messages(tmp_path: Path):
     app.dependency_overrides.clear()
 
 
+def test_session_messages_include_image_attachments(tmp_path: Path, monkeypatch):
+    client, _session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+    session_response = client.post("/api/sessions", json={"title": "几何", "model": "gpt-5.4-mini"})
+    session_id = session_response.json()["id"]
+    image_bytes = b"\x89PNG\r\n\x1a\n" + b"diagram"
+    upload = client.post(
+        "/api/attachments",
+        files={"file": ("diagram.png", image_bytes, "image/png")},
+    )
+    attachment_id = upload.json()["id"]
+
+    async def fake_stream(_history, _model, _config):
+        yield "收到图片"
+
+    monkeypatch.setattr("app.chat.routes.stream_chat_completion", fake_stream)
+    with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={
+            "session_id": session_id,
+            "content": "这张图怎么理解？",
+            "model": "gpt-5.4-mini",
+            "attachment_ids": [attachment_id],
+        },
+    ) as response:
+        list(response.iter_text())
+
+    messages = client.get(f"/api/sessions/{session_id}/messages")
+
+    assert response.status_code == 200
+    assert messages.status_code == 200
+    user_message = messages.json()[0]
+    assert user_message["attachments"] == [
+        {
+            "id": attachment_id,
+            "mime_type": "image/png",
+            "size": len(image_bytes),
+            "expires_at": upload.json()["expires_at"],
+            "url": f"/api/attachments/{attachment_id}/content",
+        }
+    ]
+    preview = client.get(user_message["attachments"][0]["url"])
+    assert preview.status_code == 200
+    assert preview.content == image_bytes
+    app.dependency_overrides.clear()
+
+
 def test_stream_chat_returns_readable_error_when_ai_stream_fails(tmp_path: Path, monkeypatch):
     client, session_factory = make_client(tmp_path)
     register_user(client, "student@example.com")

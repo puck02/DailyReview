@@ -118,6 +118,12 @@ async function openPage() {
   return client;
 }
 
+async function reloadPage(client) {
+  const loaded = client.once("Page.loadEventFired");
+  await client.send("Page.reload");
+  await loaded;
+}
+
 async function evaluate(client, expression, awaitPromise = false) {
   const result = await client.send("Runtime.evaluate", {
     expression,
@@ -226,6 +232,68 @@ async function removePreview(client) {
   await waitFor(client, "document.querySelectorAll('.attachment-preview').length === 0", "preview removal");
 }
 
+async function createRenderedMessage(client) {
+  const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9u2wAAAABJRU5ErkJggg==";
+  const markdownText = "# 图片复盘\n- 关键点：`坐标`";
+  const sessionId = await evaluate(
+    client,
+    `(async () => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(pngBase64)}), (char) => char.charCodeAt(0));
+      const session = await fetch("/api/sessions", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Smoke Markdown Image", model: "gpt-5.4-mini" })
+      }).then((response) => response.json());
+      const form = new FormData();
+      form.append("file", new File([bytes], "history.png", { type: "image/png" }));
+      const attachment = await fetch("/api/attachments", {
+        method: "POST",
+        credentials: "same-origin",
+        body: form
+      }).then((response) => response.json());
+      const stream = await fetch("/api/chat/stream", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: session.id,
+          content: ${JSON.stringify(markdownText)},
+          model: "gpt-5.4-mini",
+          attachment_ids: [attachment.id]
+        })
+      });
+      await stream.text();
+      return session.id;
+    })()`,
+    true
+  );
+  await reloadPage(client);
+  await waitFor(
+    client,
+    `Boolean(
+      document.querySelector('.message-attachment-thumb img')?.complete &&
+      document.querySelector('.message-markdown h1') &&
+      document.querySelector('.markdown-list') &&
+      document.querySelector('.markdown-inline-code')
+    )`,
+    "rendered markdown message with image",
+    15000
+  );
+  return sessionId;
+}
+
+async function deleteSession(client, sessionId) {
+  await evaluate(
+    client,
+    `(async () => {
+      await fetch("/api/sessions/${sessionId}", { method: "DELETE", credentials: "same-origin" });
+      return true;
+    })()`,
+    true
+  );
+}
+
 async function capture(client) {
   const screenshot = await client.send("Page.captureScreenshot", {
     format: "png",
@@ -235,13 +303,16 @@ async function capture(client) {
 }
 
 const client = await openPage();
+let createdSessionId = null;
 try {
   await loginIfNeeded(client, requireLoginConfig());
   await pasteImage(client);
   await checkLayout(client);
-  await capture(client);
   await removePreview(client);
+  createdSessionId = await createRenderedMessage(client);
+  await capture(client);
   console.log(`ui-smoke-ok ${screenshotPath}`);
 } finally {
+  if (createdSessionId !== null) await deleteSession(client, createdSessionId);
   client.close();
 }

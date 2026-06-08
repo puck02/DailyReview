@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -41,6 +41,7 @@ class AttachmentResponse(BaseModel):
     mime_type: str
     size: int
     expires_at: datetime
+    url: str
 
 
 class MessageResponse(BaseModel):
@@ -49,6 +50,7 @@ class MessageResponse(BaseModel):
     content: str
     model: str | None
     created_at: datetime
+    attachments: list[AttachmentResponse] = Field(default_factory=list)
 
 
 class ChatStreamRequest(BaseModel):
@@ -65,6 +67,16 @@ def session_response(session: ChatSession) -> SessionResponse:
         default_model=session.default_model,
         created_at=session.created_at,
         updated_at=session.updated_at,
+    )
+
+
+def attachment_response(attachment: Attachment) -> AttachmentResponse:
+    return AttachmentResponse(
+        id=attachment.id,
+        mime_type=attachment.mime_type,
+        size=attachment.size,
+        expires_at=attachment.expires_at,
+        url=f"/api/attachments/{attachment.id}/content",
     )
 
 
@@ -107,6 +119,16 @@ def list_messages(
     messages = db.scalars(
         select(Message).where(Message.session_id == session.id).order_by(Message.created_at.asc())
     ).all()
+    attachments_by_message: dict[int, list[Attachment]] = {message.id: [] for message in messages}
+    if attachments_by_message:
+        attachments = db.scalars(
+            select(Attachment)
+            .where(Attachment.message_id.in_(attachments_by_message.keys()))
+            .order_by(Attachment.id.asc())
+        ).all()
+        for attachment in attachments:
+            if attachment.message_id is not None:
+                attachments_by_message[attachment.message_id].append(attachment)
     return [
         MessageResponse(
             id=message.id,
@@ -114,6 +136,7 @@ def list_messages(
             content=message.content,
             model=message.model,
             created_at=message.created_at,
+            attachments=[attachment_response(attachment) for attachment in attachments_by_message[message.id]],
         )
         for message in messages
     ]
@@ -159,12 +182,22 @@ def upload_attachment(
     db.add(attachment)
     db.commit()
     db.refresh(attachment)
-    return AttachmentResponse(
-        id=attachment.id,
-        mime_type=attachment.mime_type,
-        size=attachment.size,
-        expires_at=attachment.expires_at,
-    )
+    return attachment_response(attachment)
+
+
+@router.get("/api/attachments/{attachment_id}/content")
+def attachment_content(
+    attachment_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    attachment = db.get(Attachment, attachment_id)
+    if attachment is None or attachment.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="附件不存在")
+    path = Path(attachment.file_path)
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="附件不存在")
+    return FileResponse(path, media_type=attachment.mime_type)
 
 
 def _history_for_session(db: Session, session_id: int) -> list[dict]:
