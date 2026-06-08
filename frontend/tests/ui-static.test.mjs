@@ -24,6 +24,15 @@ test("uses black and white surfaces with a pale purple global sidebar", () => {
   }
 });
 
+test("desktop global sidebar is a narrow icon rail", () => {
+  assert.match(styles, /\.app-shell\s*{[^}]*grid-template-columns:\s*56px minmax\(0,\s*1fr\);/s);
+  assert.match(styles, /\.app-nav button\s*{[^}]*width:\s*40px;[^}]*place-items:\s*center;/s);
+  assert.match(styles, /\.nav-brand span,[\s\S]*?\.nav-label,[\s\S]*?\.user-chip\s*{[^}]*display:\s*none;/s);
+  assert.ok(app.includes('aria-label="问答"'));
+  assert.ok(app.includes('title="AI 设置"'));
+  assert.ok(app.includes('className="nav-label"'));
+});
+
 test("chat messages keep assistant left and user right", () => {
   assert.match(styles, /\.message\.assistant\s*{[^}]*justify-content:\s*start;/s);
   assert.match(styles, /\.message\.user\s*{[^}]*justify-content:\s*end;/s);

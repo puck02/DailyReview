@@ -657,25 +657,40 @@ export default function App() {
           <AppIcon size={20} />
           <span>DailyReview</span>
         </div>
-        <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}>
+        <button
+          className={view === "chat" ? "active" : ""}
+          onClick={() => setView("chat")}
+          aria-label="问答"
+          title="问答"
+        >
           <MessageSquareText size={17} />
-          问答
+          <span className="nav-label">问答</span>
         </button>
-        <button className={view === "reports" ? "active" : ""} onClick={() => setView("reports")}>
+        <button
+          className={view === "reports" ? "active" : ""}
+          onClick={() => setView("reports")}
+          aria-label="报告"
+          title="报告"
+        >
           <CalendarDays size={17} />
-          报告
+          <span className="nav-label">报告</span>
         </button>
         {user.role === "admin" && (
-          <button className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>
+          <button
+            className={view === "admin" ? "active" : ""}
+            onClick={() => setView("admin")}
+            aria-label="AI 设置"
+            title="AI 设置"
+          >
             <KeyRound size={17} />
-            AI 设置
+            <span className="nav-label">AI 设置</span>
           </button>
         )}
         <div className="nav-spacer" />
         <div className="user-chip">{user.email}</div>
-        <button onClick={logout}>
+        <button onClick={logout} aria-label="退出" title="退出">
           <LogOut size={17} />
-          退出
+          <span className="nav-label">退出</span>
         </button>
       </nav>
       <section className="app-content">

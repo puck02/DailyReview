@@ -106,6 +106,12 @@ async function openPage() {
   await client.send("Page.enable");
   await client.send("Runtime.enable");
   await client.send("DOM.enable");
+  await client.send("Emulation.setDeviceMetricsOverride", {
+    width: 1366,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false
+  });
   const loaded = client.once("Page.loadEventFired");
   await client.send("Page.navigate", { url: appUrl });
   await loaded;
@@ -198,6 +204,7 @@ async function checkLayout(client) {
         assistantJustify: getComputedStyle(assistant).justifyContent,
         userJustify: getComputedStyle(user).justifyContent,
         iconHref: Boolean(document.querySelector('link[rel="icon"]')?.href),
+        navWidth: Math.round(document.querySelector('.app-nav')?.getBoundingClientRect().width || 0),
         removePosition: getComputedStyle(document.querySelector('.attachment-remove')).position,
         previewCount: document.querySelectorAll('.attachment-preview').length
       };
@@ -209,6 +216,7 @@ async function checkLayout(client) {
   if (checks.assistantJustify !== "start") throw new Error("assistant bubble is not left aligned");
   if (checks.userJustify !== "end") throw new Error("user bubble is not right aligned");
   if (!checks.iconHref) throw new Error("favicon is missing");
+  if (checks.navWidth > 64) throw new Error(`global sidebar is too wide: ${checks.navWidth}px`);
   if (checks.removePosition !== "absolute") throw new Error("attachment remove button is not positioned");
   if (checks.previewCount < 1) throw new Error("attachment preview is missing");
 }
