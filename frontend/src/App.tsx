@@ -1,10 +1,22 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent,
+  ReactNode,
+  isValidElement,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import {
   CalendarDays,
+  Check,
+  Copy,
   ImagePlus,
   KeyRound,
   PanelLeftClose,
@@ -71,61 +83,168 @@ function safeMarkdownUrl(href: string) {
   return "";
 }
 
-const markdownComponents: Components = {
-  a({ href = "", children }) {
-    const safeHref = safeMarkdownUrl(href);
-    if (!safeHref) return <>{children}</>;
-    return (
-      <a href={safeHref} rel="noreferrer" target="_blank">
-        {children}
-      </a>
-    );
-  },
-  code({ className, children, node: _node, ...props }) {
-    const isMath = className?.includes("language-math");
-    const isInlineMath = className?.includes("math-inline");
-    return (
-      <code
-        className={
-          isMath
-            ? isInlineMath
-              ? "markdown-math-inline"
-              : "markdown-math-block"
-            : className
-              ? `markdown-inline-code ${className}`
-              : "markdown-inline-code"
-        }
-        {...props}
-      >
-        {children}
-      </code>
-    );
-  },
-  pre({ children }) {
-    return <pre className="markdown-code">{children}</pre>;
-  },
-  table({ children }) {
-    return (
-      <div className="markdown-table-wrap">
-        <table className="markdown-table">{children}</table>
-      </div>
-    );
-  },
-  ul({ children }) {
-    return <ul className="markdown-list">{children}</ul>;
-  },
-  ol({ children }) {
-    return <ol className="markdown-list">{children}</ol>;
-  }
-};
+function markdownTextFromNode(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(markdownTextFromNode).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return markdownTextFromNode(node.props.children);
+  return "";
+}
 
-function MarkdownRenderer({ markdown, className }: { markdown: string; className: string }) {
+async function copyMarkdownText(text: string) {
+  const value = text.trim();
+  if (!value) return false;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return true;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  return copied;
+}
+
+function CopyableMarkdownBlock({
+  children,
+  text,
+  className = ""
+}: {
+  children: ReactNode;
+  text: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!(await copyMarkdownText(text))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <div className={`copyable-markdown-block ${className}`}>
+      {children}
+      <button
+        type="button"
+        className={copied ? "copy-block-button copied" : "copy-block-button"}
+        onClick={handleCopy}
+        aria-label={copied ? "已复制" : "复制此块"}
+        title={copied ? "已复制" : "复制"}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
+  );
+}
+
+function copyableComponents(copyable: boolean): Components {
+  return {
+    a({ href = "", children }) {
+      const safeHref = safeMarkdownUrl(href);
+      if (!safeHref) return <>{children}</>;
+      return (
+        <a href={safeHref} rel="noreferrer" target="_blank">
+          {children}
+        </a>
+      );
+    },
+    h1({ children }) {
+      const heading = <h1>{children}</h1>;
+      if (!copyable) return heading;
+      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{heading}</CopyableMarkdownBlock>;
+    },
+    h2({ children }) {
+      const heading = <h2>{children}</h2>;
+      if (!copyable) return heading;
+      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{heading}</CopyableMarkdownBlock>;
+    },
+    h3({ children }) {
+      const heading = <h3>{children}</h3>;
+      if (!copyable) return heading;
+      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{heading}</CopyableMarkdownBlock>;
+    },
+    p({ children }) {
+      const paragraph = <p className={copyable ? "copyable-text-block" : undefined}>{children}</p>;
+      if (!copyable) return paragraph;
+      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{paragraph}</CopyableMarkdownBlock>;
+    },
+    code({ className, children, node: _node, ...props }) {
+      const isMath = className?.includes("language-math");
+      const isInlineMath = className?.includes("math-inline");
+      return (
+        <code
+          className={
+            isMath
+              ? isInlineMath
+                ? "markdown-math-inline"
+                : "markdown-math-block"
+              : className
+                ? `markdown-inline-code ${className}`
+                : "markdown-inline-code"
+          }
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    },
+    pre({ children }) {
+      const code = <pre className="markdown-code">{children}</pre>;
+      if (!copyable) return code;
+      return (
+        <CopyableMarkdownBlock className="copyable-code-block" text={markdownTextFromNode(children)}>
+          {code}
+        </CopyableMarkdownBlock>
+      );
+    },
+    table({ children }) {
+      return (
+        <div className="markdown-table-wrap">
+          <table className="markdown-table">{children}</table>
+        </div>
+      );
+    },
+    ul({ children }) {
+      const list = <ul className={copyable ? "markdown-list copyable-text-block" : "markdown-list"}>{children}</ul>;
+      if (!copyable) return list;
+      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{list}</CopyableMarkdownBlock>;
+    },
+    ol({ children }) {
+      const list = <ol className={copyable ? "markdown-list copyable-text-block" : "markdown-list"}>{children}</ol>;
+      if (!copyable) return list;
+      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{list}</CopyableMarkdownBlock>;
+    },
+    blockquote({ children }) {
+      const quote = <blockquote className={copyable ? "copyable-text-block" : undefined}>{children}</blockquote>;
+      if (!copyable) return quote;
+      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{quote}</CopyableMarkdownBlock>;
+    }
+  };
+}
+
+function MarkdownRenderer({
+  markdown,
+  className,
+  copyable = false
+}: {
+  markdown: string;
+  className: string;
+  copyable?: boolean;
+}) {
   const normalizedMarkdown = normalizeMarkdownMath(markdown);
+  const components = useMemo(() => copyableComponents(copyable), [copyable]);
   return (
     <div className={className}>
       <ReactMarkdown
         key={normalizedMarkdown}
-        components={markdownComponents}
+        components={components}
         rehypePlugins={[rehypeKatex]}
         remarkPlugins={[remarkGfm, remarkMath]}
         skipHtml
@@ -141,8 +260,8 @@ function MarkdownPreview({ markdown }: { markdown: string }) {
   return <MarkdownRenderer markdown={markdown} className="markdown-preview" />;
 }
 
-function MessageMarkdown({ markdown }: { markdown: string }) {
-  return <MarkdownRenderer markdown={markdown} className="message-markdown" />;
+function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
+  return <MarkdownRenderer markdown={markdown} className="message-markdown" copyable={copyable} />;
 }
 
 function AppIcon({ size = 22 }: { size?: number }) {
@@ -540,7 +659,7 @@ function ChatView() {
                       ))}
                     </div>
                   )}
-                  <MessageMarkdown markdown={message.content} />
+                  <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
                 </div>
               </div>
             ))

@@ -11,13 +11,73 @@
   --secondary: #f3f0ff;
   --tertiary: #e7e7e7;
   --sidebar-tint: #f3f0ff;
+  --panel-bg: #ffffff;
+  --button-surface: #ffffff;
+  --button-surface-hover: #f4f4f4;
+  --message-surface: #f4f4f4;
+  --notice-surface: #f7f7f7;
+  --muted-text: rgba(17, 17, 17, 0.72);
+  --input-bg: rgba(255, 255, 255, 0.72);
+  --focus-border: rgba(0, 0, 0, 0.34);
+  --focus-ring: rgba(0, 0, 0, 0.1);
+  --app-nav-hover: rgba(0, 0, 0, 0.07);
+  --header-bg: rgba(255, 255, 255, 0.86);
+  --code-bg: #ffffff;
+  --table-bg: #ffffff;
+  --danger-bg: #f4f4f4;
+  --danger-border: #dddddd;
+  --primary-bg: #111111;
+  --primary-hover-bg: #000000;
+  --primary-text: #fffffe;
+  --remove-bg: rgba(17, 17, 17, 0.94);
+  --remove-border: rgba(255, 255, 255, 0.82);
   --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.08);
   --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.12);
+  color-scheme: light dark;
   color: var(--headline);
   background: var(--background);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   font-size: 15px;
   line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #111111;
+    --headline: #f5f5f5;
+    --paragraph: #d7d7d7;
+    --surface: rgba(31, 31, 31, 0.9);
+    --surface-solid: #1f1f1f;
+    --surface-soft: rgba(36, 36, 36, 0.92);
+    --stroke: rgba(255, 255, 255, 0.14);
+    --stroke-strong: rgba(255, 255, 255, 0.28);
+    --highlight: #f5f5f5;
+    --secondary: #292433;
+    --tertiary: #343434;
+    --sidebar-tint: #292433;
+    --panel-bg: #171717;
+    --button-surface: #1f1f1f;
+    --button-surface-hover: #2b2b2b;
+    --message-surface: #242424;
+    --notice-surface: #202020;
+    --muted-text: rgba(245, 245, 245, 0.68);
+    --input-bg: rgba(31, 31, 31, 0.78);
+    --focus-border: rgba(255, 255, 255, 0.38);
+    --focus-ring: rgba(255, 255, 255, 0.12);
+    --app-nav-hover: rgba(255, 255, 255, 0.09);
+    --header-bg: rgba(17, 17, 17, 0.88);
+    --code-bg: #191919;
+    --table-bg: #191919;
+    --danger-bg: #261f1f;
+    --danger-border: rgba(255, 255, 255, 0.16);
+    --primary-bg: #f5f5f5;
+    --primary-hover-bg: #ffffff;
+    --primary-text: #111111;
+    --remove-bg: rgba(245, 245, 245, 0.94);
+    --remove-border: rgba(17, 17, 17, 0.82);
+    --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.36);
+    --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.44);
+  }
 }
 
 * {
@@ -71,7 +131,7 @@ textarea {
 .auth-panel {
   width: min(430px, 100%);
   background: var(--surface);
-  border: 1px solid rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--stroke);
   border-radius: 22px;
   padding: 30px;
   box-shadow: var(--shadow-soft);
@@ -118,7 +178,7 @@ select,
 textarea {
   width: 100%;
   color: var(--headline);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--input-bg);
   border: 1px solid var(--stroke);
   border-radius: 14px;
   padding: 11px 12px;
@@ -130,8 +190,8 @@ input:focus,
 select:focus,
 textarea:focus {
   background: var(--surface-solid);
-  border-color: rgba(0, 0, 0, 0.34);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.1);
+  border-color: var(--focus-border);
+  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
 .auth-form {
@@ -148,8 +208,8 @@ textarea:focus {
   justify-content: center;
   gap: 8px;
   min-height: 42px;
-  color: #fffffe;
-  background: #111111;
+  color: var(--primary-text);
+  background: var(--primary-bg);
   border-radius: 14px;
   padding: 0 15px;
   font-weight: 730;
@@ -159,7 +219,7 @@ textarea:focus {
 
 .primary-button:hover,
 .send-button:hover {
-  background: #000000;
+  background: var(--primary-hover-bg);
   box-shadow: var(--shadow-pop);
   transform: translateY(-1px);
 }
@@ -175,13 +235,13 @@ textarea:focus {
 
 .secondary-button {
   color: var(--headline);
-  background: #ffffff;
+  background: var(--button-surface);
   border: 1px solid var(--stroke);
   box-shadow: none;
 }
 
 .secondary-button:hover {
-  background: #f4f4f4;
+  background: var(--button-surface-hover);
   transform: translateY(-1px);
 }
 
@@ -199,17 +259,17 @@ textarea:focus {
 }
 
 .form-error {
-  color: #111111;
-  background: #f4f4f4;
-  border: 1px solid #dddddd;
+  color: var(--headline);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
   border-radius: 14px;
   padding: 10px 12px;
   font-size: 13px;
 }
 
 .form-success {
-  color: #111111;
-  background: #ffffff;
+  color: var(--headline);
+  background: var(--button-surface);
   border: 1px solid var(--stroke);
   border-radius: 14px;
   padding: 10px 12px;
@@ -249,7 +309,7 @@ textarea:focus {
 .app-nav button:hover,
 .app-nav button.active {
   color: var(--headline);
-  background: rgba(0, 0, 0, 0.07);
+  background: var(--app-nav-hover);
 }
 
 .nav-brand {
@@ -292,7 +352,7 @@ textarea:focus {
 
 .sessions-pane {
   border-right: 1px solid var(--stroke);
-  background: #ffffff;
+  background: var(--panel-bg);
   padding: 14px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -300,7 +360,7 @@ textarea:focus {
 
 .new-session {
   color: var(--headline);
-  background: #ffffff;
+  background: var(--button-surface);
   width: 100%;
   margin-bottom: 10px;
   border: 1px solid var(--stroke);
@@ -308,7 +368,7 @@ textarea:focus {
 }
 
 .new-session:hover {
-  background: #f4f4f4;
+  background: var(--button-surface-hover);
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
   transform: translateY(-1px);
 }
@@ -320,8 +380,8 @@ textarea:focus {
 
 .session-retention-note {
   margin: 0 0 12px;
-  color: rgba(17, 17, 17, 0.72);
-  background: #f7f7f7;
+  color: var(--muted-text);
+  background: var(--notice-surface);
   border: 1px solid var(--stroke);
   border-radius: 12px;
   padding: 9px 10px;
@@ -369,7 +429,7 @@ textarea:focus {
 }
 
 .delete-session:hover {
-  background: #e7e7e7;
+  background: var(--tertiary);
 }
 
 .session-row:hover .delete-session,
@@ -388,7 +448,7 @@ textarea:focus {
 .session-row.active,
 .session-row:hover,
 .report-item:hover {
-  background: #f4f4f4;
+  background: var(--button-surface-hover);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
 }
 
@@ -414,7 +474,7 @@ textarea:focus {
   gap: 16px;
   padding: 8px 20px;
   border-bottom: 1px solid var(--stroke);
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--header-bg);
   backdrop-filter: blur(18px);
 }
 
@@ -432,14 +492,14 @@ textarea:focus {
   place-items: center;
   flex: 0 0 auto;
   color: var(--headline);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--input-bg);
   border: 1px solid var(--stroke);
   border-radius: 12px;
   transition: background 160ms ease, transform 160ms ease;
 }
 
 .sidebar-toggle:hover {
-  background: #ffffff;
+  background: var(--button-surface);
   transform: translateY(-1px);
 }
 
@@ -509,7 +569,7 @@ textarea:focus {
 }
 
 .ai-avatar {
-  background: #ffffff;
+  background: var(--surface-solid);
   border: 1px solid var(--stroke);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
 }
@@ -526,7 +586,7 @@ textarea:focus {
   max-width: min(680px, calc(100vw - 420px));
   overflow-wrap: anywhere;
   border: 1px solid var(--stroke);
-  background: #f4f4f4;
+  background: var(--message-surface);
   border-radius: 20px;
   padding: 13px 16px;
 }
@@ -620,10 +680,57 @@ textarea:focus {
   color: var(--paragraph);
 }
 
+.copyable-markdown-block {
+  position: relative;
+  min-width: 0;
+}
+
+.copyable-text-block {
+  padding-right: 36px;
+}
+
+.copy-block-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--headline);
+  background: var(--button-surface);
+  border: 1px solid var(--stroke);
+  border-radius: 9px;
+  padding: 0;
+  opacity: 0;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+  transition: background 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+
+.copyable-markdown-block:hover .copy-block-button,
+.copy-block-button:focus-visible,
+.copy-block-button.copied {
+  opacity: 1;
+}
+
+.copy-block-button:hover {
+  background: var(--button-surface-hover);
+  transform: translateY(-1px);
+}
+
+.copy-block-button.copied {
+  color: var(--primary-text);
+  background: var(--primary-bg);
+}
+
+.copyable-markdown-block .markdown-code {
+  padding-right: 42px;
+}
+
 .markdown-inline-code,
 .markdown-code {
   border: 1px solid var(--stroke);
-  background: #ffffff;
+  background: var(--code-bg);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
@@ -657,7 +764,7 @@ textarea:focus {
 .markdown-table {
   width: 100%;
   border-collapse: collapse;
-  background: #ffffff;
+  background: var(--table-bg);
   border: 1px solid var(--stroke);
   border-radius: 10px;
   overflow: hidden;
@@ -730,7 +837,7 @@ textarea:focus {
 
 .composer {
   padding: 0 24px 22px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--background) 28%);
+  background: linear-gradient(180deg, transparent, var(--background) 28%);
 }
 
 .composer-floating {
@@ -783,9 +890,9 @@ textarea:focus {
   height: 23px;
   display: grid;
   place-items: center;
-  color: #fffffe;
-  background: rgba(17, 17, 17, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.82);
+  color: var(--primary-text);
+  background: var(--remove-bg);
+  border: 1px solid var(--remove-border);
   border-radius: 50%;
   padding: 0;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
@@ -825,14 +932,14 @@ textarea:focus {
   display: grid;
   place-items: center;
   color: var(--headline);
-  background: #f4f4f4;
+  background: var(--button-surface-hover);
   border-radius: 14px;
   cursor: pointer;
   transition: background 160ms ease, transform 160ms ease;
 }
 
 .icon-button:hover {
-  background: #e7e7e7;
+  background: var(--tertiary);
   transform: translateY(-1px);
 }
 
@@ -886,7 +993,7 @@ textarea:focus {
 
 .report-sidebar {
   border-right: 1px solid var(--stroke);
-  background: #ffffff;
+  background: var(--panel-bg);
   padding: 14px;
   overflow-y: auto;
 }

@@ -13,16 +13,34 @@ test("uses black and white surfaces with a pale purple global sidebar", () => {
   assert.match(styles, /--background:\s*#ffffff;/);
   assert.match(styles, /--headline:\s*#111111;/);
   assert.match(styles, /--paragraph:\s*#111111;/);
+  assert.match(styles, /--app-nav-hover:\s*rgba\(0,\s*0,\s*0,\s*0\.07\);/);
+  assert.match(styles, /--message-surface:\s*#f4f4f4;/);
+  assert.match(styles, /--primary-bg:\s*#111111;/);
   assert.match(styles, /--sidebar-tint:\s*#f3f0ff;/);
   assert.match(styles, /\.app-nav\s*{[^}]*background:\s*var\(--sidebar-tint\);/s);
   assert.match(styles, /\.app-nav button\s*{[^}]*color:\s*var\(--headline\);/s);
-  assert.match(styles, /\.send-button[^,{]*,[\s\S]*?\.new-session\s*{[^}]*background:\s*#111111;/s);
-  assert.match(styles, /\.message-content\s*{[^}]*background:\s*#f4f4f4;/s);
+  assert.match(styles, /\.send-button[^,{]*,[\s\S]*?\.new-session\s*{[^}]*background:\s*var\(--primary-bg\);/s);
+  assert.match(styles, /\.message-content\s*{[^}]*background:\s*var\(--message-surface\);/s);
 
   for (const color of ["#00473e", "#475d5b", "#faae2b", "#ffa8ba", "#fa5246", "0, 71, 62"]) {
     assert.ok(!styles.includes(color), `${color} should not remain in styles`);
     assert.ok(!appIcon.includes(color), `${color} should not remain in app icon`);
   }
+});
+
+test("theme follows system dark mode with readable chat surfaces", () => {
+  assert.match(styles, /color-scheme:\s*light dark;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)\s*{/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--background:\s*#111111;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--headline:\s*#f5f5f5;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--sidebar-tint:\s*#292433;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--message-surface:\s*#242424;/);
+  assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*var\(--panel-bg\);/s);
+  assert.match(styles, /\.new-session\s*{[^}]*background:\s*var\(--button-surface\);/s);
+  assert.match(styles, /\.composer-row\s*{[^}]*background:\s*var\(--surface\);/s);
+  assert.match(styles, /\.auth-panel\s*{[^}]*border:\s*1px solid var\(--stroke\);/s);
+  assert.match(styles, /\.markdown-code\s*{[^}]*background:\s*var\(--code-bg\);/s);
+  assert.match(styles, /\.markdown-table\s*{[^}]*background:\s*var\(--table-bg\);/s);
 });
 
 test("desktop global sidebar is a narrow icon rail", () => {
@@ -84,6 +102,19 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.match(styles, /\.markdown-table-wrap\s*{/);
 });
 
+test("assistant markdown text and code blocks have copy controls", () => {
+  assert.ok(app.includes("CopyableMarkdownBlock"));
+  assert.ok(app.includes("copyMarkdownText"));
+  assert.ok(app.includes("navigator.clipboard.writeText"));
+  assert.ok(app.includes('copyable={message.role === "assistant"}'));
+  assert.ok(app.includes('aria-label={copied ? "已复制" : "复制此块"}'));
+  assert.ok(app.includes("Copy size={14}"));
+  assert.ok(app.includes("Check size={14}"));
+  assert.match(styles, /\.copyable-markdown-block\s*{[^}]*position:\s*relative;/s);
+  assert.match(styles, /\.copy-block-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*4px;[^}]*right:\s*4px;/s);
+  assert.match(styles, /\.copyable-markdown-block \.markdown-code\s*{[^}]*padding-right:\s*42px;/s);
+});
+
 test("composer blocks sending while image upload is still running", () => {
   assert.ok(app.includes("uploadingCount"));
   assert.ok(app.includes("图片上传中，请稍等"));
@@ -113,9 +144,9 @@ test("chat sidebar can collapse from the top-left control", () => {
 });
 
 test("sidebar and chat bubbles follow ChatGPT-style light surfaces", () => {
-  assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*#ffffff;/s);
-  assert.match(styles, /\.new-session\s*{[^}]*background:\s*#ffffff;/s);
-  assert.match(styles, /\.message-content\s*{[^}]*background:\s*#f4f4f4;/s);
+  assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*var\(--panel-bg\);/s);
+  assert.match(styles, /\.new-session\s*{[^}]*background:\s*var\(--button-surface\);/s);
+  assert.match(styles, /\.message-content\s*{[^}]*background:\s*var\(--message-surface\);/s);
 });
 
 test("composer textarea starts as one centered line and grows to four lines", () => {
