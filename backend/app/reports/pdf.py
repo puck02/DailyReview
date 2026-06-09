@@ -1,299 +1,156 @@
 import html
+import os
 import re
-from io import BytesIO
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (
-    ListFlowable,
-    ListItem,
-    Paragraph,
-    Preformatted,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
 
-
-font_candidates = [
-    ("DailyReviewSans", "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc"),
-    ("DailyReviewSans", "/usr/share/fonts/dejavu/DejaVuSans.ttf"),
-]
-mono_font_candidates = [
-    ("DailyReviewMono", "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf"),
-    ("DailyReviewMono", "/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+math_signals = [
+    "\\",
+    "=",
+    "^",
+    "_",
+    "frac",
+    "sqrt",
+    "sum",
+    "int",
+    "lim",
+    "sin",
+    "cos",
+    "tan",
+    "ln",
+    "log",
+    "alpha",
+    "beta",
+    "gamma",
+    "theta",
+    "pi",
+    "infty",
+    "o(",
 ]
 
 
-def _register_font(candidates: list[tuple[str, str]]) -> str:
-    for font_name, font_path in candidates:
-        if Path(font_path).exists():
-            registered = pdfmetrics.getRegisteredFontNames()
-            if font_name not in registered:
-                pdfmetrics.registerFont(TTFont(font_name, font_path))
-            return font_name
-    return "Helvetica"
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
 
 
-def _styles() -> dict[str, ParagraphStyle]:
-    body_font = _register_font(font_candidates)
-    mono_font = _register_font(mono_font_candidates)
-    base = getSampleStyleSheet()
-    return {
-        "title": ParagraphStyle(
-            "DailyReviewTitle",
-            parent=base["Title"],
-            fontName=body_font,
-            fontSize=18,
-            leading=24,
-            spaceAfter=8,
-            textColor=colors.HexColor("#111111"),
-        ),
-        "heading": ParagraphStyle(
-            "DailyReviewHeading",
-            parent=base["Heading2"],
-            fontName=body_font,
-            fontSize=13,
-            leading=18,
-            spaceBefore=8,
-            spaceAfter=5,
-            textColor=colors.HexColor("#111111"),
-        ),
-        "body": ParagraphStyle(
-            "DailyReviewBody",
-            parent=base["BodyText"],
-            fontName=body_font,
-            fontSize=10.5,
-            leading=16,
-            spaceAfter=5,
-            alignment=TA_LEFT,
-            textColor=colors.HexColor("#222222"),
-        ),
-        "code": ParagraphStyle(
-            "DailyReviewCode",
-            parent=base["Code"],
-            fontName=mono_font,
-            fontSize=8.8,
-            leading=12,
-            leftIndent=6,
-            rightIndent=6,
-            spaceBefore=4,
-            spaceAfter=6,
-            backColor=colors.HexColor("#f5f5f5"),
-            textColor=colors.HexColor("#222222"),
-        ),
-        "table": ParagraphStyle(
-            "DailyReviewTable",
-            parent=base["BodyText"],
-            fontName=body_font,
-            fontSize=8.8,
-            leading=12,
-            textColor=colors.HexColor("#222222"),
-        ),
-    }
+def _katex_dist_dir() -> Path:
+    return _repo_root() / "frontend" / "node_modules" / "katex" / "dist"
+
+
+def _chrome_binary() -> str:
+    candidates = [
+        os.getenv("CHROME_BIN", ""),
+        "google-chrome",
+        "chromium",
+        "chromium-browser",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    raise RuntimeError("未找到 Chrome，无法导出带公式排版的 PDF")
+
+
+def _read_katex_asset(name: str) -> str:
+    path = _katex_dist_dir() / name
+    if not path.exists():
+        raise RuntimeError(f"缺少 KaTeX 资源：{path}")
+    return path.read_text(encoding="utf-8")
+
+
+def _katex_css() -> str:
+    css = _read_katex_asset("katex.min.css")
+    fonts_dir = (_katex_dist_dir() / "fonts").resolve()
+
+    def replace_font_url(match: re.Match[str]) -> str:
+        font_path = fonts_dir / match.group(2)
+        return f"url('{font_path.as_uri()}')"
+
+    return re.sub(r"url\((['\"]?)fonts/([^)'\"\s]+)\1\)", replace_font_url, css)
+
+
+def _looks_like_math(value: str) -> bool:
+    content = value.strip()
+    return len(content) >= 3 and any(signal in content for signal in math_signals)
+
+
+def _normalize_bare_square_math(markdown: str) -> str:
+    result = []
+    index = 0
+    while index < len(markdown):
+        open_index = markdown.find("[", index)
+        if open_index == -1:
+            result.append(markdown[index:])
+            break
+
+        result.append(markdown[index:open_index])
+        previous = markdown[open_index - 1] if open_index > 0 else ""
+        close_index = markdown.find("]", open_index + 1)
+        if close_index == -1 or previous in {"!", "\\"}:
+            result.append(markdown[open_index:] if close_index == -1 else markdown[open_index : close_index + 1])
+            index = len(markdown) if close_index == -1 else close_index + 1
+            continue
+
+        next_char = markdown[close_index + 1] if close_index + 1 < len(markdown) else ""
+        content = markdown[open_index + 1 : close_index].strip()
+        if next_char == "(" or "[" in content or "]" in content or not _looks_like_math(content):
+            result.append(markdown[open_index : close_index + 1])
+        else:
+            result.append(f"\n\n$$\n{content}\n$$\n\n")
+        index = close_index + 1
+
+    return "".join(result)
+
+
+def _normalize_latex_display_math(markdown: str) -> str:
+    result = []
+    index = 0
+    while index < len(markdown):
+        open_index = markdown.find(r"\[", index)
+        if open_index == -1:
+            result.append(markdown[index:])
+            break
+
+        result.append(markdown[index:open_index])
+        close_index = markdown.find(r"\]", open_index + 2)
+        next_open_index = markdown.find(r"\[", open_index + 2)
+        if close_index == -1 or (next_open_index != -1 and next_open_index < close_index):
+            content_end = markdown.find("\n\n", open_index + 2)
+            if content_end == -1:
+                content_end = len(markdown)
+            if next_open_index != -1 and next_open_index < content_end:
+                content_end = next_open_index
+            content = markdown[open_index + 2 : content_end].strip().rstrip("\\").strip()
+            if _looks_like_math(content):
+                result.append(f"\n\n$$\n{content}\n$$\n\n")
+            else:
+                result.append(markdown[open_index:content_end])
+            index = content_end
+            continue
+
+        content = markdown[open_index + 2 : close_index].strip()
+        result.append(f"\n\n$$\n{content}\n$$\n\n")
+        index = close_index + 2
+
+    return "".join(result)
+
+
+def _normalize_markdown_math(markdown: str) -> str:
+    normalized = _normalize_latex_display_math(markdown)
+    normalized = _normalize_bare_square_math(normalized)
+    return re.sub(r"\\\(((?:.|\n)*?)\\\)", lambda match: f"${match.group(1).strip()}$", normalized)
 
 
 def _inline_markdown(text: str) -> str:
-    escaped = html.escape(_replace_inline_latex_math(text.strip()))
-    escaped = re.sub(r"`([^`]+)`", r"<font name='DailyReviewMono'>\1</font>", escaped)
-    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", escaped)
-    escaped = re.sub(r"\*([^*]+)\*", r"<i>\1</i>", escaped)
+    escaped = html.escape(text.strip())
+    escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+    escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
     return escaped
-
-
-superscript_map = str.maketrans(
-    {
-        "0": "⁰",
-        "1": "¹",
-        "2": "²",
-        "3": "³",
-        "4": "⁴",
-        "5": "⁵",
-        "6": "⁶",
-        "7": "⁷",
-        "8": "⁸",
-        "9": "⁹",
-        "+": "⁺",
-        "-": "⁻",
-        "(": "⁽",
-        ")": "⁾",
-    }
-)
-subscript_map = str.maketrans(
-    {
-        "0": "₀",
-        "1": "₁",
-        "2": "₂",
-        "3": "₃",
-        "4": "₄",
-        "5": "₅",
-        "6": "₆",
-        "7": "₇",
-        "8": "₈",
-        "9": "₉",
-        "+": "₊",
-        "-": "₋",
-        "=": "₌",
-        "(": "₍",
-        ")": "₎",
-        "n": "ₙ",
-        "x": "ₓ",
-        "k": "ₖ",
-    }
-)
-latex_symbol_map = {
-    r"\alpha": "α",
-    r"\beta": "β",
-    r"\gamma": "γ",
-    r"\delta": "δ",
-    r"\theta": "θ",
-    r"\lambda": "λ",
-    r"\mu": "μ",
-    r"\pi": "π",
-    r"\sigma": "σ",
-    r"\omega": "ω",
-    r"\sum": "Σ",
-    r"\cdots": "...",
-    r"\ldots": "…",
-    r"\leq": "≤",
-    r"\geq": "≥",
-    r"\neq": "≠",
-    r"\times": "×",
-    r"\div": "÷",
-    r"\pm": "±",
-    r"\to": "→",
-    r"\infty": "∞",
-    r"\ln": "ln",
-    r"\sin": "sin",
-    r"\cos": "cos",
-    r"\tan": "tan",
-    r"\left": "",
-    r"\right": "",
-}
-
-
-def _replace_latex_sums(expression: str) -> str:
-    expression = re.sub(
-        r"\\sum_\{([^{}]+)\}\^\{([^{}]+)\}",
-        lambda match: f"Σ({match.group(1).replace('-', '−')}→{match.group(2).replace('-', '−')})",
-        expression,
-    )
-    return re.sub(
-        r"\\sum_\{([^{}]+)\}\^([A-Za-z0-9+\-]+)",
-        lambda match: f"Σ({match.group(1).replace('-', '−')}→{match.group(2).replace('-', '−')})",
-        expression,
-    )
-
-
-def _replace_latex_roots(expression: str) -> str:
-    return re.sub(r"\\sqrt\s*\{([^{}]+)\}", lambda match: f"√({match.group(1)})", expression)
-
-
-def _replace_latex_fractions(expression: str) -> str:
-    pattern = re.compile(r"\\d?frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}")
-    while True:
-        replaced = pattern.sub(lambda match: f"{match.group(1)}/{match.group(2)}", expression)
-        if replaced == expression:
-            return re.sub(r"\\d?frac\s*([A-Za-z0-9])\s*([A-Za-z0-9])", r"\1/\2", replaced)
-        expression = replaced
-
-
-def _script_text(value: str, translation: dict[int, str]) -> str:
-    if translation is superscript_map:
-        if value in {"1", "2", "3"}:
-            return value.translate(translation)
-        return f"^({value.replace('-', '−')})" if len(value) > 1 else f"^{value}"
-    if translation is subscript_map and not value.isdigit():
-        return f"_({value.replace('-', '−')})" if len(value) > 1 else f"_{value}"
-    converted = value.translate(translation)
-    return converted if converted != value else f"^{value}"
-
-
-def _replace_latex_scripts(expression: str) -> str:
-    def replace_grouped(match: re.Match[str]) -> str:
-        translation = superscript_map if match.group(1) == "^" else subscript_map
-        return _script_text(match.group(2), translation)
-
-    def replace_single(match: re.Match[str]) -> str:
-        translation = superscript_map if match.group(1) == "^" else subscript_map
-        return _script_text(match.group(2), translation)
-
-    expression = re.sub(r"([_^])\{([^{}]+)\}", replace_grouped, expression)
-    return re.sub(r"([_^])\\?([A-Za-z0-9+\-()])", replace_single, expression)
-
-
-def _latex_math_to_text(expression: str) -> str:
-    text = expression.strip().strip("$").strip()
-    text = _replace_latex_sums(text)
-    text = _replace_latex_roots(text)
-    text = _replace_latex_fractions(text)
-    for command, replacement in latex_symbol_map.items():
-        text = text.replace(command, replacement)
-    text = _replace_latex_scripts(text)
-    text = text.replace(r"\,", " ").replace(r"\;", " ").replace(r"\!", "")
-    text = text.replace("\\", "")
-    text = text.replace("-", "−")
-    text = text.replace("sim", "∼")
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _replace_inline_latex_math(text: str) -> str:
-    return re.sub(r"\\\((.+?)\\\)", lambda match: _latex_math_to_text(match.group(1)), text)
-
-
-def _math_block_from_lines(lines: list[str], index: int) -> tuple[str, int, str] | None:
-    stripped = lines[index].strip()
-    if stripped.startswith(r"\["):
-        start_delimiter = r"\["
-        end_delimiter = r"\]"
-    elif stripped.startswith("$$"):
-        start_delimiter = "$$"
-        end_delimiter = "$$"
-    elif stripped.startswith("[") and stripped.endswith("]") and ("\\" in stripped or "^" in stripped):
-        return stripped[1:-1].strip(), index + 1, ""
-    else:
-        return None
-
-    parts = [stripped[len(start_delimiter) :]]
-    next_index = index + 1
-    while parts:
-        end_position = parts[-1].find(end_delimiter)
-        if end_position >= 0:
-            remainder = parts[-1][end_position + len(end_delimiter) :].strip()
-            parts[-1] = parts[-1][:end_position]
-            return " ".join(part.strip() for part in parts).strip(), next_index, remainder
-        if next_index >= len(lines):
-            return " ".join(part.strip() for part in parts).rstrip("\\").strip(), next_index, ""
-        parts.append(lines[next_index].strip())
-        next_index += 1
-
-    return None
-
-
-def _inline_math_blocks(text: str) -> list[str]:
-    blocks: list[str] = []
-    patterns = [
-        re.compile(r"\\\[(.+?)\\\]"),
-        re.compile(r"\$\$(.+?)\$\$"),
-        re.compile(r"(?<!\S)\[(.+?\\.+?)\](?!\S)"),
-    ]
-    for pattern in patterns:
-        blocks.extend(match.group(1).strip() for match in pattern.finditer(text))
-    return blocks
-
-
-def _append_math_blocks(blocks: list[str], story: list, styles: dict[str, ParagraphStyle]) -> None:
-    for expression in blocks:
-        rendered = _latex_math_to_text(expression)
-        if rendered:
-            story.append(Paragraph(html.escape(rendered), styles["body"]))
 
 
 def _is_table_separator(line: str) -> bool:
@@ -309,73 +166,59 @@ def _table_cells(line: str) -> list[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
 
-def _flush_paragraph(parts: list[str], story: list, styles: dict[str, ParagraphStyle]) -> None:
+def _flush_paragraph(parts: list[str], blocks: list[str]) -> None:
     if not parts:
         return
-    text = " ".join(part.strip() for part in parts if part.strip())
+    text = "\n".join(part.strip() for part in parts if part.strip())
     if text:
-        story.append(Paragraph(_inline_markdown(text), styles["body"]))
+        blocks.append(f"<p>{_inline_markdown(text)}</p>")
     parts.clear()
 
 
-def _flush_list(items: list[str], story: list, styles: dict[str, ParagraphStyle]) -> None:
+def _flush_list(items: list[str], ordered: bool, blocks: list[str]) -> None:
     if not items:
         return
-    story.append(
-        ListFlowable(
-            [ListItem(Paragraph(_inline_markdown(item), styles["body"]), leftIndent=8) for item in items],
-            bulletType="bullet",
-            leftIndent=14,
-            bulletFontName=styles["body"].fontName,
-            bulletFontSize=7,
-        )
-    )
+    tag = "ol" if ordered else "ul"
+    body = "".join(f"<li>{_inline_markdown(item)}</li>" for item in items)
+    blocks.append(f"<{tag}>{body}</{tag}>")
     items.clear()
 
 
-def _append_table(rows: list[list[str]], story: list, styles: dict[str, ParagraphStyle]) -> None:
+def _append_table(rows: list[list[str]], blocks: list[str]) -> None:
     if not rows:
         return
-    width = 174 * mm
-    column_width = width / max(len(rows[0]), 1)
-    data = [[Paragraph(_inline_markdown(cell), styles["table"]) for cell in row] for row in rows]
-    table = Table(data, colWidths=[column_width] * len(rows[0]), hAlign="LEFT", repeatRows=1)
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f2f2f2")),
-                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d9d9d9")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]
-        )
-    )
-    story.append(table)
-    story.append(Spacer(1, 5))
+    head = "".join(f"<th>{_inline_markdown(cell)}</th>" for cell in rows[0])
+    body_rows = []
+    for row in rows[1:]:
+        body_rows.append("<tr>" + "".join(f"<td>{_inline_markdown(cell)}</td>" for cell in row) + "</tr>")
+    blocks.append(f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>")
 
 
-def markdown_to_pdf_bytes(markdown: str) -> bytes:
-    styles = _styles()
-    story: list = []
+def _append_display_math(lines: list[str], blocks: list[str]) -> None:
+    expression = "\n".join(line.strip() for line in lines if line.strip()).strip()
+    if expression:
+        blocks.append(f"<div class=\"math-display\">$$\n{html.escape(expression)}\n$$</div>")
+
+
+def _markdown_body_html(markdown: str) -> str:
+    blocks: list[str] = []
     paragraph_parts: list[str] = []
     list_items: list[str] = []
+    list_ordered = False
     code_lines: list[str] = []
     in_code = False
-    lines = markdown.splitlines()
+    lines = _normalize_markdown_math(markdown).splitlines()
     index = 0
 
     while index < len(lines):
-        raw_line = lines[index]
-        line = raw_line.rstrip()
+        line = lines[index].rstrip()
+        stripped = line.strip()
 
-        if line.strip().startswith("```"):
-            _flush_paragraph(paragraph_parts, story, styles)
-            _flush_list(list_items, story, styles)
+        if stripped.startswith("```"):
+            _flush_paragraph(paragraph_parts, blocks)
+            _flush_list(list_items, list_ordered, blocks)
             if in_code:
-                story.append(Preformatted("\n".join(code_lines), styles["code"], maxLineLength=88))
+                blocks.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
                 code_lines.clear()
             in_code = not in_code
             index += 1
@@ -386,76 +229,278 @@ def markdown_to_pdf_bytes(markdown: str) -> bytes:
             index += 1
             continue
 
-        inline_math_blocks = _inline_math_blocks(line)
-        if inline_math_blocks:
-            _flush_paragraph(paragraph_parts, story, styles)
-            _flush_list(list_items, story, styles)
-            _append_math_blocks(inline_math_blocks, story, styles)
+        if stripped == "$$":
+            _flush_paragraph(paragraph_parts, blocks)
+            _flush_list(list_items, list_ordered, blocks)
+            math_lines = []
             index += 1
-            continue
-
-        math_block = _math_block_from_lines(lines, index)
-        if math_block is not None:
-            _flush_paragraph(paragraph_parts, story, styles)
-            _flush_list(list_items, story, styles)
-            expression, index, remainder = math_block
-            _append_math_blocks([expression], story, styles)
-            if remainder:
-                lines.insert(index, remainder)
+            while index < len(lines) and lines[index].strip() != "$$":
+                math_lines.append(lines[index])
+                index += 1
+            _append_display_math(math_lines, blocks)
+            if index < len(lines):
+                index += 1
             continue
 
         if _is_table_start(lines, index):
-            _flush_paragraph(paragraph_parts, story, styles)
-            _flush_list(list_items, story, styles)
+            _flush_paragraph(paragraph_parts, blocks)
+            _flush_list(list_items, list_ordered, blocks)
             rows = [_table_cells(lines[index])]
             index += 2
             while index < len(lines) and "|" in lines[index] and lines[index].strip():
                 rows.append(_table_cells(lines[index]))
                 index += 1
-            _append_table(rows, story, styles)
+            _append_table(rows, blocks)
             continue
 
-        stripped = line.strip()
         if not stripped:
-            _flush_paragraph(paragraph_parts, story, styles)
-            _flush_list(list_items, story, styles)
+            _flush_paragraph(paragraph_parts, blocks)
+            _flush_list(list_items, list_ordered, blocks)
+            index += 1
+            continue
+
+        if re.fullmatch(r"-{3,}", stripped):
+            _flush_paragraph(paragraph_parts, blocks)
+            _flush_list(list_items, list_ordered, blocks)
+            blocks.append("<hr>")
             index += 1
             continue
 
         heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
         if heading:
-            _flush_paragraph(paragraph_parts, story, styles)
-            _flush_list(list_items, story, styles)
-            style = styles["title"] if len(heading.group(1)) == 1 else styles["heading"]
-            story.append(Paragraph(_inline_markdown(heading.group(2)), style))
+            _flush_paragraph(paragraph_parts, blocks)
+            _flush_list(list_items, list_ordered, blocks)
+            level = min(len(heading.group(1)), 4)
+            blocks.append(f"<h{level}>{_inline_markdown(heading.group(2))}</h{level}>")
             index += 1
             continue
 
-        list_match = re.match(r"^[-*]\s+(.+)$", stripped)
-        if list_match:
-            _flush_paragraph(paragraph_parts, story, styles)
-            list_items.append(list_match.group(1))
+        unordered_match = re.match(r"^[-*]\s+(.+)$", stripped)
+        ordered_match = re.match(r"^\d+[.)]\s+(.+)$", stripped)
+        if unordered_match or ordered_match:
+            ordered = ordered_match is not None
+            if list_items and list_ordered != ordered:
+                _flush_list(list_items, list_ordered, blocks)
+            _flush_paragraph(paragraph_parts, blocks)
+            list_ordered = ordered
+            list_items.append((ordered_match or unordered_match).group(1))
+            index += 1
+            continue
+
+        quote_match = re.match(r"^>\s*(.+)$", stripped)
+        if quote_match:
+            _flush_paragraph(paragraph_parts, blocks)
+            _flush_list(list_items, list_ordered, blocks)
+            blocks.append(f"<blockquote>{_inline_markdown(quote_match.group(1))}</blockquote>")
             index += 1
             continue
 
         paragraph_parts.append(stripped)
         index += 1
 
-    _flush_paragraph(paragraph_parts, story, styles)
-    _flush_list(list_items, story, styles)
+    _flush_paragraph(paragraph_parts, blocks)
+    _flush_list(list_items, list_ordered, blocks)
     if code_lines:
-        story.append(Preformatted("\n".join(code_lines), styles["code"], maxLineLength=88))
+        blocks.append(f"<pre><code>{html.escape(chr(10).join(code_lines))}</code></pre>")
 
-    buffer = BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=14 * mm,
-        rightMargin=14 * mm,
-        topMargin=14 * mm,
-        bottomMargin=14 * mm,
-        title="DailyReview Report",
-        author="DailyReview",
-    )
-    document.build(story or [Paragraph("无报告内容", styles["body"])])
-    return buffer.getvalue()
+    return "\n".join(blocks) or "<p>无报告内容</p>"
+
+
+def _markdown_to_print_html(markdown: str) -> str:
+    katex_css = _katex_css()
+    katex_js = _read_katex_asset("katex.min.js")
+    auto_render_js = _read_katex_asset("contrib/auto-render.min.js")
+    body = _markdown_body_html(markdown)
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+{katex_css}
+@page {{
+  size: A4;
+  margin: 12mm 13mm;
+}}
+* {{
+  box-sizing: border-box;
+}}
+html {{
+  background: #ffffff;
+}}
+body {{
+  margin: 0;
+  color: #1d1d1f;
+  font-family: "WenQuanYi Micro Hei", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  line-height: 1.48;
+  -webkit-font-smoothing: antialiased;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}}
+.report-shell {{
+  width: 100%;
+}}
+h1, h2, h3, h4 {{
+  color: #111111;
+  break-after: avoid;
+  page-break-after: avoid;
+}}
+h1 {{
+  margin: 0 0 10px;
+  font-size: 21px;
+  line-height: 1.25;
+  font-weight: 750;
+}}
+h2 {{
+  margin: 13px 0 6px;
+  font-size: 15px;
+  line-height: 1.32;
+  font-weight: 720;
+}}
+h3, h4 {{
+  margin: 10px 0 5px;
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 700;
+}}
+p {{
+  margin: 0 0 6px;
+}}
+ul, ol {{
+  margin: 3px 0 7px 18px;
+  padding: 0;
+}}
+li {{
+  margin: 1px 0;
+  padding-left: 2px;
+}}
+blockquote {{
+  margin: 7px 0;
+  padding: 7px 10px;
+  border-left: 3px solid #d7d7dc;
+  border-radius: 6px;
+  background: #f6f6f7;
+  color: #424245;
+}}
+hr {{
+  height: 1px;
+  margin: 11px 0;
+  border: 0;
+  background: #e5e5e7;
+}}
+table {{
+  width: 100%;
+  margin: 7px 0 9px;
+  border-collapse: collapse;
+  font-size: 11px;
+  break-inside: avoid;
+}}
+th, td {{
+  padding: 5px 6px;
+  border: 1px solid #dedee3;
+  vertical-align: top;
+}}
+th {{
+  background: #f4f4f5;
+  font-weight: 700;
+}}
+code {{
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: #f1f1f3;
+}}
+pre {{
+  margin: 7px 0 9px;
+  padding: 8px 9px;
+  overflow: hidden;
+  border: 1px solid #e2e2e5;
+  border-radius: 8px;
+  background: #f6f6f7;
+  white-space: pre-wrap;
+  break-inside: avoid;
+}}
+pre code {{
+  padding: 0;
+  background: transparent;
+  font-size: 10.5px;
+  line-height: 1.42;
+}}
+.katex {{
+  font-size: 1.05em;
+}}
+.math-display {{
+  margin: 0.42em 0 0.5em;
+  overflow: visible;
+  text-align: center;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}}
+.katex-display {{
+  margin: 0;
+  overflow: visible;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}}
+.katex-display > .katex {{
+  max-width: 100%;
+  white-space: normal;
+}}
+.katex-html {{
+  white-space: normal;
+}}
+</style>
+</head>
+<body>
+<main class="report-shell">
+{body}
+</main>
+<script>
+{katex_js}
+</script>
+<script>
+{auto_render_js}
+</script>
+<script>
+renderMathInElement(document.body, {{
+  delimiters: [
+    {{left: "$$", right: "$$", display: true}},
+    {{left: "\\\\[", right: "\\\\]", display: true}},
+    {{left: "\\\\(", right: "\\\\)", display: false}},
+    {{left: "$", right: "$", display: false}}
+  ],
+  ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+  throwOnError: false,
+  strict: "ignore"
+}});
+document.documentElement.dataset.katexReady = "true";
+</script>
+</body>
+</html>"""
+
+
+def markdown_to_pdf_bytes(markdown: str) -> bytes:
+    chrome = _chrome_binary()
+    with tempfile.TemporaryDirectory(prefix="dailyreview-pdf-") as temp_dir:
+        temp_path = Path(temp_dir)
+        html_path = temp_path / "report.html"
+        pdf_path = temp_path / "report.pdf"
+        html_path.write_text(_markdown_to_print_html(markdown), encoding="utf-8")
+        command = [
+            chrome,
+            "--headless=new",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--allow-file-access-from-files",
+            f"--user-data-dir={temp_path / 'chrome-profile'}",
+            "--no-pdf-header-footer",
+            f"--print-to-pdf={pdf_path}",
+            html_path.as_uri(),
+        ]
+        result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=45)
+        if result.returncode != 0 or not pdf_path.exists():
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(f"Chrome PDF 导出失败：{detail}")
+        return pdf_path.read_bytes()

@@ -52,6 +52,8 @@ npm run build
 
 ## 运行
 
+PDF 导出依赖系统可执行的 `google-chrome`/`chromium`；如不在 `PATH` 中，可通过 `CHROME_BIN` 指定。
+
 ```bash
 cd backend
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8082

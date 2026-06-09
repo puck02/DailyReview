@@ -11,7 +11,7 @@ from app.db import create_session_factory, get_db, initialize_database
 from app.main import app
 from app.models import ChatSession, Message, Report, User
 from app.reports import service as report_service
-from app.reports.pdf import markdown_to_pdf_bytes
+from app.reports.pdf import _markdown_to_print_html, markdown_to_pdf_bytes
 from app.reports.service import generate_daily_report, generate_daily_report_async, search_markdown_blocks
 
 
@@ -249,22 +249,28 @@ def test_report_pdf_api_returns_searchable_text_pdf(tmp_path: Path):
     app.dependency_overrides.clear()
 
 
-def test_report_pdf_renders_latex_math_as_readable_text():
+def test_report_pdf_renders_latex_math_with_katex_layout():
     markdown = r"""# 常见展开式
 
 \[ e^x=1+x+\frac{x^2}{2!}+\cdots \] \[ \ln(1+x)=x-\frac{x^2}{2}+\frac{x^3}{3}-\cdots \]
 \[ \sin
 x=x-\frac{x^3}{6}+\cdots \] \[ \cos x=1-\frac{x^2}{2}+\cdots \]
-\[ (1+x)^\alpha=1+\alpha x+\frac{\alpha(\alpha-1)}{2}x^2+\cdots \]
+\[ (1+x)^\alpha=1+\alpha
+x+\frac{\alpha(\alpha-1)}{2}x^2+\cdots \
 
 行内公式：\(\sin x \sim x\)、\(\ln(1+x)\sim x\)、\(\sqrt{1+x}-1\sim \dfrac{x}{2}\)、\(1-\cos x\sim \dfrac{x^2}{2}\)。
 \[ \sum_{k=0}^{n-2}\left(-\frac12\right)^k = \frac23\left(1-\left(-\frac12\right)^{n-1}\right) \]
 \[ x_n=x_1+\sum_{k=2}^n (x_k-x_{k-1}) \]
 """
 
+    html = _markdown_to_print_html(markdown)
     pdf = markdown_to_pdf_bytes(markdown)
     extracted_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
 
+    assert "renderMathInElement" in html
+    assert "$$\nx_n=x_1+\\sum_{k=2}^n (x_k-x_{k-1})\n$$" in html
+    assert "KaTeX_Main" in pdf.decode("latin1", errors="ignore")
+    assert b"/Subtype /Image" not in pdf
     assert r"\[" not in extracted_text
     assert r"\]" not in extracted_text
     assert r"\frac" not in extracted_text
@@ -276,18 +282,7 @@ x=x-\frac{x^3}{6}+\cdots \] \[ \cos x=1-\frac{x^2}{2}+\cdots \]
     assert r"\)" not in extracted_text
     assert r"\sim" not in extracted_text
     assert "\x00" not in extracted_text
-    compact_text = extracted_text.replace(" ", "")
-    assert "e^x=1+x+x²/2!+..." in compact_text
-    assert "ln(1+x)=x−x²/2+x³/3−..." in compact_text
-    assert "sinx=x−x³/6+..." in compact_text
-    assert "cosx=1−x²/2+..." in compact_text
-    assert "(1+x)^α=1+αx+α(α−1)/2x²+..." in compact_text
-    assert "sinx∼x" in compact_text
-    assert "ln(1+x)∼x" in compact_text
-    assert "√(1+x)−1∼x/2" in compact_text
-    assert "1−cosx∼x²/2" in compact_text
-    assert "Σ(k=0→n−2)" in compact_text
-    assert "(−1/2)^k" in compact_text
-    assert "^(n−1)" in compact_text
-    assert "2/3" in compact_text
-    assert "x_n=x₁+Σ(k=2→n)(x_k−x_(k−1))" in compact_text
+    assert "常见展开式" in extracted_text
+    assert "x_n" not in extracted_text
+    assert "x_(" not in extracted_text
+    assert "x_(n" not in extracted_text
