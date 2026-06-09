@@ -332,7 +332,8 @@ function compactCloudLabel(text: string) {
 function labelsForTranslationEntry(entry: TranslationEntry) {
   const source = entry.source_text.trim().replace(/\s+/g, " ");
   if (!source) return [];
-  if (entry.source_kind === "chinese" || entry.source_kind === "word") return [compactCloudLabel(source)];
+  if (entry.source_kind === "chinese") return [];
+  if (entry.source_kind === "word") return [compactCloudLabel(source)];
 
   const words = source.match(/[A-Za-z][A-Za-z'-]*/g) || [];
   if (words.length <= 3) return [compactCloudLabel(source)];

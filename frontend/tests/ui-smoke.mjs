@@ -389,17 +389,26 @@ async function checkWordCloudDetail(client) {
   const cloud = await evaluate(
     client,
     `(() => {
-      const stage = document.querySelector('.word-cloud-stage').getBoundingClientRect();
+      const stageElement = document.querySelector('.word-cloud-stage');
+      const laneElement = document.querySelector('.word-cloud-lane');
       const runElement = document.querySelector('.word-cloud-run');
+      const stage = stageElement.getBoundingClientRect();
       const run = runElement.getBoundingClientRect();
       const chip = document.querySelector('.word-cloud-chip');
+      const stageStyle = getComputedStyle(stageElement);
+      const laneStyle = getComputedStyle(laneElement);
+      const runStyle = getComputedStyle(runElement);
       const chipStyle = getComputedStyle(chip);
       return {
         stageWidth: Math.round(stage.width),
         stageHeight: Math.round(stage.height),
         runWidth: Math.round(run.width),
         laneCount: document.querySelectorAll('.word-cloud-lane').length,
-        duration: getComputedStyle(runElement).animationDuration,
+        duration: runStyle.animationDuration,
+        stageOverflowY: stageStyle.overflowY,
+        laneOverflowY: laneStyle.overflowY,
+        laneBackground: laneStyle.backgroundColor,
+        runBackground: runStyle.backgroundColor,
         tone: chip.dataset.tone,
         color: chipStyle.color,
         background: chipStyle.backgroundColor
@@ -415,6 +424,12 @@ async function checkWordCloudDetail(client) {
   if (cloud.laneCount !== 4) throw new Error(`word cloud lane count is not four: ${JSON.stringify(cloud)}`);
   if (cloud.stageHeight > 270) throw new Error(`word cloud is too tall: ${JSON.stringify(cloud)}`);
   if (Number.parseFloat(cloud.duration) < 70) throw new Error(`word cloud animation is too fast: ${JSON.stringify(cloud)}`);
+  if (cloud.stageOverflowY !== "visible" || cloud.laneOverflowY !== "visible") {
+    throw new Error(`word cloud lanes clip chips vertically: ${JSON.stringify(cloud)}`);
+  }
+  if (cloud.laneBackground !== "rgba(0, 0, 0, 0)" || cloud.runBackground !== "rgba(0, 0, 0, 0)") {
+    throw new Error(`word cloud lane background is visible: ${JSON.stringify(cloud)}`);
+  }
   if (cloud.background === "rgb(255, 255, 255)" || cloud.background === "rgba(0, 0, 0, 0)") {
     throw new Error(`word cloud chip does not use a soft color: ${JSON.stringify(cloud)}`);
   }
@@ -464,6 +479,15 @@ async function checkWordCloudDetail(client) {
             is_auto_detail: false,
             created_at: new Date().toISOString()
           }, {
+            id: 880000,
+            source_text: "中文词条不应收录",
+            source_kind: "chinese",
+            phonetic: null,
+            result_markdown: "CHINESE DETAIL",
+            detail_status: "ready",
+            is_auto_detail: false,
+            created_at: new Date().toISOString()
+          }, {
             id: 880002,
             source_text: "derivative",
             source_kind: "word",
@@ -499,6 +523,11 @@ async function checkWordCloudDetail(client) {
   );
   if (!splitWord) throw new Error("failed to set up split-word word cloud check");
   await waitFor(client, "Boolean([...document.querySelectorAll('.word-cloud-chip')].find((chip) => chip.dataset.label === 'derivative'))", "split word chip");
+  const hasChineseCloudChip = await evaluate(
+    client,
+    `[...document.querySelectorAll('.word-cloud-chip')].some((chip) => chip.dataset.label === '中文词条不应收录')`
+  );
+  if (hasChineseCloudChip) throw new Error("Chinese translation entry should not be collected into the word cloud");
   await evaluate(client, "[...document.querySelectorAll('.word-cloud-chip')].find((chip) => chip.dataset.label === 'derivative').click()");
   await waitFor(client, "document.querySelector('.word-cloud-detail-content')?.textContent.includes('WORD DETAIL ONLY')", "split word detail");
   const splitWordDetail = await evaluate(

@@ -265,6 +265,8 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("translationCloudItems"));
   assert.ok(app.includes("shuffleTranslationCloudItems"));
   assert.ok(app.includes("buildTranslationCloudLanes"));
+  assert.ok(app.includes('if (entry.source_kind === "chinese") return [];'));
+  assert.ok(app.includes('if (entry.source_kind === "word") return [compactCloudLabel(source)];'));
   assert.ok(app.includes("const wordCloudLaneCount = 4;"));
   assert.ok(app.includes("const laneCount = wordCloudLaneCount;"));
   assert.ok(app.includes("duration: 72 + index * 12"));
@@ -323,7 +325,9 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-phonetic\s*{[^}]*font-family:\s*"SFMono-Regular",\s*Consolas,\s*"Liberation Mono",\s*monospace;/s);
   assert.match(styles, /\.translation-input-meta\.over-limit\s*{[^}]*color:\s*#b42318;/s);
   assert.match(styles, /\.translation-cloud\s*{[^}]*position:\s*relative;[^}]*background:\s*var\(--surface\);[^}]*height:\s*clamp\(184px,\s*24vh,\s*260px\);[^}]*min-height:\s*0;[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);/s);
-  assert.match(styles, /\.word-cloud-stage\s*{[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-template-rows:\s*repeat\(4,\s*minmax\(30px,\s*auto\)\);/s);
+  assert.match(styles, /\.word-cloud-stage\s*{[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-template-rows:\s*repeat\(4,\s*minmax\(30px,\s*auto\)\);[^}]*overflow-y:\s*visible;[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.word-cloud-lane\s*{[^}]*min-width:\s*0;[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*visible;[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.word-cloud-run\s*{[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*animation:\s*word-cloud-marquee var\(--lane-duration\) linear infinite;/s);
   for (const size of ["1", "2", "3", "4", "5"]) {
     assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-size="${size}"\\]`));

@@ -1547,13 +1547,16 @@ textarea:focus {
   align-content: space-evenly;
   grid-template-rows: repeat(4, minmax(30px, auto));
   gap: 8px;
-  overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-x: visible;
+  overflow-y: visible;
+  background: transparent;
 }
 
 .word-cloud-lane {
   min-width: 0;
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: visible;
+  background: transparent;
 }
 
 .word-cloud-run {
@@ -1562,6 +1565,7 @@ textarea:focus {
   align-items: center;
   gap: 12px;
   padding-right: 24px;
+  background: transparent;
   will-change: transform;
   animation: word-cloud-marquee var(--lane-duration) linear infinite;
   animation-delay: var(--lane-delay);
