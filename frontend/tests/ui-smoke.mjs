@@ -283,7 +283,7 @@ async function checkLiveMathRendering(client) {
 }
 
 async function checkTranslationLoadingLayout(client) {
-  await evaluate(client, "document.querySelector('button[aria-label=\"翻译\"]').click()");
+  await evaluate(client, "document.querySelector('.app-nav button[aria-label=\"翻译\"]').click()");
   await waitFor(client, "Boolean(document.querySelector('.translation-panel'))", "translation panel");
   await waitFor(client, "Boolean(document.querySelector('.translation-submit') && document.querySelector('.translation-result'))", "translation workbench");
   const before = await evaluate(
@@ -378,17 +378,25 @@ async function checkTranslationLoadingLayout(client) {
 }
 
 async function checkWordCloudDetail(client) {
-  await waitFor(client, "Boolean(document.querySelector('.word-cloud-chip'))", "translation word cloud chips");
+  await waitFor(
+    client,
+    "Boolean(document.querySelector('.word-cloud-stage') && document.querySelector('.word-cloud-run') && document.querySelector('.word-cloud-chip'))",
+    "translation word cloud chips"
+  );
   const cloud = await evaluate(
     client,
     `(() => {
       const stage = document.querySelector('.word-cloud-stage').getBoundingClientRect();
-      const run = document.querySelector('.word-cloud-run').getBoundingClientRect();
+      const runElement = document.querySelector('.word-cloud-run');
+      const run = runElement.getBoundingClientRect();
       const chip = document.querySelector('.word-cloud-chip');
       const chipStyle = getComputedStyle(chip);
       return {
         stageWidth: Math.round(stage.width),
+        stageHeight: Math.round(stage.height),
         runWidth: Math.round(run.width),
+        laneCount: document.querySelectorAll('.word-cloud-lane').length,
+        duration: getComputedStyle(runElement).animationDuration,
         tone: chip.dataset.tone,
         color: chipStyle.color,
         background: chipStyle.backgroundColor
@@ -401,6 +409,9 @@ async function checkWordCloudDetail(client) {
   if (!["1", "2", "3", "4", "5", "6"].includes(cloud.tone)) {
     throw new Error(`word cloud chip tone is missing: ${JSON.stringify(cloud)}`);
   }
+  if (cloud.laneCount !== 4) throw new Error(`word cloud lane count is not four: ${JSON.stringify(cloud)}`);
+  if (cloud.stageHeight > 270) throw new Error(`word cloud is too tall: ${JSON.stringify(cloud)}`);
+  if (Number.parseFloat(cloud.duration) < 70) throw new Error(`word cloud animation is too fast: ${JSON.stringify(cloud)}`);
   if (cloud.background === "rgb(255, 255, 255)" || cloud.background === "rgba(0, 0, 0, 0)") {
     throw new Error(`word cloud chip does not use a soft color: ${JSON.stringify(cloud)}`);
   }
@@ -430,6 +441,75 @@ async function checkWordCloudDetail(client) {
   await waitFor(client, "Boolean(document.querySelector('.word-cloud-detail-backdrop'))", "word cloud detail reopen");
   await evaluate(client, "document.querySelector('.word-cloud-detail-backdrop').click()");
   await waitFor(client, "!document.querySelector('.word-cloud-detail-backdrop')", "word cloud detail backdrop close");
+
+  const splitWord = await evaluate(
+    client,
+    `(async () => {
+      const originalFetch = window.fetch.bind(window);
+      window.__dailyreviewWordCloudFetch = originalFetch;
+      window.fetch = (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        const method = init?.method || (typeof input === "string" ? "GET" : input.method);
+        if (url.endsWith("/api/translation/entries")) {
+          return Promise.resolve(new Response(JSON.stringify([{
+            id: 880001,
+            source_text: "The derivative problem requires careful limits",
+            source_kind: "english",
+            result_markdown: "ORIGINAL SENTENCE DETAIL",
+            created_at: new Date().toISOString()
+          }]), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        if (url.endsWith("/api/translation") && method === "POST") {
+          const body = JSON.parse(init.body);
+          window.__dailyreviewWordCloudTranslatedText = body.text;
+          return Promise.resolve(new Response(JSON.stringify({
+            id: 880002,
+            source_text: body.text,
+            source_kind: "word",
+            result_markdown: "WORD DETAIL ONLY",
+            created_at: new Date().toISOString()
+          }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        return originalFetch(input, init);
+      };
+      document.querySelector('.app-nav button[aria-label="翻译"]').click();
+      document.querySelector('.app-nav button[aria-label="问答"]').click();
+      window.setTimeout(() => document.querySelector('.app-nav button[aria-label="翻译"]').click(), 0);
+      return true;
+    })()`,
+    true
+  );
+  if (!splitWord) throw new Error("failed to set up split-word word cloud check");
+  await waitFor(client, "Boolean([...document.querySelectorAll('.word-cloud-chip')].find((chip) => chip.dataset.label === 'derivative'))", "split word chip");
+  await evaluate(client, "[...document.querySelectorAll('.word-cloud-chip')].find((chip) => chip.dataset.label === 'derivative').click()");
+  await waitFor(client, "document.querySelector('.word-cloud-detail-content')?.textContent.includes('WORD DETAIL ONLY')", "split word detail");
+  const splitWordDetail = await evaluate(
+    client,
+    `(() => ({
+      requestedText: window.__dailyreviewWordCloudTranslatedText,
+      detailText: document.querySelector('.word-cloud-detail-content')?.textContent || ""
+    }))()`
+  );
+  if (splitWordDetail.requestedText !== "derivative") {
+    throw new Error(`split word detail requested wrong text: ${JSON.stringify(splitWordDetail)}`);
+  }
+  if (splitWordDetail.detailText.includes("ORIGINAL SENTENCE DETAIL")) {
+    throw new Error(`split word detail shows original sentence detail: ${JSON.stringify(splitWordDetail)}`);
+  }
+  await evaluate(
+    client,
+    `(() => {
+      if (window.__dailyreviewWordCloudFetch) {
+        window.fetch = window.__dailyreviewWordCloudFetch;
+        delete window.__dailyreviewWordCloudFetch;
+        delete window.__dailyreviewWordCloudTranslatedText;
+      }
+      document.querySelector('.word-cloud-detail-backdrop')?.click();
+      return true;
+    })()`,
+    true
+  );
+  await waitFor(client, "!document.querySelector('.word-cloud-detail-backdrop')", "split word detail close");
 }
 
 async function checkTranslationInputLimit(client) {

@@ -264,11 +264,17 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("translationCloudItems"));
   assert.ok(app.includes("shuffleTranslationCloudItems"));
   assert.ok(app.includes("buildTranslationCloudLanes"));
-  assert.ok(app.includes("Math.min(8, Math.max(4, Math.ceil(shuffled.length / 5)))"));
+  assert.ok(app.includes("const wordCloudLaneCount = 4;"));
+  assert.ok(app.includes("const laneCount = wordCloudLaneCount;"));
+  assert.ok(app.includes("duration: 72 + index * 12"));
   assert.ok(app.includes("function cloudTone"));
+  assert.ok(app.includes("function cloudDetailEntryForItem"));
+  assert.ok(app.includes("const translated = await api.translate(item.label);"));
+  assert.ok(app.includes("onEntryCreated(translated);"));
   assert.ok(app.includes("repeated.length < 32"));
   assert.ok(app.includes("data-size={item.weight}"));
   assert.ok(app.includes("data-tone={cloudTone(item.key)}"));
+  assert.ok(app.includes("data-label={item.label}"));
   assert.ok(app.includes("word-cloud-stage"));
   assert.ok(app.includes("word-cloud-lane"));
   assert.ok(app.includes("word-cloud-run"));
@@ -278,7 +284,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("word-cloud-detail-content"));
   assert.ok(app.includes("word-cloud-detail-close"));
   assert.ok(app.includes("aria-modal=\"true\""));
-  assert.ok(app.includes("setDetailItem(null)"));
+  assert.ok(app.includes("closeCloudDetail"));
   assert.ok(app.includes("TranslationLoading"));
   assert.ok(app.includes("translation-submit-label"));
   assert.ok(app.includes("translation-submit-loader"));
@@ -305,8 +311,8 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-result-content\s*{[^}]*min-height:\s*168px;[^}]*max-height:\s*clamp\(168px,\s*32vh,\s*360px\);[^}]*overflow-y:\s*auto;[^}]*display:\s*grid;/s);
   assert.match(styles, /\.translation-result\.is-loading \.translation-result-content\s*{[^}]*opacity:\s*0\.42;/s);
   assert.match(styles, /\.translation-input-meta\.over-limit\s*{[^}]*color:\s*#b42318;/s);
-  assert.match(styles, /\.translation-cloud\s*{[^}]*position:\s*relative;[^}]*background:\s*var\(--surface\);[^}]*min-height:\s*clamp\(320px,\s*calc\(100dvh - 390px\),\s*620px\);[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);/s);
-  assert.match(styles, /\.word-cloud-stage\s*{[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-auto-rows:\s*minmax\(30px,\s*auto\);/s);
+  assert.match(styles, /\.translation-cloud\s*{[^}]*position:\s*relative;[^}]*background:\s*var\(--surface\);[^}]*height:\s*clamp\(184px,\s*24vh,\s*260px\);[^}]*min-height:\s*0;[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);/s);
+  assert.match(styles, /\.word-cloud-stage\s*{[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-template-rows:\s*repeat\(4,\s*minmax\(30px,\s*auto\)\);/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*animation:\s*word-cloud-marquee var\(--lane-duration\) linear infinite;/s);
   for (const size of ["1", "2", "3", "4", "5"]) {
     assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-size="${size}"\\]`));
@@ -318,7 +324,9 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.word-cloud-detail-backdrop\s*{[^}]*position:\s*fixed;[^}]*backdrop-filter:\s*blur\(18px\);/s);
   assert.match(styles, /\.word-cloud-detail-card\s*{[^}]*backdrop-filter:\s*blur\(28px\);[^}]*max-height:\s*min\(72vh,\s*620px\);/s);
   assert.match(styles, /\.word-cloud-detail-content\s*{[^}]*overflow-y:\s*auto;/s);
+  assert.match(styles, /\.word-cloud-detail-loading\s*{[^}]*min-height:\s*180px;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);
+  assert.doesNotMatch(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-stage\s*{[^}]*min-height:\s*clamp\(190px,\s*30vh,\s*260px\);/);
   assert.doesNotMatch(styles, /@media \(max-width:\s*620px\)[\s\S]*\.translation-empty,\s*\.translation-result-loading\s*{/);
 });
 

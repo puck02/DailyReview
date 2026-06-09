@@ -1513,7 +1513,8 @@ textarea:focus {
 .translation-cloud {
   position: relative;
   background: var(--surface);
-  min-height: clamp(320px, calc(100dvh - 390px), 620px);
+  height: clamp(184px, 24vh, 260px);
+  min-height: 0;
   border: 1px solid var(--stroke);
   border-radius: 16px;
   box-shadow: var(--shadow-soft);
@@ -1530,8 +1531,8 @@ textarea:focus {
   min-height: 0;
   display: grid;
   align-content: space-evenly;
-  grid-auto-rows: minmax(30px, auto);
-  gap: 10px;
+  grid-template-rows: repeat(4, minmax(30px, auto));
+  gap: 8px;
   overflow-x: hidden;
   overflow-y: hidden;
 }
@@ -1744,6 +1745,16 @@ textarea:focus {
   min-height: 0;
   overflow-y: auto;
   padding: 18px;
+}
+
+.word-cloud-detail-loading {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  color: var(--muted-text);
+  font-size: 13px;
 }
 
 .report-toolbar {
@@ -1971,7 +1982,6 @@ textarea:focus {
   }
 
   .word-cloud-stage {
-    min-height: clamp(190px, 30vh, 260px);
     mask-image: none;
   }
 

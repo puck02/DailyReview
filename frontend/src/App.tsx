@@ -76,6 +76,7 @@ const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
+const wordCloudLaneCount = 4;
 const openingLines = [
   "准备好了，随时开始",
   "有什么想学的，直接开始",
@@ -387,13 +388,13 @@ function shuffleTranslationCloudItems(items: TranslationCloudItem[]) {
 function buildTranslationCloudLanes(items: TranslationCloudItem[]): TranslationCloudLane[] {
   const shuffled = shuffleTranslationCloudItems(items);
   if (!shuffled.length) return [];
-  const laneCount = Math.min(8, Math.max(4, Math.ceil(shuffled.length / 5)));
+  const laneCount = wordCloudLaneCount;
   const lanes = Array.from({ length: laneCount }, (_, index) => {
     const laneItems = shuffled.filter((_, itemIndex) => itemIndex % laneCount === index);
     const rotated = [...shuffled.slice(index % shuffled.length), ...shuffled.slice(0, index % shuffled.length)];
     return {
       id: index,
-      duration: 24 + (index % 5) * 4,
+      duration: 72 + index * 12,
       delay: -index * 3,
       items: laneItems.length >= 3 ? laneItems : rotated.slice(0, Math.min(8, rotated.length))
     };
@@ -417,18 +418,73 @@ function repeatedLaneItems(items: TranslationCloudItem[]) {
   return repeated.slice(0, 32);
 }
 
+function cloudLookupKey(text: string) {
+  return text.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function cloudDetailEntryForItem(item: TranslationCloudItem, entries: TranslationEntry[]) {
+  const labelKey = cloudLookupKey(item.label);
+  const sourceKey = cloudLookupKey(item.entry.source_text);
+  if (item.entry.source_kind !== "english" || sourceKey === labelKey || item.label.endsWith("...")) return item.entry;
+  return (
+    entries.find((entry) => entry.source_kind === "word" && cloudLookupKey(entry.source_text) === labelKey) ||
+    entries.find((entry) => cloudLookupKey(entry.source_text) === labelKey) ||
+    null
+  );
+}
+
 function TranslationWordCloud({
   entries,
   activeId,
-  onSelect
+  onSelect,
+  onEntryCreated
 }: {
   entries: TranslationEntry[];
   activeId: number | null;
   onSelect: (entry: TranslationEntry) => void;
+  onEntryCreated: (entry: TranslationEntry) => void;
 }) {
   const items = useMemo(() => translationCloudItems(entries), [entries]);
   const lanes = useMemo(() => buildTranslationCloudLanes(items), [items]);
-  const [detailItem, setDetailItem] = useState<TranslationCloudItem | null>(null);
+  const detailRequestRef = useRef(0);
+  const [detailState, setDetailState] = useState<{
+    label: string;
+    entry: TranslationEntry | null;
+    loading: boolean;
+    error: string;
+  } | null>(null);
+
+  async function openCloudDetail(item: TranslationCloudItem) {
+    const existing = cloudDetailEntryForItem(item, entries);
+    const requestId = detailRequestRef.current + 1;
+    detailRequestRef.current = requestId;
+    setDetailState({ label: item.label, entry: existing, loading: !existing, error: "" });
+    if (existing) {
+      onSelect(existing);
+      return;
+    }
+
+    try {
+      const translated = await api.translate(item.label);
+      if (detailRequestRef.current !== requestId) return;
+      onEntryCreated(translated);
+      onSelect(translated);
+      setDetailState({ label: item.label, entry: translated, loading: false, error: "" });
+    } catch (err) {
+      if (detailRequestRef.current !== requestId) return;
+      setDetailState({
+        label: item.label,
+        entry: null,
+        loading: false,
+        error: err instanceof Error ? err.message : "词条详解生成失败"
+      });
+    }
+  }
+
+  function closeCloudDetail() {
+    detailRequestRef.current += 1;
+    setDetailState(null);
+  }
 
   return (
     <>
@@ -458,10 +514,8 @@ function TranslationWordCloud({
                         className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
                         data-size={item.weight}
                         data-tone={cloudTone(item.key)}
-                        onClick={() => {
-                          onSelect(item.entry);
-                          setDetailItem(item);
-                        }}
+                        data-label={item.label}
+                        onClick={() => openCloudDetail(item)}
                       >
                         <span>{item.label}</span>
                         {item.count > 1 && <small>{item.count}</small>}
@@ -476,24 +530,24 @@ function TranslationWordCloud({
           <div className="translation-cloud-empty">翻译几次后，这里会积累词和短语。</div>
         )}
       </section>
-      {detailItem && (
+      {detailState && (
         <div
           className="word-cloud-detail-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label={`${detailItem.label} 详解`}
-          onClick={() => setDetailItem(null)}
+          aria-label={`${detailState.label} 详解`}
+          onClick={closeCloudDetail}
         >
           <div className="word-cloud-detail-card" onClick={(event) => event.stopPropagation()}>
             <div className="word-cloud-detail-head">
               <div>
                 <span>详解</span>
-                <strong>{detailItem.label}</strong>
+                <strong>{detailState.label}</strong>
               </div>
               <button
                 type="button"
                 className="word-cloud-detail-close"
-                onClick={() => setDetailItem(null)}
+                onClick={closeCloudDetail}
                 aria-label="关闭详解"
                 title="关闭"
               >
@@ -501,7 +555,16 @@ function TranslationWordCloud({
               </button>
             </div>
             <div className="word-cloud-detail-content">
-              <MarkdownRenderer markdown={detailItem.entry.result_markdown} className="translation-markdown" />
+              {detailState.loading ? (
+                <div className="word-cloud-detail-loading">
+                  <TranslationLoading />
+                  <span>正在生成词条详解</span>
+                </div>
+              ) : detailState.error ? (
+                <div className="form-error">{detailState.error}</div>
+              ) : detailState.entry ? (
+                <MarkdownRenderer markdown={detailState.entry.result_markdown} className="translation-markdown" />
+              ) : null}
             </div>
           </div>
         </div>
@@ -1192,7 +1255,14 @@ function TranslationView() {
 
         {(error || saved) && <div className={error ? "form-error" : "form-success"}>{error || saved}</div>}
 
-        <TranslationWordCloud entries={entries} activeId={activeResult?.id || null} onSelect={setResult} />
+        <TranslationWordCloud
+          entries={entries}
+          activeId={activeResult?.id || null}
+          onSelect={setResult}
+          onEntryCreated={(entry) => {
+            setEntries((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 30));
+          }}
+        />
       </div>
     </section>
   );
