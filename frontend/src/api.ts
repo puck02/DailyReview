@@ -189,6 +189,11 @@ export const api = {
       body: JSON.stringify({ system_prompt: systemPrompt })
     }),
   translationEntries: () => request<TranslationEntry[]>("/api/translation/entries"),
+  translationDictionaryEntry: (text: string) =>
+    request<TranslationEntry>("/api/translation/dictionary-entry", {
+      method: "POST",
+      body: JSON.stringify({ text })
+    }),
   translate: (text: string) =>
     request<TranslationEntry>("/api/translation", {
       method: "POST",

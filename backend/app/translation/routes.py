@@ -69,6 +69,32 @@ def _session_factory_for(db: Session) -> sessionmaker[Session]:
     return sessionmaker(bind=db.get_bind(), autoflush=False, autocommit=False)
 
 
+def _save_dictionary_entry(db: Session, user_id: int, text: str, is_auto_detail: bool) -> TranslationEntry | None:
+    dictionary_entry = find_netem_word(text)
+    if dictionary_entry is None:
+        return None
+    source_text = dictionary_entry.word
+    entry = db.scalar(
+        select(TranslationEntry).where(
+            TranslationEntry.user_id == user_id,
+            TranslationEntry.source_kind == "word",
+            TranslationEntry.source_text == source_text,
+        )
+    )
+    is_new_entry = entry is None
+    if entry is None:
+        entry = TranslationEntry(user_id=user_id, source_text=source_text, source_kind="word")
+        db.add(entry)
+    entry.phonetic = dictionary_entry.phonetic or None
+    entry.result_markdown = render_netem_markdown(dictionary_entry)
+    entry.detail_status = "ready"
+    if is_new_entry or not is_auto_detail:
+        entry.is_auto_detail = is_auto_detail
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
 @router.get("/prompt", response_model=TranslationPromptResponse)
 def read_translation_prompt(
     user: User = Depends(get_current_user),
@@ -100,6 +126,18 @@ def list_translation_entries(
     return [translation_response(entry) for entry in entries]
 
 
+@router.post("/dictionary-entry", response_model=TranslationResponse)
+def get_dictionary_entry(
+    payload: TranslationRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TranslationResponse:
+    entry = _save_dictionary_entry(db, user.id, payload.text.strip(), is_auto_detail=True)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="未在考研英语一词典中命中")
+    return translation_response(entry)
+
+
 @router.post("", response_model=TranslationResponse)
 async def translate_text(
     payload: TranslationRequest,
@@ -110,21 +148,10 @@ async def translate_text(
         raise HTTPException(status_code=400, detail=TRANSLATION_LIMIT_MESSAGE)
     text = payload.text.strip()
     source_kind = detect_source_kind(text)
-    dictionary_entry = find_netem_word(text) if source_kind == "word" else None
-    if dictionary_entry is not None:
-        entry = TranslationEntry(
-            user_id=user.id,
-            source_text=text.lower(),
-            source_kind=source_kind,
-            phonetic=dictionary_entry.phonetic or None,
-            result_markdown=render_netem_markdown(dictionary_entry),
-            detail_status="ready",
-            is_auto_detail=False,
-        )
-        db.add(entry)
-        db.commit()
-        db.refresh(entry)
-        return translation_response(entry)
+    if source_kind == "word":
+        entry = _save_dictionary_entry(db, user.id, text, is_auto_detail=False)
+        if entry is not None:
+            return translation_response(entry)
 
     fallback = fallback_translation(text, source_kind)
     ai_config = get_ai_config(db)
@@ -167,18 +194,8 @@ async def translate_text(
         for label in labels_for_auto_word_details(text):
             if label in existing_words:
                 continue
-            dictionary_entry = find_netem_word(label)
-            if dictionary_entry is not None:
-                detail_entry = TranslationEntry(
-                    user_id=user.id,
-                    source_text=label,
-                    source_kind="word",
-                    phonetic=dictionary_entry.phonetic or None,
-                    result_markdown=render_netem_markdown(dictionary_entry),
-                    detail_status="ready",
-                    is_auto_detail=True,
-                )
-                db.add(detail_entry)
+            detail_entry = _save_dictionary_entry(db, user.id, label, is_auto_detail=True)
+            if detail_entry is not None:
                 existing_words.add(label)
                 continue
             detail_entry = TranslationEntry(

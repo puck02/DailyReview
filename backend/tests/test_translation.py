@@ -238,6 +238,64 @@ def test_english_sentence_uses_dictionary_for_auto_word_details(tmp_path: Path, 
     app.dependency_overrides.clear()
 
 
+def test_dictionary_entry_api_creates_ready_word_without_ai_call(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    called = False
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        nonlocal called
+        called = True
+        return "should not be called"
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation/dictionary-entry", json={"text": "responsibility"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert called is False
+    assert payload["source_kind"] == "word"
+    assert payload["detail_status"] == "ready"
+    assert payload["phonetic"] == "/ɹiˌspɑnsəˈbɪɫəti/"
+    assert "责任" in payload["result_markdown"]
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry)).all()
+    assert len(entries) == 1
+    assert entries[0].source_text == "responsibility"
+    app.dependency_overrides.clear()
+
+
+def test_dictionary_entry_api_backfills_existing_queued_word(tmp_path: Path):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    with session_factory() as db:
+        db.add(
+            TranslationEntry(
+                user_id=1,
+                source_text="responsibility",
+                source_kind="word",
+                result_markdown="",
+                detail_status="queued",
+                is_auto_detail=True,
+            )
+        )
+        db.commit()
+
+    response = client.post("/api/translation/dictionary-entry", json={"text": "responsibility"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["detail_status"] == "ready"
+    assert "责任" in payload["result_markdown"]
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry)).all()
+    assert len(entries) == 1
+    assert entries[0].detail_status == "ready"
+    assert entries[0].result_markdown.strip()
+    app.dependency_overrides.clear()
+
+
 def test_translation_rejects_over_limit_text_before_ai_call(tmp_path: Path, monkeypatch):
     client, session_factory = make_client(tmp_path)
     login_admin(client)

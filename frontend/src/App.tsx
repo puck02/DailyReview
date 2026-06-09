@@ -500,11 +500,13 @@ function isTranslationDetailPending(entry: TranslationEntry) {
 function TranslationWordCloud({
   entries,
   activeId,
-  onSelect
+  onSelect,
+  onDictionaryEntry
 }: {
   entries: TranslationEntry[];
   activeId: number | null;
   onSelect: (entry: TranslationEntry) => void;
+  onDictionaryEntry: (entry: TranslationEntry) => void;
 }) {
   const items = useMemo(() => translationCloudItems(entries), [entries]);
   const lanes = useMemo(() => buildTranslationCloudLanes(items), [items]);
@@ -526,12 +528,26 @@ function TranslationWordCloud({
     );
   }, [detailState, entries]);
 
-  function openCloudDetail(item: TranslationCloudItem) {
+  async function openCloudDetail(item: TranslationCloudItem) {
     const existing = cloudDetailEntryForItem(item, entries);
     setDetailState({ label: item.label, entry: existing, error: "" });
     if (existing) {
       if (existing.detail_status === "ready" || existing.result_markdown.trim()) onSelect(existing);
-      return;
+      if (existing.detail_status === "ready" || item.label.endsWith("...")) return;
+    }
+    if (item.label.endsWith("...")) return;
+    try {
+      const dictionaryEntry = await api.translationDictionaryEntry(item.label);
+      onDictionaryEntry(dictionaryEntry);
+      onSelect(dictionaryEntry);
+      setDetailState({ label: item.label, entry: dictionaryEntry, error: "" });
+    } catch (err) {
+      if (existing) return;
+      setDetailState({
+        label: item.label,
+        entry: null,
+        error: err instanceof Error ? err.message : "未在考研英语一词典中命中"
+      });
     }
   }
 
@@ -1470,6 +1486,9 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
             entries={entries}
             activeId={activeResult?.id || null}
             onSelect={setResult}
+            onDictionaryEntry={(entry) =>
+              setEntries((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 30))
+            }
           />
         ) : null}
       </div>
