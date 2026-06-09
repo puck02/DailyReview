@@ -25,6 +25,38 @@ def normalize_lookup_word(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+def _candidate_lemmas(word: str) -> list[str]:
+    normalized = normalize_lookup_word(word)
+    candidates = [normalized]
+    if not re.fullmatch(r"[a-z][a-z'-]*", normalized):
+        return candidates
+
+    if normalized.endswith("ies") and len(normalized) > 4:
+        candidates.append(normalized[:-3] + "y")
+    if normalized.endswith("ied") and len(normalized) > 4:
+        candidates.append(normalized[:-3] + "y")
+    if normalized.endswith("ing") and len(normalized) > 5:
+        stem = normalized[:-3]
+        candidates.append(stem)
+        candidates.append(stem + "e")
+        if len(stem) > 2 and stem[-1] == stem[-2]:
+            candidates.append(stem[:-1])
+    if normalized.endswith("ed") and len(normalized) > 4:
+        stem = normalized[:-2]
+        candidates.append(stem)
+        candidates.append(stem + "e")
+        if len(stem) > 2 and stem[-1] == stem[-2]:
+            candidates.append(stem[:-1])
+    if normalized.endswith("es") and len(normalized) > 4:
+        candidates.append(normalized[:-1])
+        if re.search(r"(ches|shes|xes|zes|sses|oes)$", normalized):
+            candidates.append(normalized[:-2])
+    if normalized.endswith("s") and len(normalized) > 3 and not normalized.endswith(("ss", "us", "is")):
+        candidates.append(normalized[:-1])
+
+    return list(dict.fromkeys(candidates))
+
+
 @lru_cache(maxsize=1)
 def _load_vocabulary() -> dict[str, Any]:
     if not DATA_PATH.exists():
@@ -34,8 +66,11 @@ def _load_vocabulary() -> dict[str, Any]:
 
 def find_netem_word(word: str) -> NetemVocabularyEntry | None:
     vocabulary = _load_vocabulary()
-    lookup_word = normalize_lookup_word(word)
-    primary = vocabulary["lookup"].get(lookup_word)
+    primary = None
+    for lookup_word in _candidate_lemmas(word):
+        primary = vocabulary["lookup"].get(lookup_word)
+        if primary:
+            break
     if not primary:
         return None
     entry = vocabulary["entries"].get(primary)
@@ -53,19 +88,9 @@ def find_netem_word(word: str) -> NetemVocabularyEntry | None:
     )
 
 
-def render_netem_markdown(entry: NetemVocabularyEntry) -> str:
-    category = " / ".join(item for item in [entry.category, entry.subcategory] if item)
-    variants = "、".join(entry.variants) if entry.variants else "无"
-    lines = [
-        "### 考纲释义",
-        f"- **{entry.word}**：{entry.definition}",
-        "",
-        "### 记忆信息",
-        f"- 词频：{entry.frequency}（考纲排序第 {entry.rank}）",
-        f"- 分类：{category or '未分类'}",
-        f"- 其他拼写：{variants}",
-        "",
-        "### 用法提示",
-        f"- 先记核心义“{entry.definition}”，再结合阅读语境判断具体译法。",
-    ]
-    return "\n".join(lines)
+def normalize_word_lemma(word: str) -> str:
+    dictionary_entry = find_netem_word(word)
+    if dictionary_entry is not None:
+        return dictionary_entry.word
+    candidates = _candidate_lemmas(word)
+    return candidates[1] if len(candidates) > 1 else candidates[0]

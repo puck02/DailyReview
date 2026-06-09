@@ -12,8 +12,9 @@ from app.translation.service import (
     extract_phonetic_and_markdown,
     fallback_translation,
     get_translation_prompt,
+    is_thin_dictionary_markdown,
 )
-from app.translation.vocabulary import find_netem_word, render_netem_markdown
+from app.translation.vocabulary import find_netem_word
 
 
 word_detail_queue: asyncio.Queue[tuple[int, AiConfig | None]] | None = None
@@ -50,13 +51,29 @@ def enqueue_word_detail_job(
 
 def enqueue_pending_word_detail_jobs(session_factory: sessionmaker[Session]) -> None:
     with session_factory() as db:
+        thin_entries = db.scalars(
+            select(TranslationEntry).where(
+                TranslationEntry.source_kind == "word",
+                TranslationEntry.detail_status == "ready",
+            )
+        ).all()
+        thin_entry_ids: list[int] = []
+        for entry in thin_entries:
+            if not is_thin_dictionary_markdown(entry.result_markdown):
+                continue
+            entry.result_markdown = ""
+            entry.detail_status = "queued"
+            entry.is_auto_detail = True
+            thin_entry_ids.append(entry.id)
+        if thin_entry_ids:
+            db.commit()
         entry_ids = db.scalars(
             select(TranslationEntry.id).where(
                 TranslationEntry.is_auto_detail.is_(True),
                 TranslationEntry.detail_status.in_(["queued", "processing"]),
             )
         ).all()
-    for entry_id in entry_ids:
+    for entry_id in dict.fromkeys([*entry_ids, *thin_entry_ids]):
         enqueue_word_detail_job(entry_id, session_factory)
 
 
@@ -89,10 +106,7 @@ async def generate_word_detail(
         dictionary_entry = find_netem_word(word)
         if dictionary_entry is not None:
             entry.phonetic = dictionary_entry.phonetic or None
-            entry.result_markdown = render_netem_markdown(dictionary_entry)
-            entry.detail_status = "ready"
             db.commit()
-            return
         user_id = entry.user_id
         system_prompt = get_translation_prompt(db, user_id)
         config = ai_config or get_ai_config(db)
@@ -113,7 +127,7 @@ async def generate_word_detail(
             entry = db.get(TranslationEntry, entry_id)
             if entry is None:
                 return
-            entry.phonetic = phonetic
+            entry.phonetic = phonetic or entry.phonetic
             entry.result_markdown = markdown
             entry.detail_status = "ready"
             db.commit()

@@ -9,6 +9,7 @@ from app.db import create_session_factory, get_db, initialize_database
 from app.main import app
 from app.models import Message, TranslationEntry, User
 from app.reports.service import generate_daily_report
+from app.translation import queue as translation_queue
 from app.translation import routes as translation_routes
 
 
@@ -163,15 +164,14 @@ def test_translation_falls_back_when_ai_service_fails(tmp_path: Path, monkeypatc
     app.dependency_overrides.clear()
 
 
-def test_netem_dictionary_word_returns_without_ai_call(tmp_path: Path, monkeypatch):
+def test_netem_dictionary_word_uses_ai_prompt_instead_of_thin_dictionary_markdown(tmp_path: Path, monkeypatch):
     client, session_factory = make_client(tmp_path)
     login_admin(client)
-    called = False
+    captured: dict[str, str] = {}
 
     async def fake_complete_chat(messages, model, fallback, ai_config):
-        nonlocal called
-        called = True
-        return "should not be called"
+        captured["user"] = messages[1]["content"]
+        return "音标：/əˈbændən/\n\n### 释义\n- **abandon**：放弃；抛弃。\n\n### 用法\n- abandon a plan：放弃计划。"
 
     monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
 
@@ -179,12 +179,13 @@ def test_netem_dictionary_word_returns_without_ai_call(tmp_path: Path, monkeypat
 
     assert response.status_code == 200
     payload = response.json()
-    assert called is False
     assert payload["source_kind"] == "word"
+    assert payload["source_text"] == "abandon"
     assert payload["phonetic"] == "/əˈbændən/"
-    assert "考纲释义" in payload["result_markdown"]
-    assert "抛弃" in payload["result_markdown"]
-    assert "词频" in payload["result_markdown"]
+    assert "输入内容：\nabandon" in captured["user"]
+    assert "考纲释义" not in payload["result_markdown"]
+    assert "词频" not in payload["result_markdown"]
+    assert "abandon a plan" in payload["result_markdown"]
     with session_factory() as db:
         entries = db.scalars(select(TranslationEntry)).all()
     assert len(entries) == 1
@@ -192,25 +193,31 @@ def test_netem_dictionary_word_returns_without_ai_call(tmp_path: Path, monkeypat
     app.dependency_overrides.clear()
 
 
-def test_netem_dictionary_keeps_case_variant_senses(tmp_path: Path, monkeypatch):
-    client, _session_factory = make_client(tmp_path)
+def test_inflected_dictionary_word_is_stored_as_lemma(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
     login_admin(client)
+    captured: dict[str, str] = {}
 
     async def fake_complete_chat(messages, model, fallback, ai_config):
-        return "should not be called"
+        captured["user"] = messages[1]["content"]
+        return "音标：/rɪˈkwaɪər/\n\n### 释义\n- **require**：需要；要求。"
 
     monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
 
-    response = client.post("/api/translation", json={"text": "may"})
+    response = client.post("/api/translation", json={"text": "requires"})
 
     assert response.status_code == 200
     payload = response.json()
-    assert "可能、祝" in payload["result_markdown"]
-    assert "五月" in payload["result_markdown"]
+    assert payload["source_text"] == "require"
+    assert "输入内容：\nrequire" in captured["user"]
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry)).all()
+    assert len(entries) == 1
+    assert entries[0].source_text == "require"
     app.dependency_overrides.clear()
 
 
-def test_english_sentence_uses_dictionary_for_auto_word_details(tmp_path: Path, monkeypatch):
+def test_english_sentence_normalizes_auto_word_details_and_queues_ai_generation(tmp_path: Path, monkeypatch):
     client, session_factory = make_client(tmp_path)
     login_admin(client)
     queued_entry_ids: list[int] = []
@@ -224,56 +231,84 @@ def test_english_sentence_uses_dictionary_for_auto_word_details(tmp_path: Path, 
     monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
     monkeypatch.setattr(translation_routes, "enqueue_word_detail_job", fake_enqueue_word_detail_job, raising=False)
 
-    response = client.post("/api/translation", json={"text": "Responsibility requires action and response"})
+    response = client.post("/api/translation", json={"text": "Teams required studies and response"})
 
     assert response.status_code == 200
     with session_factory() as db:
         entries = db.scalars(select(TranslationEntry).where(TranslationEntry.user_id == 1)).all()
-    responsibility = next(entry for entry in entries if entry.source_kind == "word" and entry.source_text == "responsibility")
-    assert responsibility.is_auto_detail is True
-    assert responsibility.detail_status == "ready"
-    assert responsibility.phonetic == "/ɹiˌspɑnsəˈbɪɫəti/"
-    assert "责任" in responsibility.result_markdown
-    assert responsibility.id not in queued_entry_ids
+    words = {entry.source_text: entry for entry in entries if entry.source_kind == "word"}
+    assert "team" in words
+    assert "require" in words
+    assert "study" in words
+    assert "teams" not in words
+    assert "required" not in words
+    assert "studies" not in words
+    assert words["require"].is_auto_detail is True
+    assert words["require"].detail_status == "queued"
+    assert words["require"].result_markdown == ""
+    assert words["require"].id in queued_entry_ids
     app.dependency_overrides.clear()
 
 
-def test_dictionary_entry_api_creates_ready_word_without_ai_call(tmp_path: Path, monkeypatch):
+def test_dictionary_entry_api_creates_ai_detail_job_for_dictionary_word(tmp_path: Path, monkeypatch):
     client, session_factory = make_client(tmp_path)
     login_admin(client)
-    called = False
+    queued_entry_ids: list[int] = []
 
-    async def fake_complete_chat(messages, model, fallback, ai_config):
-        nonlocal called
-        called = True
-        return "should not be called"
+    def fake_enqueue_word_detail_job(entry_id, session_factory, ai_config):
+        queued_entry_ids.append(entry_id)
 
-    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(translation_routes, "enqueue_word_detail_job", fake_enqueue_word_detail_job, raising=False)
 
-    response = client.post("/api/translation/dictionary-entry", json={"text": "responsibility"})
+    response = client.post("/api/translation/dictionary-entry", json={"text": "responsibilities"})
 
     assert response.status_code == 200
     payload = response.json()
-    assert called is False
     assert payload["source_kind"] == "word"
-    assert payload["detail_status"] == "ready"
+    assert payload["source_text"] == "responsibility"
+    assert payload["detail_status"] == "queued"
     assert payload["phonetic"] == "/ɹiˌspɑnsəˈbɪɫəti/"
-    assert "责任" in payload["result_markdown"]
+    assert payload["result_markdown"] == ""
     with session_factory() as db:
         entries = db.scalars(select(TranslationEntry)).all()
     assert len(entries) == 1
     assert entries[0].source_text == "responsibility"
+    assert entries[0].id in queued_entry_ids
     app.dependency_overrides.clear()
 
 
-def test_dictionary_entry_api_backfills_existing_queued_word(tmp_path: Path):
+def test_dictionary_entry_api_creates_ai_detail_job_for_word_outside_dictionary(tmp_path: Path, monkeypatch):
     client, session_factory = make_client(tmp_path)
     login_admin(client)
+    queued_entry_ids: list[int] = []
+
+    def fake_enqueue_word_detail_job(entry_id, session_factory, ai_config):
+        queued_entry_ids.append(entry_id)
+
+    monkeypatch.setattr(translation_routes, "enqueue_word_detail_job", fake_enqueue_word_detail_job, raising=False)
+
+    response = client.post("/api/translation/dictionary-entry", json={"text": "zzzzwords"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_text"] == "zzzzword"
+    assert payload["detail_status"] == "queued"
+    assert payload["result_markdown"] == ""
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry)).all()
+    assert len(entries) == 1
+    assert entries[0].id in queued_entry_ids
+    app.dependency_overrides.clear()
+
+
+def test_word_detail_worker_uses_ai_even_when_dictionary_matches(tmp_path: Path, monkeypatch):
+    _client, session_factory = make_client(tmp_path)
+    captured: dict[str, str] = {}
     with session_factory() as db:
         db.add(
             TranslationEntry(
                 user_id=1,
-                source_text="responsibility",
+                source_text="abandon",
                 source_kind="word",
                 result_markdown="",
                 detail_status="queued",
@@ -281,18 +316,58 @@ def test_dictionary_entry_api_backfills_existing_queued_word(tmp_path: Path):
             )
         )
         db.commit()
+        entry_id = db.scalar(select(TranslationEntry.id))
 
-    response = client.post("/api/translation/dictionary-entry", json={"text": "responsibility"})
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        captured["user"] = messages[1]["content"]
+        return "音标：/əˈbændən/\n\n### 释义\n- **abandon**：放弃；抛弃。\n\n### 例句\n- Never abandon your plan too early."
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["detail_status"] == "ready"
-    assert "责任" in payload["result_markdown"]
+    monkeypatch.setattr(translation_queue, "complete_chat", fake_complete_chat)
+
+    import anyio
+
+    anyio.run(translation_queue.generate_word_detail, entry_id, session_factory)
+
     with session_factory() as db:
-        entries = db.scalars(select(TranslationEntry)).all()
-    assert len(entries) == 1
-    assert entries[0].detail_status == "ready"
-    assert entries[0].result_markdown.strip()
+        entry = db.get(TranslationEntry, entry_id)
+    assert "输入内容：\nabandon" in captured["user"]
+    assert entry.detail_status == "ready"
+    assert entry.phonetic == "/əˈbændən/"
+    assert "Never abandon your plan" in entry.result_markdown
+    assert "考纲释义" not in entry.result_markdown
+    app.dependency_overrides.clear()
+
+
+def test_startup_requeues_old_thin_dictionary_markdown(tmp_path: Path, monkeypatch):
+    _client, session_factory = make_client(tmp_path)
+    queued_entry_ids: list[int] = []
+    with session_factory() as db:
+        db.add(
+            TranslationEntry(
+                user_id=1,
+                source_text="abandon",
+                source_kind="word",
+                result_markdown="### 考纲释义\n- **abandon**：抛弃\n\n### 记忆信息\n- 词频：1",
+                detail_status="ready",
+                is_auto_detail=False,
+            )
+        )
+        db.commit()
+        entry_id = db.scalar(select(TranslationEntry.id))
+
+    def fake_enqueue_word_detail_job(entry_id, session_factory, ai_config=None):
+        queued_entry_ids.append(entry_id)
+
+    monkeypatch.setattr(translation_queue, "enqueue_word_detail_job", fake_enqueue_word_detail_job)
+
+    translation_queue.enqueue_pending_word_detail_jobs(session_factory)
+
+    with session_factory() as db:
+        entry = db.get(TranslationEntry, entry_id)
+    assert entry.detail_status == "queued"
+    assert entry.result_markdown == ""
+    assert entry.is_auto_detail is True
+    assert queued_entry_ids == [entry_id]
     app.dependency_overrides.clear()
 
 

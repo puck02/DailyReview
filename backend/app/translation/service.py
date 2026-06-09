@@ -98,6 +98,10 @@ def extract_phonetic_and_markdown(markdown: str) -> tuple[str | None, str]:
     return phonetic, cleaned
 
 
+def is_thin_dictionary_markdown(markdown: str) -> bool:
+    return "### 考纲释义" in markdown and "词频：" in markdown
+
+
 def build_translation_user_prompt(text: str, source_kind: str) -> str:
     type_label = {"chinese": "中文", "word": "英文单词", "english": "英文短语或句子"}[source_kind]
     return f"""输入类型：{type_label}

@@ -546,7 +546,7 @@ function TranslationWordCloud({
       setDetailState({
         label: item.label,
         entry: null,
-        error: err instanceof Error ? err.message : "未在考研英语一词典中命中"
+        error: err instanceof Error ? err.message : "词条详解生成失败"
       });
     }
   }
@@ -630,7 +630,7 @@ function TranslationWordCloud({
                 isTranslationDetailPending(detailEntry) && !detailEntry.result_markdown.trim() ? (
                   <div className="word-cloud-detail-loading">
                     <TranslationLoading />
-                    <span>词条详解正在后台生成</span>
+                    <span>正在按学习 Prompt 生成详解</span>
                   </div>
                 ) : detailEntry.detail_status === "failed" && !detailEntry.result_markdown.trim() ? (
                   <div className="form-error">词条详解生成失败，稍后刷新或重新收录。</div>
@@ -643,7 +643,7 @@ function TranslationWordCloud({
               ) : (
                 <div className="word-cloud-detail-loading">
                   <TranslationLoading />
-                  <span>词条详解正在后台排队</span>
+                  <span>正在查询词条并生成详解</span>
                 </div>
               )}
             </div>

@@ -302,7 +302,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("api.translationEntries()"));
   assert.ok(app.includes("api.translationDictionaryEntry(item.label)"));
   assert.ok(app.includes("onDictionaryEntry"));
-  assert.ok(app.includes("未在考研英语一词典中命中"));
+  assert.ok(app.includes("词条详解生成失败"));
   assert.ok(app.includes("const translationInputLimit = 2000;"));
   assert.ok(app.includes("const isTranslationOverLimit = input.length > translationInputLimit;"));
   assert.ok(app.includes("输入超过 2000 字，已超限，不予翻译。"));
@@ -327,6 +327,9 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("translation-phonetic"));
   assert.ok(app.includes("api.translationEntries()"));
   assert.ok(app.includes("entry.detail_status === \"queued\" || entry.detail_status === \"processing\""));
+  assert.ok(app.includes("正在查询词条并生成详解"));
+  assert.ok(app.includes("正在按学习 Prompt 生成详解"));
+  assert.ok(!app.includes("词条详解正在后台排队"));
   assert.ok(app.includes("词条详解生成失败，稍后刷新或重新收录。"));
   assert.ok(app.includes("setDetailState({ label: item.label, entry: existing, error: \"\" });"));
   assert.ok(!app.includes("const translated = await api.translate(item.label);"));

@@ -17,11 +17,12 @@ from app.translation.service import (
     extract_phonetic_and_markdown,
     fallback_translation,
     get_translation_prompt,
+    is_thin_dictionary_markdown,
     labels_for_auto_word_details,
     update_translation_prompt,
 )
 from app.translation.queue import enqueue_word_detail_job
-from app.translation.vocabulary import find_netem_word, render_netem_markdown
+from app.translation.vocabulary import find_netem_word, normalize_word_lemma
 
 
 router = APIRouter(prefix="/api/translation", tags=["translation"])
@@ -69,11 +70,19 @@ def _session_factory_for(db: Session) -> sessionmaker[Session]:
     return sessionmaker(bind=db.get_bind(), autoflush=False, autocommit=False)
 
 
-def _save_dictionary_entry(db: Session, user_id: int, text: str, is_auto_detail: bool) -> TranslationEntry | None:
-    dictionary_entry = find_netem_word(text)
-    if dictionary_entry is None:
-        return None
-    source_text = dictionary_entry.word
+def _word_metadata(text: str) -> tuple[str, str | None]:
+    source_text = normalize_word_lemma(text)
+    dictionary_entry = find_netem_word(source_text) or find_netem_word(text)
+    return source_text, dictionary_entry.phonetic if dictionary_entry and dictionary_entry.phonetic else None
+
+
+def _queue_word_detail_entry(
+    db: Session,
+    user_id: int,
+    text: str,
+    is_auto_detail: bool,
+) -> tuple[TranslationEntry, bool]:
+    source_text, phonetic = _word_metadata(text)
     entry = db.scalar(
         select(TranslationEntry).where(
             TranslationEntry.user_id == user_id,
@@ -81,18 +90,32 @@ def _save_dictionary_entry(db: Session, user_id: int, text: str, is_auto_detail:
             TranslationEntry.source_text == source_text,
         )
     )
-    is_new_entry = entry is None
     if entry is None:
-        entry = TranslationEntry(user_id=user_id, source_text=source_text, source_kind="word")
+        entry = TranslationEntry(
+            user_id=user_id,
+            source_text=source_text,
+            source_kind="word",
+            result_markdown="",
+            detail_status="queued",
+            is_auto_detail=is_auto_detail,
+        )
         db.add(entry)
-    entry.phonetic = dictionary_entry.phonetic or None
-    entry.result_markdown = render_netem_markdown(dictionary_entry)
-    entry.detail_status = "ready"
-    if is_new_entry or not is_auto_detail:
+        should_enqueue = True
+    else:
+        has_ai_detail = entry.detail_status == "ready" and entry.result_markdown.strip() and not is_thin_dictionary_markdown(entry.result_markdown)
+        should_enqueue = not has_ai_detail
+        if should_enqueue:
+            entry.result_markdown = ""
+            entry.detail_status = "queued"
+    if phonetic:
+        entry.phonetic = phonetic
+    if should_enqueue:
+        entry.is_auto_detail = True
+    elif not is_auto_detail:
         entry.is_auto_detail = is_auto_detail
     db.commit()
     db.refresh(entry)
-    return entry
+    return entry, should_enqueue
 
 
 @router.get("/prompt", response_model=TranslationPromptResponse)
@@ -127,14 +150,15 @@ def list_translation_entries(
 
 
 @router.post("/dictionary-entry", response_model=TranslationResponse)
-def get_dictionary_entry(
+async def get_dictionary_entry(
     payload: TranslationRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TranslationResponse:
-    entry = _save_dictionary_entry(db, user.id, payload.text.strip(), is_auto_detail=True)
-    if entry is None:
-        raise HTTPException(status_code=404, detail="未在考研英语一词典中命中")
+    ai_config = get_ai_config(db)
+    entry, should_enqueue = _queue_word_detail_entry(db, user.id, payload.text.strip(), is_auto_detail=True)
+    if should_enqueue:
+        enqueue_word_detail_job(entry.id, _session_factory_for(db), ai_config)
     return translation_response(entry)
 
 
@@ -149,9 +173,9 @@ async def translate_text(
     text = payload.text.strip()
     source_kind = detect_source_kind(text)
     if source_kind == "word":
-        entry = _save_dictionary_entry(db, user.id, text, is_auto_detail=False)
-        if entry is not None:
-            return translation_response(entry)
+        text, fallback_phonetic = _word_metadata(text)
+    else:
+        fallback_phonetic = None
 
     fallback = fallback_translation(text, source_kind)
     ai_config = get_ai_config(db)
@@ -168,6 +192,7 @@ async def translate_text(
     except Exception:
         result = fallback
     phonetic, markdown = extract_phonetic_and_markdown(result)
+    phonetic = phonetic or fallback_phonetic
     entry = TranslationEntry(
         user_id=user.id,
         source_text=text,
@@ -191,25 +216,14 @@ async def translate_text(
                 )
             ).all()
         }
-        for label in labels_for_auto_word_details(text):
+        for raw_label in labels_for_auto_word_details(text):
+            label, _phonetic = _word_metadata(raw_label)
             if label in existing_words:
                 continue
-            detail_entry = _save_dictionary_entry(db, user.id, label, is_auto_detail=True)
-            if detail_entry is not None:
-                existing_words.add(label)
-                continue
-            detail_entry = TranslationEntry(
-                user_id=user.id,
-                source_text=label,
-                source_kind="word",
-                result_markdown="",
-                detail_status="queued",
-                is_auto_detail=True,
-            )
-            db.add(detail_entry)
-            queued_entries.append(detail_entry)
+            detail_entry, should_enqueue = _queue_word_detail_entry(db, user.id, label, is_auto_detail=True)
+            if should_enqueue:
+                queued_entries.append(detail_entry)
             existing_words.add(label)
-        db.commit()
         for detail_entry in queued_entries:
             db.refresh(detail_entry)
             enqueue_word_detail_job(detail_entry.id, _session_factory_for(db), ai_config)
