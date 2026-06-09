@@ -282,6 +282,101 @@ async function checkLiveMathRendering(client) {
   );
 }
 
+async function checkTranslationLoadingLayout(client) {
+  await evaluate(client, "document.querySelector('button[aria-label=\"翻译\"]').click()");
+  await waitFor(client, "Boolean(document.querySelector('.translation-panel'))", "translation panel");
+  await waitFor(client, "Boolean(document.querySelector('.translation-submit') && document.querySelector('.translation-result'))", "translation workbench");
+  const before = await evaluate(
+    client,
+    `(() => {
+      const button = document.querySelector('.translation-submit').getBoundingClientRect();
+      const result = document.querySelector('.translation-result').getBoundingClientRect();
+      const loader = document.querySelector('.translation-submit-loader');
+      return {
+        buttonWidth: Math.round(button.width),
+        buttonHeight: Math.round(button.height),
+        resultHeight: Math.round(result.height),
+        loaderPosition: getComputedStyle(loader).gridArea
+      };
+    })()`
+  );
+  await evaluate(
+    client,
+    `(() => {
+      const originalFetch = window.fetch.bind(window);
+      window.__dailyreviewTranslationFetch = originalFetch;
+      window.fetch = (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        const method = init?.method || (typeof input === "string" ? "GET" : input.method);
+        if (url.endsWith("/api/translation") && method === "POST") {
+          return new Promise((resolve) => {
+            window.setTimeout(() => {
+              resolve(new Response(JSON.stringify({
+                id: 999999,
+                source_text: "layout",
+                source_kind: "word",
+                result_markdown: "layout",
+                created_at: new Date().toISOString()
+              }), { status: 200, headers: { "Content-Type": "application/json" } }));
+            }, 800);
+          });
+        }
+        return originalFetch(input, init);
+      };
+      const textarea = document.querySelector('.translation-input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setter.call(textarea, "layout");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector('.translation-submit').click();
+      return true;
+    })()`,
+    true
+  );
+  await waitFor(client, "Boolean(document.querySelector('.translation-submit.is-loading') && document.querySelector('.translation-result-loading'))", "translation loading state");
+  const during = await evaluate(
+    client,
+    `(() => {
+      const button = document.querySelector('.translation-submit').getBoundingClientRect();
+      const result = document.querySelector('.translation-result').getBoundingClientRect();
+      const overlay = document.querySelector('.translation-result-loading');
+      const overlayRect = overlay.getBoundingClientRect();
+      const dot = document.querySelector('.translation-submit-loader .translation-loading span').getBoundingClientRect();
+      return {
+        buttonWidth: Math.round(button.width),
+        buttonHeight: Math.round(button.height),
+        resultHeight: Math.round(result.height),
+        overlayPosition: getComputedStyle(overlay).position,
+        overlayWidth: Math.round(overlayRect.width),
+        dotWidth: Math.round(dot.width),
+        dotHeight: Math.round(dot.height)
+      };
+    })()`
+  );
+  if (during.buttonWidth !== before.buttonWidth || during.buttonHeight !== before.buttonHeight) {
+    throw new Error(`translation button shifts during loading: ${JSON.stringify({ before, during })}`);
+  }
+  if (Math.abs(during.resultHeight - before.resultHeight) > 2) {
+    throw new Error(`translation result shifts during loading: ${JSON.stringify({ before, during })}`);
+  }
+  if (during.overlayPosition !== "absolute") throw new Error("translation loading overlay participates in layout");
+  if (during.overlayWidth <= 0) throw new Error("translation loading overlay is not visible");
+  if (during.dotWidth !== 4 || during.dotHeight !== 4) {
+    throw new Error(`translation loading dots are distorted: ${JSON.stringify(during)}`);
+  }
+  await waitFor(client, "Boolean(!document.querySelector('.translation-submit.is-loading'))", "translation loading completion");
+  await evaluate(
+    client,
+    `(() => {
+      if (window.__dailyreviewTranslationFetch) {
+        window.fetch = window.__dailyreviewTranslationFetch;
+        delete window.__dailyreviewTranslationFetch;
+      }
+      return true;
+    })()`,
+    true
+  );
+}
+
 async function createRenderedMessage(client) {
   const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9u2wAAAABJRU5ErkJggg==";
   const markdownText = [
@@ -370,6 +465,7 @@ try {
   await checkLayout(client);
   await removePreview(client);
   await checkLiveMathRendering(client);
+  await checkTranslationLoadingLayout(client);
   createdSessionId = await createRenderedMessage(client);
   await capture(client);
   console.log(`ui-smoke-ok ${screenshotPath}`);

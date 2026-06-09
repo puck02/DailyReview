@@ -385,26 +385,27 @@ function shuffleTranslationCloudItems(items: TranslationCloudItem[]) {
 
 function buildTranslationCloudLanes(items: TranslationCloudItem[]): TranslationCloudLane[] {
   const shuffled = shuffleTranslationCloudItems(items);
-  const laneCount = Math.min(4, Math.max(1, Math.ceil(shuffled.length / 8)));
-  const lanes = Array.from({ length: laneCount }, (_, index) => ({
-    id: index,
-    duration: 26 + index * 5,
-    delay: -index * 3,
-    items: [] as TranslationCloudItem[]
-  }));
-
-  shuffled.forEach((item, index) => {
-    lanes[index % laneCount].items.push(item);
+  if (!shuffled.length) return [];
+  const laneCount = Math.min(8, Math.max(4, Math.ceil(shuffled.length / 5)));
+  const lanes = Array.from({ length: laneCount }, (_, index) => {
+    const laneItems = shuffled.filter((_, itemIndex) => itemIndex % laneCount === index);
+    const rotated = [...shuffled.slice(index % shuffled.length), ...shuffled.slice(0, index % shuffled.length)];
+    return {
+      id: index,
+      duration: 24 + (index % 5) * 4,
+      delay: -index * 3,
+      items: laneItems.length >= 3 ? laneItems : rotated.slice(0, Math.min(8, rotated.length))
+    };
   });
   return lanes;
 }
 
 function repeatedLaneItems(items: TranslationCloudItem[]) {
   if (!items.length) return [];
-  if (items.length >= 8) return items;
+  if (items.length >= 10) return items;
   const repeated: TranslationCloudItem[] = [];
-  while (repeated.length < 8) repeated.push(...items);
-  return repeated.slice(0, 8);
+  while (repeated.length < 10) repeated.push(...items);
+  return repeated.slice(0, 10);
 }
 
 function TranslationWordCloud({
@@ -1073,29 +1074,35 @@ function TranslationView() {
 
           <div className="translation-submit-slot">
             <button
-              className={busy ? "translation-submit loading" : "translation-submit"}
+              className={busy ? "translation-submit is-loading" : "translation-submit"}
               onClick={submitTranslation}
               disabled={busy || !input.trim()}
               aria-label={busy ? "正在翻译" : "翻译"}
             >
-              {busy ? <TranslationLoading /> : "翻译"}
+              <span className="translation-submit-label">翻译</span>
+              <span className="translation-submit-loader">
+                <TranslationLoading />
+              </span>
             </button>
           </div>
 
-          <section className="translation-card translation-result">
+          <section className={busy ? "translation-card translation-result is-loading" : "translation-card translation-result"}>
             <div className="translation-card-head">
               <span>结果</span>
               <strong>{activeResult ? sourceKindLabel(activeResult.source_kind) : "等待输入"}</strong>
             </div>
-            {busy ? (
+            <div className="translation-result-content">
+              {activeResult ? (
+                <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
+              ) : (
+                <div className="translation-empty">输入内容后，这里会显示简洁译文、重点拆解和例句。</div>
+              )}
+            </div>
+            {busy && (
               <div className="translation-result-loading">
                 <TranslationLoading />
                 <span>正在整理译文</span>
               </div>
-            ) : activeResult ? (
-              <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
-            ) : (
-              <div className="translation-empty">输入内容后，这里会显示简洁译文、重点拆解和例句。</div>
             )}
           </section>
         </div>

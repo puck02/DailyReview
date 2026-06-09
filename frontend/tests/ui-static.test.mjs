@@ -261,12 +261,19 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("translationCloudItems"));
   assert.ok(app.includes("shuffleTranslationCloudItems"));
   assert.ok(app.includes("buildTranslationCloudLanes"));
+  assert.ok(app.includes("Math.min(8, Math.max(4, Math.ceil(shuffled.length / 5)))"));
+  assert.ok(app.includes("repeated.length < 10"));
   assert.ok(app.includes("data-size={item.weight}"));
   assert.ok(app.includes("word-cloud-stage"));
   assert.ok(app.includes("word-cloud-lane"));
   assert.ok(app.includes("word-cloud-run"));
   assert.ok(app.includes("word-cloud-chip"));
   assert.ok(app.includes("TranslationLoading"));
+  assert.ok(app.includes("translation-submit-label"));
+  assert.ok(app.includes("translation-submit-loader"));
+  assert.ok(app.includes("translation-result-content"));
+  assert.ok(app.includes("translation-result-loading"));
+  assert.ok(app.includes("translation-card translation-result is-loading"));
   assert.ok(app.includes("aria-label={busy ? \"正在翻译\" : \"翻译\"}"));
   assert.ok(!app.includes("最近记录"));
   assert.ok(!app.includes("单词会补充词根词缀、易混词、用法和例句"));
@@ -277,16 +284,24 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-workbench\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) 64px minmax\(0,\s*1fr\);/s);
   assert.match(styles, /\.translation-card\s*{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px solid var\(--stroke\);/s);
   assert.match(styles, /\.translation-result\s*{[^}]*background:\s*var\(--message-surface\);/s);
-  assert.match(styles, /\.translation-submit\s*{[^}]*border-radius:\s*50%;/s);
+  assert.match(styles, /\.translation-submit\s*{[^}]*width:\s*58px;[^}]*height:\s*58px;[^}]*display:\s*inline-grid;[^}]*border-radius:\s*50%;/s);
+  assert.match(styles, /\.translation-submit-label,\s*\.translation-submit-loader\s*{[^}]*grid-area:\s*1 \/ 1;[^}]*display:\s*grid;/s);
+  assert.match(styles, /\.translation-submit\.is-loading \.translation-submit-label\s*{[^}]*opacity:\s*0;/s);
+  assert.match(styles, /\.translation-submit\.is-loading \.translation-submit-loader\s*{[^}]*opacity:\s*1;/s);
   assert.match(styles, /\.translation-loading\s*{[^}]*width:\s*22px;[^}]*height:\s*8px;/s);
   assert.match(styles, /\.translation-loading span\s*{[^}]*width:\s*4px;[^}]*height:\s*4px;[^}]*animation:\s*translation-pulse 840ms ease-in-out infinite;/s);
+  assert.match(styles, /\.translation-result-loading\s*{[^}]*position:\s*absolute;[^}]*inset:\s*42px 12px 12px;[^}]*min-height:\s*0;/s);
+  assert.match(styles, /\.translation-result-content\s*{[^}]*min-height:\s*168px;[^}]*display:\s*grid;/s);
+  assert.match(styles, /\.translation-result\.is-loading \.translation-result-content\s*{[^}]*opacity:\s*0\.42;/s);
   assert.match(styles, /\.translation-cloud\s*{[^}]*background:\s*var\(--surface\);/s);
+  assert.match(styles, /\.word-cloud-stage\s*{[^}]*min-height:\s*clamp\(220px,\s*28vh,\s*320px\);[^}]*grid-auto-rows:\s*minmax\(30px,\s*auto\);/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*animation:\s*word-cloud-marquee var\(--lane-duration\) linear infinite;/s);
   for (const size of ["1", "2", "3", "4", "5"]) {
     assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-size="${size}"\\]`));
   }
   assert.match(styles, /\.word-cloud-chip\.active\s*{[^}]*background:\s*var\(--button-surface-hover\);/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);
+  assert.doesNotMatch(styles, /@media \(max-width:\s*620px\)[\s\S]*\.translation-empty,\s*\.translation-result-loading\s*{/);
 });
 
 test("chat top bar is compact and keeps retention copy in the expanded sidebar", () => {

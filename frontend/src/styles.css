@@ -1254,9 +1254,11 @@ textarea:focus {
 }
 
 .translation-result {
+  position: relative;
   background: var(--message-surface);
   min-height: 216px;
   grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .translation-card-head {
@@ -1310,6 +1312,7 @@ textarea:focus {
 }
 
 .translation-submit {
+  position: relative;
   width: 58px;
   height: 58px;
   display: inline-grid;
@@ -1325,6 +1328,27 @@ textarea:focus {
   transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
+.translation-submit-label,
+.translation-submit-loader {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  transition: opacity 140ms ease;
+}
+
+.translation-submit-loader {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.translation-submit.is-loading .translation-submit-label {
+  opacity: 0;
+}
+
+.translation-submit.is-loading .translation-submit-loader {
+  opacity: 1;
+}
+
 .translation-submit:hover {
   background: var(--primary-hover-bg);
   transform: translateY(-1px) scale(1.02);
@@ -1337,7 +1361,7 @@ textarea:focus {
   box-shadow: none;
 }
 
-.translation-submit.loading {
+.translation-submit.is-loading {
   opacity: 1;
 }
 
@@ -1386,15 +1410,29 @@ textarea:focus {
 }
 
 .translation-result-loading {
-  min-height: 168px;
+  position: absolute;
+  inset: 42px 12px 12px;
+  min-height: 0;
   display: grid;
   place-items: center;
   align-content: center;
   gap: 8px;
   color: var(--muted-text);
-  border: 1px dashed var(--stroke);
+  background: color-mix(in srgb, var(--message-surface) 86%, transparent);
+  border: 1px solid var(--stroke);
   border-radius: 13px;
   font-size: 13px;
+  backdrop-filter: blur(16px);
+  z-index: 2;
+}
+
+.translation-result-content {
+  min-height: 168px;
+  display: grid;
+}
+
+.translation-result.is-loading .translation-result-content {
+  opacity: 0.42;
 }
 
 .translation-markdown {
@@ -1462,9 +1500,10 @@ textarea:focus {
 }
 
 .word-cloud-stage {
-  min-height: 148px;
+  min-height: clamp(220px, 28vh, 320px);
   display: grid;
   align-content: center;
+  grid-auto-rows: minmax(30px, auto);
   gap: 9px;
   overflow-x: hidden;
   overflow-y: hidden;
@@ -1795,6 +1834,7 @@ textarea:focus {
   }
 
   .word-cloud-stage {
+    min-height: clamp(190px, 30vh, 260px);
     mask-image: none;
   }
 
@@ -1927,8 +1967,7 @@ textarea:focus {
   }
 
   .translation-input,
-  .translation-empty,
-  .translation-result-loading {
+  .translation-empty {
     min-height: 148px;
   }
 
