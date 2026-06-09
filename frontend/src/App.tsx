@@ -5,7 +5,6 @@ import {
   KeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ReactNode,
-  Ref,
   isValidElement,
   useEffect,
   useMemo,
@@ -13,8 +12,6 @@ import {
   useState
 } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -98,8 +95,6 @@ const complexModel = "5.5";
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const wordCloudLaneCount = 4;
-const pdfCanvasScale = 1.25;
-const pdfImageQuality = 0.78;
 const openingLines = [
   "准备好了，随时开始",
   "有什么想学的，直接开始",
@@ -296,18 +291,16 @@ function copyableComponents(copyable: boolean): Components {
 function MarkdownRenderer({
   markdown,
   className,
-  copyable = false,
-  innerRef
+  copyable = false
 }: {
   markdown: string;
   className: string;
   copyable?: boolean;
-  innerRef?: Ref<HTMLDivElement>;
 }) {
   const normalizedMarkdown = normalizeMarkdownMath(markdown);
   const components = useMemo(() => copyableComponents(copyable), [copyable]);
   return (
-    <div ref={innerRef} className={className}>
+    <div className={className}>
       <ReactMarkdown
         key={normalizedMarkdown}
         components={components}
@@ -322,8 +315,8 @@ function MarkdownRenderer({
   );
 }
 
-function MarkdownPreview({ markdown, previewRef }: { markdown: string; previewRef?: Ref<HTMLDivElement> }) {
-  return <MarkdownRenderer markdown={markdown} className="markdown-preview" innerRef={previewRef} />;
+function MarkdownPreview({ markdown }: { markdown: string }) {
+  return <MarkdownRenderer markdown={markdown} className="markdown-preview" />;
 }
 
 function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
@@ -362,42 +355,6 @@ async function savePdfBlob(blob: Blob, filename: string, target: PdfSaveTarget) 
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-async function exportReportElementToPdf(element: HTMLElement, filename: string, target: PdfSaveTarget) {
-  if (target.kind === "cancelled") return;
-  const canvas = await html2canvas(element, {
-    backgroundColor: "#ffffff",
-    scale: Math.min(pdfCanvasScale, Math.max(1, window.devicePixelRatio || 1)),
-    useCORS: true
-  });
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageWidth = 210;
-  const pageHeight = 297;
-  const marginX = 14;
-  const marginY = 12;
-  const contentWidth = pageWidth - marginX * 2;
-  const contentHeight = pageHeight - marginY * 2;
-  const pageCanvas = document.createElement("canvas");
-  const pageContext = pageCanvas.getContext("2d");
-  if (!pageContext) throw new Error("PDF 导出失败");
-
-  pageCanvas.width = canvas.width;
-  const pagePixelHeight = Math.floor((contentHeight * canvas.width) / contentWidth);
-
-  for (let sourceY = 0, page = 0; sourceY < canvas.height; sourceY += pagePixelHeight, page += 1) {
-    if (page > 0) pdf.addPage();
-    const sliceHeight = Math.min(pagePixelHeight, canvas.height - sourceY);
-    pageCanvas.height = sliceHeight;
-    pageContext.fillStyle = "#ffffff";
-    pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-    pageContext.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
-    const pageImageData = pageCanvas.toDataURL("image/jpeg", pdfImageQuality);
-    const pageImageHeight = (sliceHeight * contentWidth) / canvas.width;
-    pdf.addImage(pageImageData, "JPEG", marginX, marginY, contentWidth, pageImageHeight, undefined, "FAST");
-  }
-
-  await savePdfBlob(pdf.output("blob"), filename, target);
 }
 
 const englishStopWords = new Set([
@@ -1242,7 +1199,6 @@ function ReportsView() {
   const [active, setActive] = useState<ReportContent | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportError, setExportError] = useState("");
-  const reportPreviewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.reports(type, month).then((reports) => {
@@ -1259,13 +1215,15 @@ function ReportsView() {
   const reportTypeLabel = type === "daily" ? "日报" : type === "weekly" ? "周报" : "月报";
 
   async function exportReportPdf() {
-    if (!active || !reportPreviewRef.current || exportingPdf) return;
+    if (!active || exportingPdf) return;
     try {
       setExportingPdf(true);
       setExportError("");
       const filename = `${active.period}-${reportTypeLabel}.pdf`;
       const target = await pickPdfSaveTarget(filename);
-      await exportReportElementToPdf(reportPreviewRef.current, filename, target);
+      if (target.kind === "cancelled") return;
+      const blob = await api.reportPdf(active.id);
+      await savePdfBlob(blob, filename, target);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "PDF 导出失败");
     } finally {
@@ -1313,7 +1271,7 @@ function ReportsView() {
               </button>
             </div>
             {exportError && <div className="form-error report-export-error">{exportError}</div>}
-            <MarkdownPreview markdown={active.markdown} previewRef={reportPreviewRef} />
+            <MarkdownPreview markdown={active.markdown} />
           </>
         ) : (
           <div className="empty-state">这个月份还没有报告。</div>

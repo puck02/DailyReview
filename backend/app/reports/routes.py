@@ -2,12 +2,14 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Report, User
+from app.reports.pdf import markdown_to_pdf_bytes
 from app.security import get_current_user
 
 
@@ -77,4 +79,23 @@ def get_report(
         period=report.period,
         markdown=markdown,
         stats=_stats(report),
+    )
+
+
+@router.get("/{report_id}/pdf")
+def get_report_pdf(
+    report_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    report = db.get(Report, report_id)
+    if report is None or report.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="报告不存在")
+    path = Path(report.markdown_path)
+    markdown = path.read_text(encoding="utf-8") if path.exists() else ""
+    filename = f"{report.period}-{report.report_type}.pdf"
+    return Response(
+        content=markdown_to_pdf_bytes(markdown),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -6,6 +6,8 @@ PyJWT==2.10.1
 pytest==8.3.4
 python-dotenv==1.0.1
 python-multipart==0.0.20
+pypdf==5.1.0
+reportlab==4.2.5
 socksio==1.0.0
 SQLAlchemy==2.0.36
 uvicorn[standard]==0.34.0

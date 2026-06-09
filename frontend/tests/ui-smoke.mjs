@@ -743,6 +743,13 @@ async function checkReportPdfDownload(client) {
             markdown: longReportMarkdown
           }), { status: 200, headers: { "Content-Type": "application/json" } }));
         }
+        if (url.endsWith("/api/reports/990001/pdf")) {
+          window.__dailyreviewReportPdfRequested = true;
+          return Promise.resolve(new Response("%PDF-1.4\\n% searchable smoke pdf\\n", {
+            status: 200,
+            headers: { "Content-Type": "application/pdf" }
+          }));
+        }
         return originalFetch(input, init);
       };
       return true;
@@ -757,6 +764,7 @@ async function checkReportPdfDownload(client) {
       window.__dailyreviewSavePickerOpened = false;
       window.__dailyreviewSavedPdf = false;
       window.__dailyreviewSavedPdfSize = 0;
+      window.__dailyreviewReportPdfRequested = false;
       window.__dailyreviewOriginalPrint = window.print;
       window.__dailyreviewOriginalSavePicker = window.showSaveFilePicker;
       window.print = () => { window.__dailyreviewPrinted = true; };
@@ -785,6 +793,7 @@ async function checkReportPdfDownload(client) {
       savePickerOpened: window.__dailyreviewSavePickerOpened,
       savedPdf: window.__dailyreviewSavedPdf,
       savedPdfSize: window.__dailyreviewSavedPdfSize,
+      reportPdfRequested: window.__dailyreviewReportPdfRequested,
       exportError: document.querySelector('.report-export-error')?.textContent || ""
     }))()`
   );
@@ -802,6 +811,7 @@ async function checkReportPdfDownload(client) {
       delete window.__dailyreviewSavePickerOpened;
       delete window.__dailyreviewSavedPdf;
       delete window.__dailyreviewSavedPdfSize;
+      delete window.__dailyreviewReportPdfRequested;
       delete window.__dailyreviewOriginalPrint;
       delete window.__dailyreviewOriginalSavePicker;
       return true;
@@ -809,6 +819,7 @@ async function checkReportPdfDownload(client) {
   );
   if (result.printed) throw new Error(`pdf export opened print: ${JSON.stringify(result)}`);
   if (!result.savePickerOpened) throw new Error(`pdf export did not open save picker: ${JSON.stringify(result)}`);
+  if (!result.reportPdfRequested) throw new Error(`pdf export did not request backend PDF: ${JSON.stringify(result)}`);
   if (!result.savedPdf) throw new Error(`pdf export did not write a PDF blob: ${JSON.stringify(result)}`);
   if (!result.savedPdfSize || result.savedPdfSize > 2_500_000) {
     throw new Error(`pdf export is too large: ${JSON.stringify(result)}`);

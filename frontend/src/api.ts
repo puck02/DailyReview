@@ -150,6 +150,14 @@ export const api = {
   reports: (reportType: ReportItem["report_type"], month: string) =>
     request<ReportItem[]>(`/api/reports?report_type=${reportType}&month=${month}`),
   report: (id: number) => request<ReportContent>(`/api/reports/${id}`),
+  reportPdf: async (id: number): Promise<Blob> => {
+    const response = await fetch(`/api/reports/${id}/pdf`, { credentials: "same-origin" });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({ detail: "PDF 导出失败" }));
+      throw new Error(data.detail || "PDF 导出失败");
+    }
+    return response.blob();
+  },
   aiConfig: () => request<AiConfig>("/api/admin/ai-config"),
   updateAiConfig: (baseUrl: string, apiKey: string) =>
     request<AiConfig>("/api/admin/ai-config", {

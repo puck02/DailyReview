@@ -1,7 +1,9 @@
 from datetime import date, datetime
+from io import BytesIO
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from pypdf import PdfReader
 from sqlalchemy import select
 
 from app.config import Settings, settings
@@ -188,4 +190,59 @@ def test_reports_api_lists_only_current_user_month_reports(tmp_path: Path):
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["period"] == "2026-06-08"
+    app.dependency_overrides.clear()
+
+
+def test_report_pdf_api_returns_searchable_text_pdf(tmp_path: Path):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    with session_factory() as db:
+        user = db.scalar(select(User).where(User.email == "owner@example.com"))
+        report_path = tmp_path / "reports" / "user-1" / "daily" / "2026" / "06" / "2026-06-09.md"
+        report_path.parent.mkdir(parents=True)
+        report_path.write_text(
+            "\n".join(
+                [
+                    "# 2026-06-09 学习日报",
+                    "",
+                    "## 今日重点",
+                    "",
+                    "- 导数与极限：复盘连续、可导和极限存在的关系。",
+                    "- 泰勒展开：整理常见二阶展开式。",
+                    "",
+                    "| 模块 | 下一步 |",
+                    "| --- | --- |",
+                    "| 高数 | 回看错题并默写公式 |",
+                    "",
+                    "```text",
+                    "先判断目标极限的阶数，再比较主导项。",
+                    "```",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        report = Report(
+            user_id=user.id,
+            report_type="daily",
+            period="2026-06-09",
+            markdown_path=str(report_path),
+            stats_json='{"message_count": 6}',
+        )
+        db.add(report)
+        db.commit()
+        report_id = report.id
+
+    response = client.get(f"/api/reports/{report_id}/pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "attachment" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF")
+    assert b"/Subtype /Image" not in response.content
+    reader = PdfReader(BytesIO(response.content))
+    extracted_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "2026-06-09" in extracted_text
+    assert "学习日报" in extracted_text
+    assert "导数与极限" in extracted_text
+    assert "泰勒展开" in extracted_text
     app.dependency_overrides.clear()
