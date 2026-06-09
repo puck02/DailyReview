@@ -75,6 +75,7 @@ type TranslationCloudLane = {
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
 const themeStorageKey = "dailyreview.theme";
+const translationInputLimit = 2000;
 const openingLines = [
   "准备好了，随时开始",
   "有什么想学的，直接开始",
@@ -400,12 +401,20 @@ function buildTranslationCloudLanes(items: TranslationCloudItem[]): TranslationC
   return lanes;
 }
 
+function cloudTone(key: string) {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = (hash * 31 + key.charCodeAt(index)) % 9973;
+  }
+  return String((hash % 6) + 1);
+}
+
 function repeatedLaneItems(items: TranslationCloudItem[]) {
   if (!items.length) return [];
-  if (items.length >= 10) return items;
+  if (items.length >= 32) return items;
   const repeated: TranslationCloudItem[] = [];
-  while (repeated.length < 10) repeated.push(...items);
-  return repeated.slice(0, 10);
+  while (repeated.length < 32) repeated.push(...items);
+  return repeated.slice(0, 32);
 }
 
 function TranslationWordCloud({
@@ -419,48 +428,85 @@ function TranslationWordCloud({
 }) {
   const items = useMemo(() => translationCloudItems(entries), [entries]);
   const lanes = useMemo(() => buildTranslationCloudLanes(items), [items]);
+  const [detailItem, setDetailItem] = useState<TranslationCloudItem | null>(null);
 
   return (
-    <section className="translation-cloud">
-      <div className="translation-card-head">
-        <span>词云</span>
-        <strong>{items.length ? `${items.length} 个词 / 短语` : "等待积累"}</strong>
-      </div>
-      {items.length ? (
-        <div className="word-cloud-stage">
-          {lanes.map((lane) => {
-            const laneItems = repeatedLaneItems(lane.items);
-            return (
-              <div key={lane.id} className="word-cloud-lane">
-                <div
-                  className="word-cloud-run"
-                  style={
-                    {
-                      "--lane-duration": `${lane.duration}s`,
-                      "--lane-delay": `${lane.delay}s`
-                    } as CSSProperties
-                  }
-                >
-                  {[...laneItems, ...laneItems].map((item, index) => (
-                    <button
-                      key={`${lane.id}-${item.key}-${index}`}
-                      className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
-                      data-size={item.weight}
-                      onClick={() => onSelect(item.entry)}
-                    >
-                      <span>{item.label}</span>
-                      {item.count > 1 && <small>{item.count}</small>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+    <>
+      <section className="translation-cloud">
+        <div className="translation-card-head">
+          <span>词云</span>
+          <strong>{items.length ? `${items.length} 个词 / 短语` : "等待积累"}</strong>
         </div>
-      ) : (
-        <div className="translation-cloud-empty">翻译几次后，这里会积累词和短语。</div>
+        {items.length ? (
+          <div className="word-cloud-stage">
+            {lanes.map((lane) => {
+              const laneItems = repeatedLaneItems(lane.items);
+              return (
+                <div key={lane.id} className="word-cloud-lane">
+                  <div
+                    className="word-cloud-run"
+                    style={
+                      {
+                        "--lane-duration": `${lane.duration}s`,
+                        "--lane-delay": `${lane.delay}s`
+                      } as CSSProperties
+                    }
+                  >
+                    {[...laneItems, ...laneItems].map((item, index) => (
+                      <button
+                        key={`${lane.id}-${item.key}-${index}`}
+                        className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
+                        data-size={item.weight}
+                        data-tone={cloudTone(item.key)}
+                        onClick={() => {
+                          onSelect(item.entry);
+                          setDetailItem(item);
+                        }}
+                      >
+                        <span>{item.label}</span>
+                        {item.count > 1 && <small>{item.count}</small>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="translation-cloud-empty">翻译几次后，这里会积累词和短语。</div>
+        )}
+      </section>
+      {detailItem && (
+        <div
+          className="word-cloud-detail-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${detailItem.label} 详解`}
+          onClick={() => setDetailItem(null)}
+        >
+          <div className="word-cloud-detail-card" onClick={(event) => event.stopPropagation()}>
+            <div className="word-cloud-detail-head">
+              <div>
+                <span>详解</span>
+                <strong>{detailItem.label}</strong>
+              </div>
+              <button
+                type="button"
+                className="word-cloud-detail-close"
+                onClick={() => setDetailItem(null)}
+                aria-label="关闭详解"
+                title="关闭"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="word-cloud-detail-content">
+              <MarkdownRenderer markdown={detailItem.entry.result_markdown} className="translation-markdown" />
+            </div>
+          </div>
+        </div>
       )}
-    </section>
+    </>
   );
 }
 
@@ -1004,6 +1050,11 @@ function TranslationView() {
   async function submitTranslation() {
     const text = input.trim();
     if (!text || busy) return;
+    if (input.length > translationInputLimit) {
+      setSaved("");
+      setError("输入超过 2000 字，已超限，不予翻译。");
+      return;
+    }
     setBusy(true);
     setError("");
     setSaved("");
@@ -1044,6 +1095,8 @@ function TranslationView() {
   }
 
   const activeResult = result || entries[0] || null;
+  const isTranslationOverLimit = input.length > translationInputLimit;
+  const translationMetaText = `${input.length}/${translationInputLimit}`;
 
   return (
     <section className="translation-panel">
@@ -1067,16 +1120,25 @@ function TranslationView() {
             <textarea
               className="translation-input"
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => {
+                setInput(event.target.value);
+                if (event.target.value.length <= translationInputLimit && error === "输入超过 2000 字，已超限，不予翻译。") {
+                  setError("");
+                }
+              }}
               placeholder="输入中文、英文单词、短语或句子..."
             />
+            <div className={isTranslationOverLimit ? "translation-input-meta over-limit" : "translation-input-meta"}>
+              <span>{isTranslationOverLimit ? "输入超过 2000 字，已超限，不予翻译。" : "最多 2000 字"}</span>
+              <strong>{translationMetaText}</strong>
+            </div>
           </section>
 
           <div className="translation-submit-slot">
             <button
               className={busy ? "translation-submit is-loading" : "translation-submit"}
               onClick={submitTranslation}
-              disabled={busy || !input.trim()}
+              disabled={busy || !input.trim() || isTranslationOverLimit}
               aria-label={busy ? "正在翻译" : "翻译"}
             >
               <span className="translation-submit-label">翻译</span>

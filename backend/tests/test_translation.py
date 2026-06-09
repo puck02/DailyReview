@@ -128,3 +128,26 @@ def test_translation_falls_back_when_ai_service_fails(tmp_path: Path, monkeypatc
     assert len(entries) == 1
     assert entries[0].source_text == "abandon"
     app.dependency_overrides.clear()
+
+
+def test_translation_rejects_over_limit_text_before_ai_call(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    called = False
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        nonlocal called
+        called = True
+        return "should not be called"
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation", json={"text": "a" * 2001})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "输入超过 2000 字，已超限，不予翻译。"
+    assert called is False
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry)).all()
+    assert entries == []
+    app.dependency_overrides.clear()

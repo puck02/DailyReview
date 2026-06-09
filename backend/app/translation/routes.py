@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,6 +21,8 @@ from app.translation.service import (
 
 
 router = APIRouter(prefix="/api/translation", tags=["translation"])
+TRANSLATION_INPUT_LIMIT = 2000
+TRANSLATION_LIMIT_MESSAGE = "输入超过 2000 字，已超限，不予翻译。"
 
 
 class TranslationPromptRequest(BaseModel):
@@ -32,7 +34,7 @@ class TranslationPromptResponse(BaseModel):
 
 
 class TranslationRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1)
 
 
 class TranslationResponse(BaseModel):
@@ -90,6 +92,8 @@ async def translate_text(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TranslationResponse:
+    if len(payload.text) > TRANSLATION_INPUT_LIMIT:
+        raise HTTPException(status_code=400, detail=TRANSLATION_LIMIT_MESSAGE)
     text = payload.text.strip()
     source_kind = detect_source_kind(text)
     fallback = fallback_translation(text, source_kind)

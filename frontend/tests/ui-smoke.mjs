@@ -377,6 +377,86 @@ async function checkTranslationLoadingLayout(client) {
   );
 }
 
+async function checkWordCloudDetail(client) {
+  await waitFor(client, "Boolean(document.querySelector('.word-cloud-chip'))", "translation word cloud chips");
+  const cloud = await evaluate(
+    client,
+    `(() => {
+      const stage = document.querySelector('.word-cloud-stage').getBoundingClientRect();
+      const run = document.querySelector('.word-cloud-run').getBoundingClientRect();
+      const chip = document.querySelector('.word-cloud-chip');
+      const chipStyle = getComputedStyle(chip);
+      return {
+        stageWidth: Math.round(stage.width),
+        runWidth: Math.round(run.width),
+        tone: chip.dataset.tone,
+        color: chipStyle.color,
+        background: chipStyle.backgroundColor
+      };
+    })()`
+  );
+  if (cloud.runWidth < cloud.stageWidth * 2) {
+    throw new Error(`word cloud run does not fill the lane: ${JSON.stringify(cloud)}`);
+  }
+  if (!["1", "2", "3", "4", "5", "6"].includes(cloud.tone)) {
+    throw new Error(`word cloud chip tone is missing: ${JSON.stringify(cloud)}`);
+  }
+  if (cloud.background === "rgb(255, 255, 255)" || cloud.background === "rgba(0, 0, 0, 0)") {
+    throw new Error(`word cloud chip does not use a soft color: ${JSON.stringify(cloud)}`);
+  }
+  await evaluate(client, "document.querySelector('.word-cloud-chip').click()");
+  await waitFor(client, "Boolean(document.querySelector('.word-cloud-detail-backdrop') && document.querySelector('.word-cloud-detail-card'))", "word cloud detail modal");
+  const detail = await evaluate(
+    client,
+    `(() => {
+      const backdrop = document.querySelector('.word-cloud-detail-backdrop');
+      const card = document.querySelector('.word-cloud-detail-card');
+      const content = document.querySelector('.word-cloud-detail-content');
+      return {
+        backdropFilter: getComputedStyle(backdrop).backdropFilter,
+        cardFilter: getComputedStyle(card).backdropFilter,
+        contentOverflow: getComputedStyle(content).overflowY,
+        cardHeight: Math.round(card.getBoundingClientRect().height)
+      };
+    })()`
+  );
+  if (!detail.backdropFilter.includes("blur")) throw new Error(`detail backdrop is not glassy: ${JSON.stringify(detail)}`);
+  if (!detail.cardFilter.includes("blur")) throw new Error(`detail card is not glassy: ${JSON.stringify(detail)}`);
+  if (detail.contentOverflow !== "auto") throw new Error(`detail content is not scrollable: ${JSON.stringify(detail)}`);
+  if (detail.cardHeight <= 0) throw new Error(`detail card is not visible: ${JSON.stringify(detail)}`);
+  await evaluate(client, "document.querySelector('.word-cloud-detail-close').click()");
+  await waitFor(client, "!document.querySelector('.word-cloud-detail-backdrop')", "word cloud detail close button");
+  await evaluate(client, "document.querySelector('.word-cloud-chip').click()");
+  await waitFor(client, "Boolean(document.querySelector('.word-cloud-detail-backdrop'))", "word cloud detail reopen");
+  await evaluate(client, "document.querySelector('.word-cloud-detail-backdrop').click()");
+  await waitFor(client, "!document.querySelector('.word-cloud-detail-backdrop')", "word cloud detail backdrop close");
+}
+
+async function checkTranslationInputLimit(client) {
+  await waitFor(client, "Boolean(document.querySelector('.translation-input') && document.querySelector('.translation-submit'))", "translation input limit controls");
+  const checks = await evaluate(
+    client,
+    `(() => {
+      const textarea = document.querySelector('.translation-input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setter.call(textarea, "a".repeat(2001));
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      const submit = document.querySelector('.translation-submit');
+      return {
+        disabled: submit.disabled,
+        meta: document.querySelector('.translation-input-meta')?.textContent || "",
+        overLimit: Boolean(document.querySelector('.translation-input-meta.over-limit')),
+        loading: Boolean(document.querySelector('.translation-submit.is-loading'))
+      };
+    })()`
+  );
+  if (!checks.disabled) throw new Error(`over-limit translation submit is not disabled: ${JSON.stringify(checks)}`);
+  if (!checks.overLimit || !checks.meta.includes("输入超过 2000 字")) {
+    throw new Error(`over-limit translation prompt is missing: ${JSON.stringify(checks)}`);
+  }
+  if (checks.loading) throw new Error(`over-limit translation entered loading state: ${JSON.stringify(checks)}`);
+}
+
 async function createRenderedMessage(client) {
   const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9u2wAAAABJRU5ErkJggg==";
   const markdownText = [
@@ -466,6 +546,8 @@ try {
   await removePreview(client);
   await checkLiveMathRendering(client);
   await checkTranslationLoadingLayout(client);
+  await checkWordCloudDetail(client);
+  await checkTranslationInputLimit(client);
   createdSessionId = await createRenderedMessage(client);
   await capture(client);
   console.log(`ui-smoke-ok ${screenshotPath}`);

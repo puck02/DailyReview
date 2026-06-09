@@ -256,18 +256,29 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("api.translationPrompt()"));
   assert.ok(app.includes("api.updateTranslationPrompt(promptDraft)"));
   assert.ok(app.includes("api.translationEntries()"));
+  assert.ok(app.includes("const translationInputLimit = 2000;"));
+  assert.ok(app.includes("const isTranslationOverLimit = input.length > translationInputLimit;"));
+  assert.ok(app.includes("输入超过 2000 字，已超限，不予翻译。"));
   assert.ok(app.includes("prompt-editor"));
   assert.ok(app.includes("TranslationWordCloud"));
   assert.ok(app.includes("translationCloudItems"));
   assert.ok(app.includes("shuffleTranslationCloudItems"));
   assert.ok(app.includes("buildTranslationCloudLanes"));
   assert.ok(app.includes("Math.min(8, Math.max(4, Math.ceil(shuffled.length / 5)))"));
-  assert.ok(app.includes("repeated.length < 10"));
+  assert.ok(app.includes("function cloudTone"));
+  assert.ok(app.includes("repeated.length < 32"));
   assert.ok(app.includes("data-size={item.weight}"));
+  assert.ok(app.includes("data-tone={cloudTone(item.key)}"));
   assert.ok(app.includes("word-cloud-stage"));
   assert.ok(app.includes("word-cloud-lane"));
   assert.ok(app.includes("word-cloud-run"));
   assert.ok(app.includes("word-cloud-chip"));
+  assert.ok(app.includes("word-cloud-detail-backdrop"));
+  assert.ok(app.includes("word-cloud-detail-card"));
+  assert.ok(app.includes("word-cloud-detail-content"));
+  assert.ok(app.includes("word-cloud-detail-close"));
+  assert.ok(app.includes("aria-modal=\"true\""));
+  assert.ok(app.includes("setDetailItem(null)"));
   assert.ok(app.includes("TranslationLoading"));
   assert.ok(app.includes("translation-submit-label"));
   assert.ok(app.includes("translation-submit-loader"));
@@ -291,15 +302,22 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-loading\s*{[^}]*width:\s*22px;[^}]*height:\s*8px;/s);
   assert.match(styles, /\.translation-loading span\s*{[^}]*width:\s*4px;[^}]*height:\s*4px;[^}]*animation:\s*translation-pulse 840ms ease-in-out infinite;/s);
   assert.match(styles, /\.translation-result-loading\s*{[^}]*position:\s*absolute;[^}]*inset:\s*42px 12px 12px;[^}]*min-height:\s*0;/s);
-  assert.match(styles, /\.translation-result-content\s*{[^}]*min-height:\s*168px;[^}]*display:\s*grid;/s);
+  assert.match(styles, /\.translation-result-content\s*{[^}]*min-height:\s*168px;[^}]*max-height:\s*clamp\(168px,\s*32vh,\s*360px\);[^}]*overflow-y:\s*auto;[^}]*display:\s*grid;/s);
   assert.match(styles, /\.translation-result\.is-loading \.translation-result-content\s*{[^}]*opacity:\s*0\.42;/s);
-  assert.match(styles, /\.translation-cloud\s*{[^}]*background:\s*var\(--surface\);/s);
-  assert.match(styles, /\.word-cloud-stage\s*{[^}]*min-height:\s*clamp\(220px,\s*28vh,\s*320px\);[^}]*grid-auto-rows:\s*minmax\(30px,\s*auto\);/s);
+  assert.match(styles, /\.translation-input-meta\.over-limit\s*{[^}]*color:\s*#b42318;/s);
+  assert.match(styles, /\.translation-cloud\s*{[^}]*position:\s*relative;[^}]*background:\s*var\(--surface\);[^}]*min-height:\s*clamp\(320px,\s*calc\(100dvh - 390px\),\s*620px\);[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);/s);
+  assert.match(styles, /\.word-cloud-stage\s*{[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-auto-rows:\s*minmax\(30px,\s*auto\);/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*animation:\s*word-cloud-marquee var\(--lane-duration\) linear infinite;/s);
   for (const size of ["1", "2", "3", "4", "5"]) {
     assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-size="${size}"\\]`));
   }
-  assert.match(styles, /\.word-cloud-chip\.active\s*{[^}]*background:\s*var\(--button-surface-hover\);/s);
+  for (const tone of ["1", "2", "3", "4", "5", "6"]) {
+    assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-tone="${tone}"\\]`));
+  }
+  assert.match(styles, /\.word-cloud-chip:hover,[\s\S]*?\.word-cloud-chip\.active\s*{[^}]*background:\s*color-mix\(in srgb,\s*var\(--word-chip-bg,\s*var\(--button-surface\)\) 78%,\s*var\(--surface-solid\)\);/s);
+  assert.match(styles, /\.word-cloud-detail-backdrop\s*{[^}]*position:\s*fixed;[^}]*backdrop-filter:\s*blur\(18px\);/s);
+  assert.match(styles, /\.word-cloud-detail-card\s*{[^}]*backdrop-filter:\s*blur\(28px\);[^}]*max-height:\s*min\(72vh,\s*620px\);/s);
+  assert.match(styles, /\.word-cloud-detail-content\s*{[^}]*overflow-y:\s*auto;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);
   assert.doesNotMatch(styles, /@media \(max-width:\s*620px\)[\s\S]*\.translation-empty,\s*\.translation-result-loading\s*{/);
 });
