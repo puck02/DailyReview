@@ -128,7 +128,7 @@ def test_translation_prompt_can_be_customized_per_user(tmp_path: Path, monkeypat
 
     before = client.get("/api/translation/prompt")
     saved = client.put("/api/translation/prompt", json={"system_prompt": custom_prompt})
-    translated = client.post("/api/translation", json={"text": "study"})
+    translated = client.post("/api/translation", json={"text": "zzzzword"})
     after = client.get("/api/translation/prompt")
 
     assert before.status_code == 200
@@ -150,7 +150,7 @@ def test_translation_falls_back_when_ai_service_fails(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
 
-    response = client.post("/api/translation", json={"text": "abandon"})
+    response = client.post("/api/translation", json={"text": "zzzzword"})
 
     assert response.status_code == 200
     payload = response.json()
@@ -159,7 +159,82 @@ def test_translation_falls_back_when_ai_service_fails(tmp_path: Path, monkeypatc
     with session_factory() as db:
         entries = db.scalars(select(TranslationEntry)).all()
     assert len(entries) == 1
-    assert entries[0].source_text == "abandon"
+    assert entries[0].source_text == "zzzzword"
+    app.dependency_overrides.clear()
+
+
+def test_netem_dictionary_word_returns_without_ai_call(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    called = False
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        nonlocal called
+        called = True
+        return "should not be called"
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation", json={"text": "abandon"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert called is False
+    assert payload["source_kind"] == "word"
+    assert payload["phonetic"] == "/əˈbændən/"
+    assert "考纲释义" in payload["result_markdown"]
+    assert "抛弃" in payload["result_markdown"]
+    assert "词频" in payload["result_markdown"]
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry)).all()
+    assert len(entries) == 1
+    assert entries[0].detail_status == "ready"
+    app.dependency_overrides.clear()
+
+
+def test_netem_dictionary_keeps_case_variant_senses(tmp_path: Path, monkeypatch):
+    client, _session_factory = make_client(tmp_path)
+    login_admin(client)
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        return "should not be called"
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation", json={"text": "may"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "可能、祝" in payload["result_markdown"]
+    assert "五月" in payload["result_markdown"]
+    app.dependency_overrides.clear()
+
+
+def test_english_sentence_uses_dictionary_for_auto_word_details(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    queued_entry_ids: list[int] = []
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        return "音标：/ˈrɛspɑːns/\n\n### 译文\n责任需要行动。"
+
+    def fake_enqueue_word_detail_job(entry_id, session_factory, ai_config):
+        queued_entry_ids.append(entry_id)
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(translation_routes, "enqueue_word_detail_job", fake_enqueue_word_detail_job, raising=False)
+
+    response = client.post("/api/translation", json={"text": "Responsibility requires action and response"})
+
+    assert response.status_code == 200
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry).where(TranslationEntry.user_id == 1)).all()
+    responsibility = next(entry for entry in entries if entry.source_kind == "word" and entry.source_text == "responsibility")
+    assert responsibility.is_auto_detail is True
+    assert responsibility.detail_status == "ready"
+    assert responsibility.phonetic == "/ɹiˌspɑnsəˈbɪɫəti/"
+    assert "责任" in responsibility.result_markdown
+    assert responsibility.id not in queued_entry_ids
     app.dependency_overrides.clear()
 
 

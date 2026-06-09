@@ -13,6 +13,7 @@ from app.translation.service import (
     fallback_translation,
     get_translation_prompt,
 )
+from app.translation.vocabulary import find_netem_word, render_netem_markdown
 
 
 word_detail_queue: asyncio.Queue[tuple[int, AiConfig | None]] | None = None
@@ -85,6 +86,13 @@ async def generate_word_detail(
         entry.detail_status = "processing"
         db.commit()
         word = entry.source_text
+        dictionary_entry = find_netem_word(word)
+        if dictionary_entry is not None:
+            entry.phonetic = dictionary_entry.phonetic or None
+            entry.result_markdown = render_netem_markdown(dictionary_entry)
+            entry.detail_status = "ready"
+            db.commit()
+            return
         user_id = entry.user_id
         system_prompt = get_translation_prompt(db, user_id)
         config = ai_config or get_ai_config(db)

@@ -270,8 +270,30 @@ test("admin page can update AI config without echoing the key", () => {
   assert.match(styles, /\.admin-section\s*{/);
 });
 
+test("settings page exposes report schedule and word cloud visibility controls", () => {
+  assert.ok(app.includes('type View = "chat" | "translate" | "reports" | "admin" | "settings";'));
+  assert.ok(app.includes("Settings"));
+  assert.ok(app.includes('aria-label="设置"'));
+  assert.ok(app.includes('title="设置"'));
+  assert.ok(app.includes("SettingsView"));
+  assert.match(app, /api\s*\.\s*settings\s*\(\s*\)/);
+  assert.ok(app.includes("api.updateSettings"));
+  assert.ok(app.includes("daily_report_time"));
+  assert.ok(app.includes("weekly_report_time"));
+  assert.ok(app.includes("monthly_report_time"));
+  assert.ok(app.includes("word_cloud_enabled"));
+  assert.ok(app.includes('type="time"'));
+  assert.ok(app.includes("wordCloudEnabled"));
+  assert.match(app, /wordCloudEnabled\s*\?\s*\(/);
+  assert.match(styles, /\.settings-panel\s*{/);
+  assert.match(styles, /\.settings-toggle\s*{/);
+  assert.ok(apiSource.includes("export type AppSettings"));
+  assert.ok(apiSource.includes('settings: () => request<AppSettings>("/api/settings")'));
+  assert.ok(apiSource.includes('updateSettings: (payload: Partial<AppSettings>)'));
+});
+
 test("translation panel is a designed first-stage tool with editable prompt", () => {
-  assert.ok(app.includes('type View = "chat" | "translate" | "reports" | "admin";'));
+  assert.ok(app.includes('type View = "chat" | "translate" | "reports" | "admin" | "settings";'));
   assert.ok(app.includes("TranslationView"));
   assert.ok(app.includes("Languages"));
   assert.ok(app.includes("api.translate("));

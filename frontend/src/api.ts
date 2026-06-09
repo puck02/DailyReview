@@ -60,6 +60,13 @@ export type AiConfigTest = {
   message: string;
 };
 
+export type AppSettings = {
+  daily_report_time: string;
+  weekly_report_time: string;
+  monthly_report_time: string;
+  word_cloud_enabled: boolean;
+};
+
 export type TranslationEntry = {
   id: number;
   source_text: string;
@@ -168,6 +175,12 @@ export const api = {
     request<AiConfigTest>("/api/admin/ai-config/test", {
       method: "POST",
       body: JSON.stringify({ base_url: baseUrl, api_key: apiKey })
+    }),
+  settings: () => request<AppSettings>("/api/settings"),
+  updateSettings: (payload: Partial<AppSettings>) =>
+    request<AppSettings>("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(payload)
     }),
   translationPrompt: () => request<TranslationPrompt>("/api/translation/prompt"),
   updateTranslationPrompt: (systemPrompt: string) =>

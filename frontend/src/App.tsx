@@ -34,6 +34,7 @@ import {
   Plus,
   Send,
   FileText,
+  Settings,
   Sun,
   Trash2,
   X
@@ -41,6 +42,7 @@ import {
 import {
   api,
   AiConfig,
+  AppSettings,
   Attachment,
   ChatSession,
   Invite,
@@ -57,7 +59,7 @@ import { normalizeMarkdownMath } from "./markdown";
 import appIconUrl from "./assets/app-icon.svg?url";
 import "katex/dist/katex.min.css";
 
-type View = "chat" | "translate" | "reports" | "admin";
+type View = "chat" | "translate" | "reports" | "admin" | "settings";
 type AuthMode = "login" | "register";
 type ThemePreference = "light" | "dark";
 type PendingAttachment = Attachment & { previewUrl: string; name: string };
@@ -1281,7 +1283,7 @@ function ReportsView() {
   );
 }
 
-function TranslationView() {
+function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   const [input, setInput] = useState("");
   const [result, setResult] = useState<TranslationEntry | null>(null);
   const [entries, setEntries] = useState<TranslationEntry[]>([]);
@@ -1463,11 +1465,13 @@ function TranslationView() {
 
         {(error || saved) && <div className={error ? "form-error" : "form-success"}>{error || saved}</div>}
 
-        <TranslationWordCloud
-          entries={entries}
-          activeId={activeResult?.id || null}
-          onSelect={setResult}
-        />
+        {wordCloudEnabled ? (
+          <TranslationWordCloud
+            entries={entries}
+            activeId={activeResult?.id || null}
+            onSelect={setResult}
+          />
+        ) : null}
       </div>
     </section>
   );
@@ -1477,6 +1481,127 @@ function sourceKindLabel(kind: TranslationEntry["source_kind"]) {
   if (kind === "chinese") return "中文 -> English";
   if (kind === "word") return "Word";
   return "English -> 中文";
+}
+
+const defaultAppSettings: AppSettings = {
+  daily_report_time: "23:00",
+  weekly_report_time: "23:00",
+  monthly_report_time: "23:00",
+  word_cloud_enabled: true
+};
+
+function SettingsView({
+  settings,
+  onSaved,
+  isAdmin
+}: {
+  settings: AppSettings | null;
+  onSaved: (settings: AppSettings) => void;
+  isAdmin: boolean;
+}) {
+  const currentSettings = settings || defaultAppSettings;
+  const [dailyTime, setDailyTime] = useState(currentSettings.daily_report_time);
+  const [weeklyTime, setWeeklyTime] = useState(currentSettings.weekly_report_time);
+  const [monthlyTime, setMonthlyTime] = useState(currentSettings.monthly_report_time);
+  const [wordCloudEnabled, setWordCloudEnabled] = useState(currentSettings.word_cloud_enabled);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+
+  useEffect(() => {
+    const nextSettings = settings || defaultAppSettings;
+    setDailyTime(nextSettings.daily_report_time);
+    setWeeklyTime(nextSettings.weekly_report_time);
+    setMonthlyTime(nextSettings.monthly_report_time);
+    setWordCloudEnabled(nextSettings.word_cloud_enabled);
+  }, [settings]);
+
+  async function saveSettings() {
+    if (!isAdmin) {
+      setSaved("");
+      setError("需要管理员权限");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setSaved("");
+    try {
+      const updated = await api.updateSettings({
+        daily_report_time: dailyTime,
+        weekly_report_time: weeklyTime,
+        monthly_report_time: monthlyTime,
+        word_cloud_enabled: wordCloudEnabled
+      });
+      onSaved(updated);
+      setSaved("设置已保存");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-panel">
+      <header className="pane-header settings-header">
+        <div>
+          <h2>设置</h2>
+          <p>调整报告生成节奏和学习工具展示。</p>
+        </div>
+      </header>
+
+      <div className="settings-content">
+        <section className="settings-card">
+          <div className="settings-card-head">
+            <span>报告生成时间</span>
+            <strong>Asia/Shanghai</strong>
+          </div>
+          <div className="settings-grid">
+            <label className="settings-field">
+              <span>日报</span>
+              <input type="time" value={dailyTime} onChange={(event) => setDailyTime(event.target.value)} disabled={!isAdmin} />
+            </label>
+            <label className="settings-field">
+              <span>周报</span>
+              <input type="time" value={weeklyTime} onChange={(event) => setWeeklyTime(event.target.value)} disabled={!isAdmin} />
+            </label>
+            <label className="settings-field">
+              <span>月报</span>
+              <input type="time" value={monthlyTime} onChange={(event) => setMonthlyTime(event.target.value)} disabled={!isAdmin} />
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-card">
+          <div className="settings-row">
+            <div>
+              <span>词云</span>
+              <p>关闭后仅隐藏前端词云，翻译数据继续保留。</p>
+            </div>
+            <button
+              className={wordCloudEnabled ? "settings-toggle is-on" : "settings-toggle"}
+              onClick={() => setWordCloudEnabled((current) => !current)}
+              disabled={!isAdmin}
+              role="switch"
+              aria-checked={wordCloudEnabled}
+              type="button"
+            >
+              <span />
+            </button>
+          </div>
+        </section>
+
+        {!isAdmin && <div className="form-error">当前账号只能查看设置，保存需要管理员权限。</div>}
+        {(error || saved) && <div className={error ? "form-error" : "form-success"}>{error || saved}</div>}
+
+        <div className="settings-actions">
+          <button className="primary-button" onClick={saveSettings} disabled={busy || !isAdmin}>
+            {busy ? "保存中..." : "保存设置"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function AdminView() {
@@ -1608,6 +1733,7 @@ function AdminView() {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<View>("chat");
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [systemTheme, setSystemTheme] = useState<ThemePreference>(currentSystemTheme);
   const [themePreference, setThemePreference] = useState<ThemePreference | null>(readThemePreference);
@@ -1619,6 +1745,17 @@ export default function App() {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setAppSettings(null);
+      return;
+    }
+    api
+      .settings()
+      .then(setAppSettings)
+      .catch(() => setAppSettings(defaultAppSettings));
+  }, [user]);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1695,6 +1832,15 @@ export default function App() {
         )}
         <div className="nav-spacer" />
         <div className="user-chip">{user.email}</div>
+        <button
+          className={view === "settings" ? "active" : ""}
+          onClick={() => setView("settings")}
+          aria-label="设置"
+          title="设置"
+        >
+          <Settings size={17} />
+          <span className="nav-label">设置</span>
+        </button>
         <button onClick={logout} aria-label="退出" title="退出">
           <LogOut size={17} />
           <span className="nav-label">退出</span>
@@ -1702,9 +1848,12 @@ export default function App() {
       </nav>
       <section className="app-content">
         {view === "chat" && <ChatView currentTheme={currentTheme} onToggleTheme={toggleThemePreference} />}
-        {view === "translate" && <TranslationView />}
+        {view === "translate" && <TranslationView wordCloudEnabled={appSettings?.word_cloud_enabled ?? true} />}
         {view === "reports" && <ReportsView />}
         {view === "admin" && <AdminView />}
+        {view === "settings" && (
+          <SettingsView settings={appSettings} onSaved={setAppSettings} isAdmin={user.role === "admin"} />
+        )}
       </section>
     </main>
   );

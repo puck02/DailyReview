@@ -21,6 +21,7 @@ from app.translation.service import (
     update_translation_prompt,
 )
 from app.translation.queue import enqueue_word_detail_job
+from app.translation.vocabulary import find_netem_word, render_netem_markdown
 
 
 router = APIRouter(prefix="/api/translation", tags=["translation"])
@@ -109,6 +110,22 @@ async def translate_text(
         raise HTTPException(status_code=400, detail=TRANSLATION_LIMIT_MESSAGE)
     text = payload.text.strip()
     source_kind = detect_source_kind(text)
+    dictionary_entry = find_netem_word(text) if source_kind == "word" else None
+    if dictionary_entry is not None:
+        entry = TranslationEntry(
+            user_id=user.id,
+            source_text=text.lower(),
+            source_kind=source_kind,
+            phonetic=dictionary_entry.phonetic or None,
+            result_markdown=render_netem_markdown(dictionary_entry),
+            detail_status="ready",
+            is_auto_detail=False,
+        )
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return translation_response(entry)
+
     fallback = fallback_translation(text, source_kind)
     ai_config = get_ai_config(db)
     try:
@@ -149,6 +166,20 @@ async def translate_text(
         }
         for label in labels_for_auto_word_details(text):
             if label in existing_words:
+                continue
+            dictionary_entry = find_netem_word(label)
+            if dictionary_entry is not None:
+                detail_entry = TranslationEntry(
+                    user_id=user.id,
+                    source_text=label,
+                    source_kind="word",
+                    phonetic=dictionary_entry.phonetic or None,
+                    result_markdown=render_netem_markdown(dictionary_entry),
+                    detail_status="ready",
+                    is_auto_detail=True,
+                )
+                db.add(detail_entry)
+                existing_words.add(label)
                 continue
             detail_entry = TranslationEntry(
                 user_id=user.id,
