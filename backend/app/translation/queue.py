@@ -11,8 +11,10 @@ from app.translation.service import (
     build_word_detail_user_prompt,
     extract_phonetic_and_markdown,
     fallback_translation,
+    find_existing_ready_word_detail,
     get_translation_prompt,
     is_thin_dictionary_markdown,
+    save_cached_word_detail,
 )
 from app.translation.vocabulary import find_netem_word
 
@@ -103,6 +105,13 @@ async def generate_word_detail(
         entry.detail_status = "processing"
         db.commit()
         word = entry.source_text
+        cached = find_existing_ready_word_detail(db, word)
+        if cached is not None:
+            entry.phonetic = cached.phonetic or entry.phonetic
+            entry.result_markdown = cached.result_markdown
+            entry.detail_status = "ready"
+            db.commit()
+            return
         dictionary_entry = find_netem_word(word)
         if dictionary_entry is not None:
             entry.phonetic = dictionary_entry.phonetic or None
@@ -131,6 +140,7 @@ async def generate_word_detail(
             entry.result_markdown = markdown
             entry.detail_status = "ready"
             db.commit()
+            save_cached_word_detail(db, entry.source_text, entry.phonetic, entry.result_markdown)
     except Exception:
         with session_factory() as db:
             entry = db.get(TranslationEntry, entry_id)

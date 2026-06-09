@@ -1607,21 +1607,22 @@ textarea:focus {
 
 .translation-cloud {
   position: relative;
-  background: var(--surface);
+  background: transparent;
   height: clamp(184px, 24vh, 260px);
   min-height: 0;
-  border: 1px solid var(--stroke);
-  border-radius: 16px;
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(18px);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-  padding: 12px;
+  padding: 0;
 }
 
 .word-cloud-stage {
+  width: calc(100% + 44px);
+  margin-inline: -22px;
   height: 100%;
   min-height: 0;
   display: grid;
@@ -1645,7 +1646,8 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-right: 24px;
+  padding-left: 22px;
+  padding-right: 22px;
   background: transparent;
   will-change: transform;
   animation: word-cloud-marquee var(--lane-duration) linear infinite;

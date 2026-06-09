@@ -1,8 +1,9 @@
 import re
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting
+from app.models import AppSetting, TranslationDictionaryEntry
 
 
 TRANSLATION_PROMPT_PREFIX = "translation_prompt:"
@@ -100,6 +101,62 @@ def extract_phonetic_and_markdown(markdown: str) -> tuple[str | None, str]:
 
 def is_thin_dictionary_markdown(markdown: str) -> bool:
     return "### 考纲释义" in markdown and "词频：" in markdown
+
+
+def get_cached_word_detail(db: Session, source_text: str) -> TranslationDictionaryEntry | None:
+    normalized = source_text.strip().lower()
+    if not normalized:
+        return None
+    entry = db.scalar(select(TranslationDictionaryEntry).where(TranslationDictionaryEntry.source_text == normalized))
+    if entry is None or not entry.result_markdown.strip() or is_thin_dictionary_markdown(entry.result_markdown):
+        return None
+    return entry
+
+
+def find_existing_ready_word_detail(db: Session, source_text: str) -> TranslationDictionaryEntry | None:
+    cached = get_cached_word_detail(db, source_text)
+    if cached is not None:
+        return cached
+    normalized = source_text.strip().lower()
+    if not normalized:
+        return None
+
+    from app.models import TranslationEntry
+
+    existing = db.scalar(
+        select(TranslationEntry)
+        .where(
+            TranslationEntry.source_kind == "word",
+            TranslationEntry.source_text == normalized,
+            TranslationEntry.detail_status == "ready",
+        )
+        .order_by(TranslationEntry.created_at.desc(), TranslationEntry.id.desc())
+    )
+    if existing is None or not existing.result_markdown.strip() or is_thin_dictionary_markdown(existing.result_markdown):
+        return None
+    return save_cached_word_detail(db, normalized, existing.phonetic, existing.result_markdown)
+
+
+def save_cached_word_detail(
+    db: Session,
+    source_text: str,
+    phonetic: str | None,
+    result_markdown: str,
+) -> TranslationDictionaryEntry | None:
+    normalized = source_text.strip().lower()
+    markdown = result_markdown.strip()
+    if not normalized or not markdown or is_thin_dictionary_markdown(markdown):
+        return None
+    entry = db.scalar(select(TranslationDictionaryEntry).where(TranslationDictionaryEntry.source_text == normalized))
+    if entry is None:
+        entry = TranslationDictionaryEntry(source_text=normalized, phonetic=phonetic, result_markdown=markdown)
+        db.add(entry)
+    else:
+        entry.phonetic = phonetic or entry.phonetic
+        entry.result_markdown = markdown
+    db.commit()
+    db.refresh(entry)
+    return entry
 
 
 def build_translation_user_prompt(text: str, source_kind: str) -> str:

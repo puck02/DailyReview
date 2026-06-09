@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.config import Settings, settings
 from app.db import create_session_factory, get_db, initialize_database
 from app.main import app
-from app.models import Message, TranslationEntry, User
+from app.models import Message, TranslationDictionaryEntry, TranslationEntry, User
 from app.reports.service import generate_daily_report
 from app.translation import queue as translation_queue
 from app.translation import routes as translation_routes
@@ -214,6 +214,119 @@ def test_inflected_dictionary_word_is_stored_as_lemma(tmp_path: Path, monkeypatc
         entries = db.scalars(select(TranslationEntry)).all()
     assert len(entries) == 1
     assert entries[0].source_text == "require"
+    app.dependency_overrides.clear()
+
+
+def test_word_translation_reuses_ready_global_dictionary_entry_without_ai_call(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    called = False
+    with session_factory() as db:
+        db.add(
+            TranslationDictionaryEntry(
+                source_text="require",
+                phonetic="/rɪˈkwaɪər/",
+                result_markdown="### 释义\n- **require**：需要；要求。\n\n### 例句\n- The task requires patience.",
+            )
+        )
+        db.commit()
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        nonlocal called
+        called = True
+        return "should not be called"
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation", json={"text": "requires"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert called is False
+    assert payload["source_text"] == "require"
+    assert payload["source_kind"] == "word"
+    assert payload["phonetic"] == "/rɪˈkwaɪər/"
+    assert "The task requires patience" in payload["result_markdown"]
+    with session_factory() as db:
+        user_entries = db.scalars(select(TranslationEntry)).all()
+        dictionary_entries = db.scalars(select(TranslationDictionaryEntry)).all()
+    assert len(user_entries) == 1
+    assert user_entries[0].source_text == "require"
+    assert user_entries[0].detail_status == "ready"
+    assert len(dictionary_entries) == 1
+    app.dependency_overrides.clear()
+
+
+def test_word_translation_backfills_global_dictionary_from_existing_ready_entry(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    called = False
+    with session_factory() as db:
+        db.add(
+            TranslationEntry(
+                user_id=1,
+                source_text="study",
+                source_kind="word",
+                phonetic="/ˈstʌdi/",
+                result_markdown="### 释义\n- **study**：学习；研究。\n\n### 例句\n- Study the example carefully.",
+                detail_status="ready",
+                is_auto_detail=False,
+            )
+        )
+        db.commit()
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        nonlocal called
+        called = True
+        return "should not be called"
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation", json={"text": "studies"})
+
+    assert response.status_code == 200
+    assert called is False
+    assert response.json()["source_text"] == "study"
+    assert "Study the example carefully" in response.json()["result_markdown"]
+    with session_factory() as db:
+        cached = db.scalar(select(TranslationDictionaryEntry).where(TranslationDictionaryEntry.source_text == "study"))
+    assert cached is not None
+    assert cached.phonetic == "/ˈstʌdi/"
+    app.dependency_overrides.clear()
+
+
+def test_ready_word_translation_is_saved_to_global_dictionary_for_other_users(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    calls = 0
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        nonlocal calls
+        calls += 1
+        return "音标：/əˈbændən/\n\n### 释义\n- **abandon**：放弃；抛弃。\n\n### 例句\n- Do not abandon the plan."
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    first = client.post("/api/translation", json={"text": "abandon"})
+    assert first.status_code == 200
+
+    invite_code = client.post("/api/invites", json={"expires_days": 7}).json()["code"]
+    other_client = TestClient(app)
+    register = other_client.post(
+        "/api/auth/register",
+        json={"email": "student@example.com", "password": "student-password", "invite_code": invite_code},
+    )
+    assert register.status_code == 200
+
+    second = other_client.post("/api/translation", json={"text": "abandon"})
+
+    assert second.status_code == 200
+    assert calls == 1
+    assert "Do not abandon the plan" in second.json()["result_markdown"]
+    with session_factory() as db:
+        dictionary = db.scalar(select(TranslationDictionaryEntry).where(TranslationDictionaryEntry.source_text == "abandon"))
+    assert dictionary is not None
+    assert dictionary.phonetic == "/əˈbændən/"
     app.dependency_overrides.clear()
 
 

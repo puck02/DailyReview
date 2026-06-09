@@ -558,10 +558,6 @@ function TranslationWordCloud({
   return (
     <>
       <section className="translation-cloud">
-        <div className="translation-card-head">
-          <span>词云</span>
-          <strong>{items.length ? `${items.length} 个词 / 短语` : "等待积累"}</strong>
-        </div>
         {items.length ? (
           <div className="word-cloud-stage">
             {lanes.map((lane) => {

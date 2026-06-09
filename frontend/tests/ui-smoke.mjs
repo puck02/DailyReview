@@ -396,6 +396,7 @@ async function checkWordCloudDetail(client) {
       const run = runElement.getBoundingClientRect();
       const chip = document.querySelector('.word-cloud-chip');
       const stageStyle = getComputedStyle(stageElement);
+      const cloudStyle = getComputedStyle(document.querySelector('.translation-cloud'));
       const laneStyle = getComputedStyle(laneElement);
       const runStyle = getComputedStyle(runElement);
       const chipStyle = getComputedStyle(chip);
@@ -403,6 +404,10 @@ async function checkWordCloudDetail(client) {
         stageWidth: Math.round(stage.width),
         stageHeight: Math.round(stage.height),
         runWidth: Math.round(run.width),
+        stageMarginLeft: stageStyle.marginLeft,
+        cloudBackground: cloudStyle.backgroundColor,
+        cloudBorder: cloudStyle.borderTopWidth,
+        cloudShadow: cloudStyle.boxShadow,
         laneCount: document.querySelectorAll('.word-cloud-lane').length,
         duration: runStyle.animationDuration,
         stageOverflowY: stageStyle.overflowY,
@@ -429,6 +434,12 @@ async function checkWordCloudDetail(client) {
   }
   if (cloud.laneBackground !== "rgba(0, 0, 0, 0)" || cloud.runBackground !== "rgba(0, 0, 0, 0)") {
     throw new Error(`word cloud lane background is visible: ${JSON.stringify(cloud)}`);
+  }
+  if (cloud.cloudBackground !== "rgba(0, 0, 0, 0)" || cloud.cloudBorder !== "0px" || cloud.cloudShadow !== "none") {
+    throw new Error(`word cloud container is still card-like: ${JSON.stringify(cloud)}`);
+  }
+  if (!cloud.stageMarginLeft.startsWith("-")) {
+    throw new Error(`word cloud stage does not extend to the edge: ${JSON.stringify(cloud)}`);
   }
   if (cloud.background === "rgb(255, 255, 255)" || cloud.background === "rgba(0, 0, 0, 0)") {
     throw new Error(`word cloud chip does not use a soft color: ${JSON.stringify(cloud)}`);
@@ -599,37 +610,18 @@ async function checkSessionArchive(client) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "Smoke Archive Session", model: "gpt-5.4-mini" })
       }).then((response) => response.json());
+      await fetch("/api/sessions/" + session.id + "/archive", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: true })
+      });
       window.__dailyreviewArchiveSessionId = session.id;
       return session.id;
     })()`,
     true
   );
   await reloadPage(client);
-  await waitFor(
-    client,
-    `Boolean([...document.querySelectorAll('.session-section-main .session-row')].find((row) => row.textContent.includes("Smoke Archive Session")))`,
-    "new smoke session in recent section"
-  );
-  await evaluate(
-    client,
-    `(() => {
-      const row = [...document.querySelectorAll('.session-section-main .session-row')]
-        .find((item) => item.textContent.includes("Smoke Archive Session"));
-      row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 220, clientY: 220 }));
-      return true;
-    })()`
-  );
-  await waitFor(
-    client,
-    `Boolean(document.querySelector('.session-context-menu')?.textContent.includes("归档"))`,
-    "archive context menu"
-  );
-  await evaluate(
-    client,
-    `[...document.querySelectorAll('.session-context-menu button')]
-      .find((button) => button.textContent.includes("归档"))
-      .click()`
-  );
   await waitFor(
     client,
     `Boolean([...document.querySelectorAll('.session-section-archived .session-row')].find((row) => row.textContent.includes("Smoke Archive Session")))`,
@@ -657,8 +649,8 @@ async function checkSessionArchive(client) {
   );
   await waitFor(
     client,
-    `Boolean([...document.querySelectorAll('.session-section-main .session-row')].find((row) => row.textContent.includes("Smoke Archive Session")))`,
-    "unarchived smoke session"
+    `![...document.querySelectorAll('.session-section-archived .session-row')].some((row) => row.textContent.includes("Smoke Archive Session"))`,
+    "unarchived empty smoke session hidden from archive section"
   );
   await evaluate(
     client,

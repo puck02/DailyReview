@@ -16,9 +16,11 @@ from app.translation.service import (
     detect_source_kind,
     extract_phonetic_and_markdown,
     fallback_translation,
+    find_existing_ready_word_detail,
     get_translation_prompt,
     is_thin_dictionary_markdown,
     labels_for_auto_word_details,
+    save_cached_word_detail,
     update_translation_prompt,
 )
 from app.translation.queue import enqueue_word_detail_job
@@ -90,20 +92,26 @@ def _queue_word_detail_entry(
             TranslationEntry.source_text == source_text,
         )
     )
+    cached = find_existing_ready_word_detail(db, source_text)
     if entry is None:
         entry = TranslationEntry(
             user_id=user_id,
             source_text=source_text,
             source_kind="word",
-            result_markdown="",
-            detail_status="queued",
+            phonetic=cached.phonetic if cached is not None else None,
+            result_markdown=cached.result_markdown if cached is not None else "",
+            detail_status="ready" if cached is not None else "queued",
             is_auto_detail=is_auto_detail,
         )
         db.add(entry)
-        should_enqueue = True
+        should_enqueue = cached is None
     else:
         has_ai_detail = entry.detail_status == "ready" and entry.result_markdown.strip() and not is_thin_dictionary_markdown(entry.result_markdown)
-        should_enqueue = not has_ai_detail
+        should_enqueue = not has_ai_detail and cached is None
+        if not has_ai_detail and cached is not None:
+            entry.phonetic = cached.phonetic or entry.phonetic
+            entry.result_markdown = cached.result_markdown
+            entry.detail_status = "ready"
         if should_enqueue:
             entry.result_markdown = ""
             entry.detail_status = "queued"
@@ -116,6 +124,26 @@ def _queue_word_detail_entry(
     db.commit()
     db.refresh(entry)
     return entry, should_enqueue
+
+
+def _create_word_entry_from_cache(db: Session, user_id: int, text: str) -> TranslationEntry | None:
+    source_text, fallback_phonetic = _word_metadata(text)
+    cached = find_existing_ready_word_detail(db, source_text)
+    if cached is None:
+        return None
+    entry = TranslationEntry(
+        user_id=user_id,
+        source_text=source_text,
+        source_kind="word",
+        phonetic=cached.phonetic or fallback_phonetic,
+        result_markdown=cached.result_markdown,
+        detail_status="ready",
+        is_auto_detail=False,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
 
 
 @router.get("/prompt", response_model=TranslationPromptResponse)
@@ -174,6 +202,9 @@ async def translate_text(
     source_kind = detect_source_kind(text)
     if source_kind == "word":
         text, fallback_phonetic = _word_metadata(text)
+        cached_entry = _create_word_entry_from_cache(db, user.id, text)
+        if cached_entry is not None:
+            return translation_response(cached_entry)
     else:
         fallback_phonetic = None
 
@@ -193,6 +224,8 @@ async def translate_text(
         result = fallback
     phonetic, markdown = extract_phonetic_and_markdown(result)
     phonetic = phonetic or fallback_phonetic
+    if source_kind == "word":
+        save_cached_word_detail(db, text, phonetic, markdown)
     entry = TranslationEntry(
         user_id=user.id,
         source_text=text,

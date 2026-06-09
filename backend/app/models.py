@@ -111,6 +111,17 @@ class TranslationEntry(Base):
     user = relationship("User")
 
 
+class TranslationDictionaryEntry(Base):
+    __tablename__ = "translation_dictionary_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_text: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    phonetic: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    result_markdown: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class AppSetting(Base):
     __tablename__ = "app_settings"
 
