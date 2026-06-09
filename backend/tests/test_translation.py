@@ -53,7 +53,7 @@ def test_translation_uses_prompt_and_keeps_records_out_of_daily_report(tmp_path:
         captured["system"] = messages[0]["content"]
         captured["user"] = messages[1]["content"]
         captured["model"] = model
-        return "### 翻译\nHello.\n\n### 重点\n- hello 用于问候。"
+        return "音标：/həˈləʊ/\n\n### 翻译\nHello.\n\n### 重点\n- hello 用于问候。"
 
     monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
 
@@ -63,6 +63,7 @@ def test_translation_uses_prompt_and_keeps_records_out_of_daily_report(tmp_path:
     payload = response.json()
     assert payload["source_text"] == "你好"
     assert payload["source_kind"] == "chinese"
+    assert payload["phonetic"] == "/həˈləʊ/"
     assert "Hello" in payload["result_markdown"]
     assert "考研英语一" in captured["system"]
     assert "输入类型：中文" in captured["user"]
@@ -78,6 +79,38 @@ def test_translation_uses_prompt_and_keeps_records_out_of_daily_report(tmp_path:
     assert entries[0].source_text == "你好"
     assert messages == []
     assert report is None
+    app.dependency_overrides.clear()
+
+
+def test_english_translation_enqueues_word_details_silently(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    queued_entry_ids: list[int] = []
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        return "音标：/dɪˈrɪvətɪv/\n\n### 译文\n这个导数问题需要仔细处理极限。"
+
+    def fake_enqueue_word_detail_job(entry_id, session_factory, ai_config):
+        queued_entry_ids.append(entry_id)
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+    monkeypatch.setattr(translation_routes, "enqueue_word_detail_job", fake_enqueue_word_detail_job, raising=False)
+
+    response = client.post("/api/translation", json={"text": "The derivative problem requires careful limits"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_kind"] == "english"
+    assert payload["phonetic"] == "/dɪˈrɪvətɪv/"
+    with session_factory() as db:
+        entries = db.scalars(select(TranslationEntry).where(TranslationEntry.user_id == 1)).all()
+    original = next(entry for entry in entries if entry.source_kind == "english")
+    derivative = next(entry for entry in entries if entry.source_kind == "word" and entry.source_text == "derivative")
+    assert original.is_auto_detail is False
+    assert derivative.is_auto_detail is True
+    assert derivative.detail_status == "queued"
+    assert derivative.result_markdown == ""
+    assert derivative.id in queued_entry_ids
     app.dependency_overrides.clear()
 
 

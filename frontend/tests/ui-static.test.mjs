@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { test } from "node:test";
 
 const app = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const apiSource = fs.readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const packageJson = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
@@ -269,8 +270,17 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("duration: 72 + index * 12"));
   assert.ok(app.includes("function cloudTone"));
   assert.ok(app.includes("function cloudDetailEntryForItem"));
-  assert.ok(app.includes("const translated = await api.translate(item.label);"));
-  assert.ok(app.includes("onEntryCreated(translated);"));
+  assert.ok(apiSource.includes("phonetic: string | null;"));
+  assert.ok(apiSource.includes("detail_status: \"queued\" | \"processing\" | \"ready\" | \"failed\";"));
+  assert.ok(apiSource.includes("is_auto_detail: boolean;"));
+  assert.ok(app.includes("function TranslationPhonetic"));
+  assert.ok(app.includes("function isTranslationDetailPending"));
+  assert.ok(app.includes("translation-phonetic"));
+  assert.ok(app.includes("api.translationEntries()"));
+  assert.ok(app.includes("entry.detail_status === \"queued\" || entry.detail_status === \"processing\""));
+  assert.ok(app.includes("词条详解生成失败，稍后刷新或重新收录。"));
+  assert.ok(app.includes("setDetailState({ label: item.label, entry: existing, error: \"\" });"));
+  assert.ok(!app.includes("const translated = await api.translate(item.label);"));
   assert.ok(app.includes("repeated.length < 32"));
   assert.ok(app.includes("data-size={item.weight}"));
   assert.ok(app.includes("data-tone={cloudTone(item.key)}"));
@@ -310,6 +320,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-result-loading\s*{[^}]*position:\s*absolute;[^}]*inset:\s*42px 12px 12px;[^}]*min-height:\s*0;/s);
   assert.match(styles, /\.translation-result-content\s*{[^}]*min-height:\s*168px;[^}]*max-height:\s*clamp\(168px,\s*32vh,\s*360px\);[^}]*overflow-y:\s*auto;[^}]*display:\s*grid;/s);
   assert.match(styles, /\.translation-result\.is-loading \.translation-result-content\s*{[^}]*opacity:\s*0\.42;/s);
+  assert.match(styles, /\.translation-phonetic\s*{[^}]*font-family:\s*"SFMono-Regular",\s*Consolas,\s*"Liberation Mono",\s*monospace;/s);
   assert.match(styles, /\.translation-input-meta\.over-limit\s*{[^}]*color:\s*#b42318;/s);
   assert.match(styles, /\.translation-cloud\s*{[^}]*position:\s*relative;[^}]*background:\s*var\(--surface\);[^}]*height:\s*clamp\(184px,\s*24vh,\s*260px\);[^}]*min-height:\s*0;[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);/s);
   assert.match(styles, /\.word-cloud-stage\s*{[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-template-rows:\s*repeat\(4,\s*minmax\(30px,\s*auto\)\);/s);

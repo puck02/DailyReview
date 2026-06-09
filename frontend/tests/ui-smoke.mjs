@@ -315,7 +315,10 @@ async function checkTranslationLoadingLayout(client) {
                 id: 999999,
                 source_text: "layout",
                 source_kind: "word",
+                phonetic: "/ˈleɪaʊt/",
                 result_markdown: "layout",
+                detail_status: "ready",
+                is_auto_detail: false,
                 created_at: new Date().toISOString()
               }), { status: 200, headers: { "Content-Type": "application/json" } }));
             }, 800);
@@ -455,7 +458,19 @@ async function checkWordCloudDetail(client) {
             id: 880001,
             source_text: "The derivative problem requires careful limits",
             source_kind: "english",
+            phonetic: null,
             result_markdown: "ORIGINAL SENTENCE DETAIL",
+            detail_status: "ready",
+            is_auto_detail: false,
+            created_at: new Date().toISOString()
+          }, {
+            id: 880002,
+            source_text: "derivative",
+            source_kind: "word",
+            phonetic: "/dɪˈrɪvətɪv/",
+            result_markdown: "WORD DETAIL ONLY",
+            detail_status: "ready",
+            is_auto_detail: true,
             created_at: new Date().toISOString()
           }]), { status: 200, headers: { "Content-Type": "application/json" } }));
         }
@@ -466,7 +481,10 @@ async function checkWordCloudDetail(client) {
             id: 880002,
             source_text: body.text,
             source_kind: "word",
+            phonetic: null,
             result_markdown: "WORD DETAIL ONLY",
+            detail_status: "ready",
+            is_auto_detail: false,
             created_at: new Date().toISOString()
           }), { status: 200, headers: { "Content-Type": "application/json" } }));
         }
@@ -487,11 +505,15 @@ async function checkWordCloudDetail(client) {
     client,
     `(() => ({
       requestedText: window.__dailyreviewWordCloudTranslatedText,
+      phoneticText: document.querySelector('.word-cloud-detail-content .translation-phonetic')?.textContent || "",
       detailText: document.querySelector('.word-cloud-detail-content')?.textContent || ""
     }))()`
   );
-  if (splitWordDetail.requestedText !== "derivative") {
-    throw new Error(`split word detail requested wrong text: ${JSON.stringify(splitWordDetail)}`);
+  if (splitWordDetail.requestedText) {
+    throw new Error(`split word detail should not request on click: ${JSON.stringify(splitWordDetail)}`);
+  }
+  if (!splitWordDetail.phoneticText.includes("/dɪˈrɪvətɪv/")) {
+    throw new Error(`split word detail phonetic is missing: ${JSON.stringify(splitWordDetail)}`);
   }
   if (splitWordDetail.detailText.includes("ORIGINAL SENTENCE DETAIL")) {
     throw new Error(`split word detail shows original sentence detail: ${JSON.stringify(splitWordDetail)}`);

@@ -433,56 +433,54 @@ function cloudDetailEntryForItem(item: TranslationCloudItem, entries: Translatio
   );
 }
 
+function TranslationPhonetic({ phonetic }: { phonetic: string | null }) {
+  if (!phonetic) return null;
+  return <div className="translation-phonetic">{phonetic}</div>;
+}
+
+function isTranslationDetailPending(entry: TranslationEntry) {
+  return entry.detail_status === "queued" || entry.detail_status === "processing";
+}
+
 function TranslationWordCloud({
   entries,
   activeId,
-  onSelect,
-  onEntryCreated
+  onSelect
 }: {
   entries: TranslationEntry[];
   activeId: number | null;
   onSelect: (entry: TranslationEntry) => void;
-  onEntryCreated: (entry: TranslationEntry) => void;
 }) {
   const items = useMemo(() => translationCloudItems(entries), [entries]);
   const lanes = useMemo(() => buildTranslationCloudLanes(items), [items]);
-  const detailRequestRef = useRef(0);
   const [detailState, setDetailState] = useState<{
     label: string;
     entry: TranslationEntry | null;
-    loading: boolean;
     error: string;
   } | null>(null);
-
-  async function openCloudDetail(item: TranslationCloudItem) {
-    const existing = cloudDetailEntryForItem(item, entries);
-    const requestId = detailRequestRef.current + 1;
-    detailRequestRef.current = requestId;
-    setDetailState({ label: item.label, entry: existing, loading: !existing, error: "" });
-    if (existing) {
-      onSelect(existing);
-      return;
+  const detailEntry = useMemo(() => {
+    if (!detailState) return null;
+    if (detailState.entry) {
+      return entries.find((entry) => entry.id === detailState.entry?.id) || detailState.entry;
     }
+    const labelKey = cloudLookupKey(detailState.label);
+    return (
+      entries.find((entry) => entry.source_kind === "word" && cloudLookupKey(entry.source_text) === labelKey) ||
+      entries.find((entry) => cloudLookupKey(entry.source_text) === labelKey) ||
+      null
+    );
+  }, [detailState, entries]);
 
-    try {
-      const translated = await api.translate(item.label);
-      if (detailRequestRef.current !== requestId) return;
-      onEntryCreated(translated);
-      onSelect(translated);
-      setDetailState({ label: item.label, entry: translated, loading: false, error: "" });
-    } catch (err) {
-      if (detailRequestRef.current !== requestId) return;
-      setDetailState({
-        label: item.label,
-        entry: null,
-        loading: false,
-        error: err instanceof Error ? err.message : "词条详解生成失败"
-      });
+  function openCloudDetail(item: TranslationCloudItem) {
+    const existing = cloudDetailEntryForItem(item, entries);
+    setDetailState({ label: item.label, entry: existing, error: "" });
+    if (existing) {
+      if (existing.detail_status === "ready" || existing.result_markdown.trim()) onSelect(existing);
+      return;
     }
   }
 
   function closeCloudDetail() {
-    detailRequestRef.current += 1;
     setDetailState(null);
   }
 
@@ -555,16 +553,28 @@ function TranslationWordCloud({
               </button>
             </div>
             <div className="word-cloud-detail-content">
-              {detailState.loading ? (
+              {detailState.error ? (
+                <div className="form-error">{detailState.error}</div>
+              ) : detailEntry ? (
+                isTranslationDetailPending(detailEntry) && !detailEntry.result_markdown.trim() ? (
+                  <div className="word-cloud-detail-loading">
+                    <TranslationLoading />
+                    <span>词条详解正在后台生成</span>
+                  </div>
+                ) : detailEntry.detail_status === "failed" && !detailEntry.result_markdown.trim() ? (
+                  <div className="form-error">词条详解生成失败，稍后刷新或重新收录。</div>
+                ) : (
+                  <>
+                    <TranslationPhonetic phonetic={detailEntry.phonetic} />
+                    <MarkdownRenderer markdown={detailEntry.result_markdown} className="translation-markdown" />
+                  </>
+                )
+              ) : (
                 <div className="word-cloud-detail-loading">
                   <TranslationLoading />
-                  <span>正在生成词条详解</span>
+                  <span>词条详解正在后台排队</span>
                 </div>
-              ) : detailState.error ? (
-                <div className="form-error">{detailState.error}</div>
-              ) : detailState.entry ? (
-                <MarkdownRenderer markdown={detailState.entry.result_markdown} className="translation-markdown" />
-              ) : null}
+              )}
             </div>
           </div>
         </div>
@@ -1110,6 +1120,17 @@ function TranslationView() {
       .catch((err) => setError(err instanceof Error ? err.message : "翻译模块加载失败"));
   }, []);
 
+  useEffect(() => {
+    if (!entries.some((entry) => entry.is_auto_detail && isTranslationDetailPending(entry))) return;
+    const timer = window.setInterval(() => {
+      api
+        .translationEntries()
+        .then((history) => setEntries(history))
+        .catch(() => undefined);
+    }, 3500);
+    return () => window.clearInterval(timer);
+  }, [entries]);
+
   async function submitTranslation() {
     const text = input.trim();
     if (!text || busy) return;
@@ -1125,6 +1146,10 @@ function TranslationView() {
       const translated = await api.translate(text);
       setResult(translated);
       setEntries((current) => [translated, ...current.filter((item) => item.id !== translated.id)].slice(0, 30));
+      api
+        .translationEntries()
+        .then((history) => setEntries(history))
+        .catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "翻译失败");
     } finally {
@@ -1157,7 +1182,7 @@ function TranslationView() {
     }
   }
 
-  const activeResult = result || entries[0] || null;
+  const activeResult = result || entries.find((entry) => !entry.is_auto_detail) || entries[0] || null;
   const isTranslationOverLimit = input.length > translationInputLimit;
   const translationMetaText = `${input.length}/${translationInputLimit}`;
 
@@ -1218,7 +1243,10 @@ function TranslationView() {
             </div>
             <div className="translation-result-content">
               {activeResult ? (
-                <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
+                <>
+                  <TranslationPhonetic phonetic={activeResult.phonetic} />
+                  <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
+                </>
               ) : (
                 <div className="translation-empty">输入内容后，这里会显示简洁译文、重点拆解和例句。</div>
               )}
@@ -1259,9 +1287,6 @@ function TranslationView() {
           entries={entries}
           activeId={activeResult?.id || null}
           onSelect={setResult}
-          onEntryCreated={(entry) => {
-            setEntries((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 30));
-          }}
         />
       </div>
     </section>

@@ -7,11 +7,12 @@ from fastapi.staticfiles import StaticFiles
 from app.admin.routes import router as admin_router
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
-from app.db import initialize_database
+from app.db import SessionLocal, initialize_database
 from app.invites.routes import router as invites_router
 from app.reports.routes import router as reports_router
 from app.scheduler.jobs import start_scheduler
 from app.translation.routes import router as translation_router
+from app.translation.queue import enqueue_pending_word_detail_jobs
 
 
 app = FastAPI(title="DailyReview")
@@ -30,8 +31,9 @@ if frontend_dist.exists():
 
 
 @app.on_event("startup")
-def startup() -> None:
+async def startup() -> None:
     initialize_database()
+    enqueue_pending_word_detail_jobs(SessionLocal)
     if not getattr(app.state, "scheduler_started", False):
         app.state.scheduler = start_scheduler()
         app.state.scheduler_started = True

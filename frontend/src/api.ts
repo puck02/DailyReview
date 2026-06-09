@@ -63,7 +63,10 @@ export type TranslationEntry = {
   id: number;
   source_text: string;
   source_kind: "chinese" | "english" | "word";
+  phonetic: string | null;
   result_markdown: string;
+  detail_status: "queued" | "processing" | "ready" | "failed";
+  is_auto_detail: boolean;
   created_at: string;
 };
 

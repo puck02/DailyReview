@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,9 +30,29 @@ def create_session_factory(database_url: str) -> sessionmaker[Session]:
 SessionLocal = create_session_factory(settings.database_url)
 
 
+def _ensure_schema_upgrades(engine: Engine) -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("translation_entries"):
+        return
+    columns = {column["name"] for column in inspector.get_columns("translation_entries")}
+    statements: list[str] = []
+    if "phonetic" not in columns:
+        statements.append("ALTER TABLE translation_entries ADD COLUMN phonetic VARCHAR(128)")
+    if "detail_status" not in columns:
+        statements.append("ALTER TABLE translation_entries ADD COLUMN detail_status VARCHAR(32) DEFAULT 'ready' NOT NULL")
+    if "is_auto_detail" not in columns:
+        statements.append("ALTER TABLE translation_entries ADD COLUMN is_auto_detail BOOLEAN DEFAULT 0 NOT NULL")
+    if not statements:
+        return
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
 def initialize_database(app_settings: Settings = settings, session_factory: sessionmaker[Session] = SessionLocal) -> None:
     engine = session_factory.kw["bind"]
     Base.metadata.create_all(bind=engine)
+    _ensure_schema_upgrades(engine)
     if not app_settings.admin_email or not app_settings.admin_initial_password:
         return
 

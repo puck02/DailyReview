@@ -1464,6 +1464,20 @@ textarea:focus {
   align-content: start;
 }
 
+.translation-phonetic {
+  width: fit-content;
+  max-width: 100%;
+  color: var(--muted-text);
+  background: color-mix(in srgb, var(--button-surface) 78%, transparent);
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .translation-markdown h1,
 .translation-markdown h2,
 .translation-markdown h3,

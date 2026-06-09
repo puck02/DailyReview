@@ -101,7 +101,10 @@ class TranslationEntry(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     source_text: Mapped[str] = mapped_column(Text)
     source_kind: Mapped[str] = mapped_column(String(32), index=True)
+    phonetic: Mapped[str | None] = mapped_column(String(128), nullable=True)
     result_markdown: Mapped[str] = mapped_column(Text, default="")
+    detail_status: Mapped[str] = mapped_column(String(32), default="ready", index=True)
+    is_auto_detail: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     user = relationship("User")
