@@ -77,6 +77,17 @@ test("chat messages keep assistant left and user right", () => {
   assert.ok(!app.includes("user-avatar"));
 });
 
+test("assistant reply shows a pulsing black dot while waiting for the first token", () => {
+  assert.ok(app.includes("const isAssistantThinking"));
+  assert.ok(app.includes("typing-indicator"));
+  assert.ok(app.includes('aria-label="AI 正在回复"'));
+  assert.match(app, /message\.role === "assistant" && busy && !message\.content\.trim\(\)/);
+  assert.match(styles, /\.typing-indicator\s*{[^}]*width:\s*28px;[^}]*height:\s*22px;/s);
+  assert.match(styles, /\.typing-dot\s*{[^}]*background:\s*var\(--typing-dot\);/s);
+  assert.match(styles, /@keyframes typing-dot-pulse\s*{[\s\S]*transform:\s*scale\(1\.42\);/);
+  assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)\s*{[\s\S]*\.typing-dot\s*{[\s\S]*animation:\s*none;/);
+});
+
 test("pending image previews are removable above the composer", () => {
   assert.ok(app.includes("attachment-grid"));
   assert.ok(app.includes("attachment-preview"));

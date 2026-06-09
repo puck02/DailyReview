@@ -38,6 +38,7 @@
   --syntax-variable: #0550ae;
   --syntax-comment: #6e7781;
   --syntax-operator: #0550ae;
+  --typing-dot: #111111;
   --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.08);
   --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.12);
   color-scheme: light dark;
@@ -92,6 +93,7 @@
   --syntax-variable: #ffa657;
   --syntax-comment: #8b949e;
   --syntax-operator: #79c0ff;
+  --typing-dot: #f5f5f5;
   --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.36);
   --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.44);
   color-scheme: dark;
@@ -138,6 +140,7 @@
     --syntax-variable: #ffa657;
     --syntax-comment: #8b949e;
     --syntax-operator: #79c0ff;
+    --typing-dot: #f5f5f5;
     --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.36);
     --shadow-pop: 0 14px 32px rgba(0, 0, 0, 0.44);
     color-scheme: dark;
@@ -687,6 +690,43 @@ textarea:focus {
 .message.user .message-content {
   color: var(--headline);
   justify-self: end;
+}
+
+.typing-indicator {
+  width: 28px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+}
+
+.typing-dot {
+  width: 8px;
+  height: 8px;
+  display: block;
+  border-radius: 50%;
+  background: var(--typing-dot);
+  animation: typing-dot-pulse 980ms ease-in-out infinite;
+}
+
+@keyframes typing-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scale(0.72);
+  }
+
+  45% {
+    opacity: 1;
+    transform: scale(1.42);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot {
+    animation: none;
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .message-attachments {
