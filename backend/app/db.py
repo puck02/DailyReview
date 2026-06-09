@@ -32,16 +32,19 @@ SessionLocal = create_session_factory(settings.database_url)
 
 def _ensure_schema_upgrades(engine: Engine) -> None:
     inspector = inspect(engine)
-    if not inspector.has_table("translation_entries"):
-        return
-    columns = {column["name"] for column in inspector.get_columns("translation_entries")}
     statements: list[str] = []
-    if "phonetic" not in columns:
-        statements.append("ALTER TABLE translation_entries ADD COLUMN phonetic VARCHAR(128)")
-    if "detail_status" not in columns:
-        statements.append("ALTER TABLE translation_entries ADD COLUMN detail_status VARCHAR(32) DEFAULT 'ready' NOT NULL")
-    if "is_auto_detail" not in columns:
-        statements.append("ALTER TABLE translation_entries ADD COLUMN is_auto_detail BOOLEAN DEFAULT 0 NOT NULL")
+    if inspector.has_table("translation_entries"):
+        columns = {column["name"] for column in inspector.get_columns("translation_entries")}
+        if "phonetic" not in columns:
+            statements.append("ALTER TABLE translation_entries ADD COLUMN phonetic VARCHAR(128)")
+        if "detail_status" not in columns:
+            statements.append("ALTER TABLE translation_entries ADD COLUMN detail_status VARCHAR(32) DEFAULT 'ready' NOT NULL")
+        if "is_auto_detail" not in columns:
+            statements.append("ALTER TABLE translation_entries ADD COLUMN is_auto_detail BOOLEAN DEFAULT 0 NOT NULL")
+    if inspector.has_table("chat_sessions"):
+        columns = {column["name"] for column in inspector.get_columns("chat_sessions")}
+        if "is_archived" not in columns:
+            statements.append("ALTER TABLE chat_sessions ADD COLUMN is_archived BOOLEAN DEFAULT 0 NOT NULL")
     if not statements:
         return
     with engine.begin() as connection:

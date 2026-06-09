@@ -3,7 +3,9 @@ import {
   ChangeEvent,
   FormEvent,
   KeyboardEvent,
+  MouseEvent as ReactMouseEvent,
   ReactNode,
+  Ref,
   isValidElement,
   useEffect,
   useMemo,
@@ -11,6 +13,8 @@ import {
   useState
 } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
+import html2canvas from "html2canvas";
+import { jsPDF } from "jspdf";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -18,6 +22,8 @@ import remarkMath from "remark-math";
 import {
   CalendarDays,
   Check,
+  Archive,
+  ArchiveRestore,
   Copy,
   Download,
   ImagePlus,
@@ -71,6 +77,21 @@ type TranslationCloudLane = {
   delay: number;
   items: TranslationCloudItem[];
 };
+type PdfWritable = {
+  write: (data: Blob) => Promise<void>;
+  close: () => Promise<void>;
+};
+type PdfFileHandle = {
+  createWritable: () => Promise<PdfWritable>;
+};
+type PdfSavePickerWindow = Window &
+  typeof globalThis & {
+    showSaveFilePicker?: (options: {
+      suggestedName: string;
+      types: Array<{ description: string; accept: Record<string, string[]> }>;
+    }) => Promise<PdfFileHandle>;
+  };
+type PdfSaveTarget = { kind: "handle"; handle: PdfFileHandle } | { kind: "download" } | { kind: "cancelled" };
 
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
@@ -273,16 +294,18 @@ function copyableComponents(copyable: boolean): Components {
 function MarkdownRenderer({
   markdown,
   className,
-  copyable = false
+  copyable = false,
+  innerRef
 }: {
   markdown: string;
   className: string;
   copyable?: boolean;
+  innerRef?: Ref<HTMLDivElement>;
 }) {
   const normalizedMarkdown = normalizeMarkdownMath(markdown);
   const components = useMemo(() => copyableComponents(copyable), [copyable]);
   return (
-    <div className={className}>
+    <div ref={innerRef} className={className}>
       <ReactMarkdown
         key={normalizedMarkdown}
         components={components}
@@ -297,12 +320,71 @@ function MarkdownRenderer({
   );
 }
 
-function MarkdownPreview({ markdown }: { markdown: string }) {
-  return <MarkdownRenderer markdown={markdown} className="markdown-preview" />;
+function MarkdownPreview({ markdown, previewRef }: { markdown: string; previewRef?: Ref<HTMLDivElement> }) {
+  return <MarkdownRenderer markdown={markdown} className="markdown-preview" innerRef={previewRef} />;
 }
 
 function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
   return <MarkdownRenderer markdown={markdown} className="message-markdown" copyable={copyable} />;
+}
+
+async function pickPdfSaveTarget(filename: string): Promise<PdfSaveTarget> {
+  const pickerWindow = window as PdfSavePickerWindow;
+  if (!pickerWindow.showSaveFilePicker) return { kind: "download" };
+  try {
+    const handle = await pickerWindow.showSaveFilePicker({
+      suggestedName: filename,
+      types: [{ description: "PDF 文件", accept: { "application/pdf": [".pdf"] } }]
+    });
+    return { kind: "handle", handle };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return { kind: "cancelled" };
+    throw error;
+  }
+}
+
+async function savePdfBlob(blob: Blob, filename: string, target: PdfSaveTarget) {
+  if (target.kind === "cancelled") return;
+  if (target.kind === "handle") {
+    const writable = await target.handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function exportReportElementToPdf(element: HTMLElement, filename: string, target: PdfSaveTarget) {
+  if (target.kind === "cancelled") return;
+  const canvas = await html2canvas(element, {
+    backgroundColor: "#ffffff",
+    scale: Math.min(2, window.devicePixelRatio || 1),
+    useCORS: true
+  });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const marginX = 14;
+  const marginY = 12;
+  const contentWidth = pageWidth - marginX * 2;
+  const contentHeight = pageHeight - marginY * 2;
+  const imageHeight = (canvas.height * contentWidth) / canvas.width;
+  const imageData = canvas.toDataURL("image/png");
+
+  for (let offset = 0, page = 0; offset < imageHeight; offset += contentHeight, page += 1) {
+    if (page > 0) pdf.addPage();
+    pdf.addImage(imageData, "PNG", marginX, marginY - offset, contentWidth, imageHeight);
+  }
+
+  await savePdfBlob(pdf.output("blob"), filename, target);
 }
 
 const englishStopWords = new Set([
@@ -683,6 +765,7 @@ function ChatView({
 }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [active, setActive] = useState<ChatSession | null>(null);
+  const [sessionMenu, setSessionMenu] = useState<{ session: ChatSession; x: number; y: number } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport());
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -703,8 +786,24 @@ function ChatView({
     }
   }
 
+  const regularSessions = useMemo(() => sessions.filter((session) => !session.is_archived), [sessions]);
+  const archivedSessions = useMemo(() => sessions.filter((session) => session.is_archived), [sessions]);
+
   useEffect(() => {
     refreshSessions().catch((err) => setError(err.message));
+  }, []);
+
+  useEffect(() => {
+    function closeSessionMenu() {
+      setSessionMenu(null);
+    }
+
+    window.addEventListener("click", closeSessionMenu);
+    window.addEventListener("resize", closeSessionMenu);
+    return () => {
+      window.removeEventListener("click", closeSessionMenu);
+      window.removeEventListener("resize", closeSessionMenu);
+    };
   }, []);
 
   useEffect(() => {
@@ -758,14 +857,39 @@ function ChatView({
   }
 
   function selectSession(session: ChatSession) {
+    setSessionMenu(null);
     setActive(session);
     if (isMobileViewport()) setSidebarOpen(false);
+  }
+
+  function openSessionMenu(event: ReactMouseEvent, session: ChatSession) {
+    event.preventDefault();
+    event.stopPropagation();
+    setSessionMenu({ session, x: event.clientX, y: event.clientY });
+  }
+
+  async function archiveSession(session: ChatSession, archived: boolean) {
+    try {
+      setError("");
+      setSessionMenu(null);
+      const updated = await api.archiveSession(session.id, archived);
+      setSessions((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)).sort((left, right) => {
+          if (left.is_archived !== right.is_archived) return left.is_archived ? 1 : -1;
+          return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+        })
+      );
+      if (active?.id === updated.id) setActive(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : archived ? "归档失败" : "取消归档失败");
+    }
   }
 
   async function deleteSession(session: ChatSession) {
     if (!window.confirm(`删除会话「${session.title}」？`)) return;
     try {
       setError("");
+      setSessionMenu(null);
       await api.deleteSession(session.id);
       const remaining = sessions.filter((item) => item.id !== session.id);
       setSessions(remaining);
@@ -934,25 +1058,91 @@ function ChatView({
               新会话
             </button>
             <p className="session-retention-note">最近 7 天会话会保留，报告长期保存。</p>
-            <div className="session-list">
-              {sessions.map((session) => (
-                <div key={session.id} className={active?.id === session.id ? "session-row active" : "session-row"}>
-                  <button className="session-item" onClick={() => selectSession(session)}>
-                    <MessageSquareText size={15} />
-                    <span>{session.title}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="delete-session"
-                    onClick={() => deleteSession(session)}
-                    aria-label={`删除会话 ${session.title}`}
-                    title="删除会话"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+            <div className="session-sections">
+              <div className="session-section session-section-main">
+                <div className="session-section-head">
+                  <span>最近会话</span>
+                  <small>{regularSessions.length}</small>
                 </div>
-              ))}
+                <div className="session-section-list">
+                  {regularSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className={active?.id === session.id ? "session-row active" : "session-row"}
+                      onContextMenu={(event) => openSessionMenu(event, session)}
+                    >
+                      <button className="session-item" onClick={() => selectSession(session)}>
+                        <MessageSquareText size={15} />
+                        <span>{session.title}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="delete-session"
+                        onClick={() => deleteSession(session)}
+                        aria-label={`删除会话 ${session.title}`}
+                        title="删除会话"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                  {!regularSessions.length && <div className="session-empty">暂无最近会话</div>}
+                </div>
+              </div>
+              <div className="session-section session-section-archived">
+                <div className="session-section-head">
+                  <span>已归档</span>
+                  <small>{archivedSessions.length}</small>
+                </div>
+                <div className="session-section-list">
+                  {archivedSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className={active?.id === session.id ? "session-row active" : "session-row"}
+                      onContextMenu={(event) => openSessionMenu(event, session)}
+                    >
+                      <button className="session-item" onClick={() => selectSession(session)}>
+                        <MessageSquareText size={15} />
+                        <span>{session.title}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="delete-session"
+                        onClick={() => deleteSession(session)}
+                        aria-label={`删除会话 ${session.title}`}
+                        title="删除会话"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                  {!archivedSessions.length && <div className="session-empty">暂无归档会话</div>}
+                </div>
+              </div>
             </div>
+            {sessionMenu && (
+              <div
+                className="session-context-menu"
+                style={{ left: sessionMenu.x, top: sessionMenu.y }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                {sessionMenu.session.is_archived ? (
+                  <button type="button" onClick={() => archiveSession(sessionMenu.session, false)}>
+                    <ArchiveRestore size={15} />
+                    取消归档
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => archiveSession(sessionMenu.session, true)}>
+                    <Archive size={15} />
+                    归档
+                  </button>
+                )}
+                <button type="button" onClick={() => deleteSession(sessionMenu.session)}>
+                  <Trash2 size={15} />
+                  删除
+                </button>
+              </div>
+            )}
           </>
         )}
       </aside>
@@ -1037,6 +1227,9 @@ function ReportsView() {
   const [type, setType] = useState<ReportItem["report_type"]>("daily");
   const [items, setItems] = useState<ReportItem[]>([]);
   const [active, setActive] = useState<ReportContent | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const reportPreviewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.reports(type, month).then((reports) => {
@@ -1052,9 +1245,19 @@ function ReportsView() {
   );
   const reportTypeLabel = type === "daily" ? "日报" : type === "weekly" ? "周报" : "月报";
 
-  function exportReportPdf() {
-    if (!active) return;
-    window.print();
+  async function exportReportPdf() {
+    if (!active || !reportPreviewRef.current || exportingPdf) return;
+    try {
+      setExportingPdf(true);
+      setExportError("");
+      const filename = `${active.period}-${reportTypeLabel}.pdf`;
+      const target = await pickPdfSaveTarget(filename);
+      await exportReportElementToPdf(reportPreviewRef.current, filename, target);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "PDF 导出失败");
+    } finally {
+      setExportingPdf(false);
+    }
   }
 
   return (
@@ -1087,12 +1290,17 @@ function ReportsView() {
                 <span>{active.period}</span>
                 <strong>{reportTypeLabel}</strong>
               </div>
-              <button className="secondary-button compact print-export-button" onClick={exportReportPdf}>
+              <button
+                className="secondary-button compact print-export-button"
+                onClick={exportReportPdf}
+                disabled={exportingPdf}
+              >
                 <Download size={16} />
-                导出 PDF
+                {exportingPdf ? "导出中..." : "导出 PDF"}
               </button>
             </div>
-            <MarkdownPreview markdown={active.markdown} />
+            {exportError && <div className="form-error report-export-error">{exportError}</div>}
+            <MarkdownPreview markdown={active.markdown} previewRef={reportPreviewRef} />
           </>
         ) : (
           <div className="empty-state">这个月份还没有报告。</div>

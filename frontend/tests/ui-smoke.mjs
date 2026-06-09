@@ -588,6 +588,181 @@ async function checkTranslationInputLimit(client) {
   if (checks.loading) throw new Error(`over-limit translation entered loading state: ${JSON.stringify(checks)}`);
 }
 
+async function checkSessionArchive(client) {
+  await evaluate(client, "document.querySelector('.app-nav button[aria-label=\"问答\"]').click()");
+  const sessionId = await evaluate(
+    client,
+    `(async () => {
+      const session = await fetch("/api/sessions", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Smoke Archive Session", model: "gpt-5.4-mini" })
+      }).then((response) => response.json());
+      window.__dailyreviewArchiveSessionId = session.id;
+      return session.id;
+    })()`,
+    true
+  );
+  await reloadPage(client);
+  await waitFor(
+    client,
+    `Boolean([...document.querySelectorAll('.session-section-main .session-row')].find((row) => row.textContent.includes("Smoke Archive Session")))`,
+    "new smoke session in recent section"
+  );
+  await evaluate(
+    client,
+    `(() => {
+      const row = [...document.querySelectorAll('.session-section-main .session-row')]
+        .find((item) => item.textContent.includes("Smoke Archive Session"));
+      row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 220, clientY: 220 }));
+      return true;
+    })()`
+  );
+  await waitFor(
+    client,
+    `Boolean(document.querySelector('.session-context-menu')?.textContent.includes("归档"))`,
+    "archive context menu"
+  );
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.session-context-menu button')]
+      .find((button) => button.textContent.includes("归档"))
+      .click()`
+  );
+  await waitFor(
+    client,
+    `Boolean([...document.querySelectorAll('.session-section-archived .session-row')].find((row) => row.textContent.includes("Smoke Archive Session")))`,
+    "archived smoke session"
+  );
+  await evaluate(
+    client,
+    `(() => {
+      const row = [...document.querySelectorAll('.session-section-archived .session-row')]
+        .find((item) => item.textContent.includes("Smoke Archive Session"));
+      row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 220, clientY: 520 }));
+      return true;
+    })()`
+  );
+  await waitFor(
+    client,
+    `Boolean(document.querySelector('.session-context-menu')?.textContent.includes("取消归档"))`,
+    "unarchive context menu"
+  );
+  await evaluate(
+    client,
+    `[...document.querySelectorAll('.session-context-menu button')]
+      .find((button) => button.textContent.includes("取消归档"))
+      .click()`
+  );
+  await waitFor(
+    client,
+    `Boolean([...document.querySelectorAll('.session-section-main .session-row')].find((row) => row.textContent.includes("Smoke Archive Session")))`,
+    "unarchived smoke session"
+  );
+  await evaluate(
+    client,
+    `(async () => {
+      await fetch("/api/sessions/${sessionId}", { method: "DELETE", credentials: "same-origin" });
+      delete window.__dailyreviewArchiveSessionId;
+      return true;
+    })()`,
+    true
+  );
+}
+
+async function checkReportPdfDownload(client) {
+  await evaluate(
+    client,
+    `(() => {
+      const originalFetch = window.fetch.bind(window);
+      window.__dailyreviewReportFetch = originalFetch;
+      window.fetch = (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/reports?")) {
+          return Promise.resolve(new Response(JSON.stringify([{
+            id: 990001,
+            report_type: "daily",
+            period: "2026-06-09",
+            stats: { message_count: 2 },
+            created_at: new Date().toISOString()
+          }]), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        if (url.endsWith("/api/reports/990001")) {
+          return Promise.resolve(new Response(JSON.stringify({
+            id: 990001,
+            report_type: "daily",
+            period: "2026-06-09",
+            stats: { message_count: 2 },
+            created_at: new Date().toISOString(),
+            markdown: "# 2026-06-09 学习日报\\n\\n## 今日重点\\n\\n- 导数与极限。\\n- 泰勒展开。"
+          }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        return originalFetch(input, init);
+      };
+      return true;
+    })()`
+  );
+  await evaluate(client, "document.querySelector('.app-nav button[aria-label=\"报告\"]').click()");
+  await waitFor(client, "Boolean(document.querySelector('.report-content'))", "reports panel");
+  await evaluate(
+    client,
+    `(() => {
+      window.__dailyreviewPrinted = false;
+      window.__dailyreviewSavePickerOpened = false;
+      window.__dailyreviewSavedPdf = false;
+      window.__dailyreviewOriginalPrint = window.print;
+      window.__dailyreviewOriginalSavePicker = window.showSaveFilePicker;
+      window.print = () => { window.__dailyreviewPrinted = true; };
+      window.showSaveFilePicker = async () => {
+        window.__dailyreviewSavePickerOpened = true;
+        return {
+          createWritable: async () => ({
+            write: async (blob) => {
+              window.__dailyreviewSavedPdf = blob instanceof Blob && blob.type === "application/pdf";
+            },
+            close: async () => {}
+          })
+        };
+      };
+      return true;
+    })()`
+  );
+  await waitFor(client, "Boolean(document.querySelector('.print-export-button') && !document.querySelector('.print-export-button').disabled)", "report export button", 15000);
+  await evaluate(client, "document.querySelector('.print-export-button').click()");
+  await waitFor(client, "Boolean(window.__dailyreviewSavedPdf || window.__dailyreviewPrinted)", "pdf export completion", 30000);
+  const result = await evaluate(
+    client,
+    `(() => ({
+      printed: window.__dailyreviewPrinted,
+      savePickerOpened: window.__dailyreviewSavePickerOpened,
+      savedPdf: window.__dailyreviewSavedPdf,
+      exportError: document.querySelector('.report-export-error')?.textContent || ""
+    }))()`
+  );
+  await evaluate(
+    client,
+    `(() => {
+      if (window.__dailyreviewReportFetch) {
+        window.fetch = window.__dailyreviewReportFetch;
+        delete window.__dailyreviewReportFetch;
+      }
+      if (window.__dailyreviewOriginalPrint) window.print = window.__dailyreviewOriginalPrint;
+      if (window.__dailyreviewOriginalSavePicker) window.showSaveFilePicker = window.__dailyreviewOriginalSavePicker;
+      else delete window.showSaveFilePicker;
+      delete window.__dailyreviewPrinted;
+      delete window.__dailyreviewSavePickerOpened;
+      delete window.__dailyreviewSavedPdf;
+      delete window.__dailyreviewOriginalPrint;
+      delete window.__dailyreviewOriginalSavePicker;
+      return true;
+    })()`
+  );
+  if (result.printed) throw new Error(`pdf export opened print: ${JSON.stringify(result)}`);
+  if (!result.savePickerOpened) throw new Error(`pdf export did not open save picker: ${JSON.stringify(result)}`);
+  if (!result.savedPdf) throw new Error(`pdf export did not write a PDF blob: ${JSON.stringify(result)}`);
+}
+
 async function createRenderedMessage(client) {
   const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lH9u2wAAAABJRU5ErkJggg==";
   const markdownText = [
@@ -679,6 +854,8 @@ try {
   await checkTranslationLoadingLayout(client);
   await checkWordCloudDetail(client);
   await checkTranslationInputLimit(client);
+  await checkSessionArchive(client);
+  await checkReportPdfDownload(client);
   createdSessionId = await createRenderedMessage(client);
   await capture(client);
   console.log(`ui-smoke-ok ${screenshotPath}`);

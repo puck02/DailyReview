@@ -7,6 +7,8 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "katex": "^0.17.0",
     "lucide-react": "latest",
     "react": "latest",

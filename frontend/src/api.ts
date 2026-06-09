@@ -8,6 +8,7 @@ export type ChatSession = {
   id: number;
   title: string;
   default_model: string;
+  is_archived: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -118,6 +119,11 @@ export const api = {
   deleteSession: (sessionId: number) =>
     request<{ status: string }>(`/api/sessions/${sessionId}`, {
       method: "DELETE"
+    }),
+  archiveSession: (sessionId: number, archived: boolean) =>
+    request<ChatSession>(`/api/sessions/${sessionId}/archive`, {
+      method: "PATCH",
+      body: JSON.stringify({ archived })
     }),
   messages: (sessionId: number) => request<Message[]>(`/api/sessions/${sessionId}/messages`),
   upload: async (file: File): Promise<Attachment> => {

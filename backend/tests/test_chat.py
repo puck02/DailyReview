@@ -73,13 +73,51 @@ def test_sessions_list_only_current_user_recent_sessions(tmp_path: Path):
             created_at=datetime.utcnow() - timedelta(days=8),
             updated_at=datetime.utcnow() - timedelta(days=8),
         )
-        session.add(old)
+        archived = ChatSession(
+            user_id=student.id,
+            title="归档旧会话",
+            default_model="gpt-5.4-mini",
+            is_archived=True,
+            created_at=datetime.utcnow() - timedelta(days=30),
+            updated_at=datetime.utcnow() - timedelta(days=30),
+        )
+        session.add_all([old, archived])
         session.commit()
 
     response = client.get("/api/sessions")
 
     assert response.status_code == 200
-    assert [item["title"] for item in response.json()] == ["线性代数"]
+    assert [item["title"] for item in response.json()] == ["线性代数", "归档旧会话"]
+    assert response.json()[0]["is_archived"] is False
+    assert response.json()[1]["is_archived"] is True
+    app.dependency_overrides.clear()
+
+
+def test_session_archive_toggle_is_scoped_and_refreshes_unarchived_session(tmp_path: Path):
+    client, session_factory = make_client(tmp_path)
+    register_user(client, "student@example.com")
+    created = client.post("/api/sessions", json={"title": "要归档", "model": "gpt-5.4-mini"})
+    assert created.status_code == 200
+    session_id = created.json()["id"]
+
+    archived = client.patch(f"/api/sessions/{session_id}/archive", json={"archived": True})
+    assert archived.status_code == 200
+    assert archived.json()["is_archived"] is True
+
+    with session_factory() as db:
+        session = db.get(ChatSession, session_id)
+        session.updated_at = datetime.utcnow() - timedelta(days=20)
+        db.commit()
+
+    unarchived = client.patch(f"/api/sessions/{session_id}/archive", json={"archived": False})
+    assert unarchived.status_code == 200
+    assert unarchived.json()["is_archived"] is False
+    assert datetime.fromisoformat(unarchived.json()["updated_at"]) > datetime.utcnow() - timedelta(minutes=1)
+
+    other_client = TestClient(app)
+    register_user(other_client, "other-archive@example.com")
+    forbidden = other_client.patch(f"/api/sessions/{session_id}/archive", json={"archived": True})
+    assert forbidden.status_code == 404
     app.dependency_overrides.clear()
 
 

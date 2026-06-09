@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
@@ -16,14 +16,24 @@ def cleanup_expired_data(session_factory: sessionmaker[Session] = SessionLocal, 
     current = now or datetime.utcnow()
     cutoff = current - timedelta(days=7)
     with session_factory() as db:
-        attachments = db.scalars(select(Attachment).where(Attachment.expires_at < current)).all()
+        archived_message_ids = select(Message.id).join(ChatSession, Message.session_id == ChatSession.id).where(
+            ChatSession.is_archived.is_(True)
+        )
+        attachments = db.scalars(
+            select(Attachment).where(
+                Attachment.expires_at < current,
+                or_(Attachment.message_id.is_(None), Attachment.message_id.not_in(archived_message_ids)),
+            )
+        ).all()
         for attachment in attachments:
             path = Path(attachment.file_path)
             if path.exists():
                 path.unlink()
             db.delete(attachment)
 
-        old_sessions = db.scalars(select(ChatSession).where(ChatSession.updated_at < cutoff)).all()
+        old_sessions = db.scalars(
+            select(ChatSession).where(ChatSession.updated_at < cutoff, ChatSession.is_archived.is_(False))
+        ).all()
         for session in old_sessions:
             messages = db.scalars(select(Message).where(Message.session_id == session.id)).all()
             for message in messages:

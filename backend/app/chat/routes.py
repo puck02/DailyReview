@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.admin.ai_config import get_ai_config
@@ -29,10 +29,15 @@ class SessionCreateRequest(BaseModel):
     model: str = Field(default_factory=lambda: settings.ai_default_model)
 
 
+class SessionArchiveRequest(BaseModel):
+    archived: bool
+
+
 class SessionResponse(BaseModel):
     id: int
     title: str
     default_model: str
+    is_archived: bool
     created_at: datetime
     updated_at: datetime
 
@@ -66,6 +71,7 @@ def session_response(session: ChatSession) -> SessionResponse:
         id=session.id,
         title=session.title,
         default_model=session.default_model,
+        is_archived=session.is_archived,
         created_at=session.created_at,
         updated_at=session.updated_at,
     )
@@ -102,10 +108,31 @@ def list_sessions(
     cutoff = datetime.utcnow() - timedelta(days=7)
     sessions = db.scalars(
         select(ChatSession)
-        .where(ChatSession.user_id == user.id, ChatSession.updated_at >= cutoff)
-        .order_by(ChatSession.updated_at.desc())
+        .where(
+            ChatSession.user_id == user.id,
+            or_(ChatSession.updated_at >= cutoff, ChatSession.is_archived.is_(True)),
+        )
+        .order_by(ChatSession.is_archived.asc(), ChatSession.updated_at.desc())
     ).all()
     return [session_response(item) for item in sessions]
+
+
+@router.patch("/api/sessions/{session_id}/archive", response_model=SessionResponse)
+def archive_session(
+    session_id: int,
+    payload: SessionArchiveRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SessionResponse:
+    session = db.get(ChatSession, session_id)
+    if session is None or session.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    session.is_archived = payload.archived
+    if not payload.archived:
+        session.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(session)
+    return session_response(session)
 
 
 @router.get("/api/sessions/{session_id}/messages", response_model=list[MessageResponse])

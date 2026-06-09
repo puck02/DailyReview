@@ -234,6 +234,27 @@ test("sessions can be deleted from the sidebar", () => {
   assert.match(styles, /\.delete-session\s*{/);
 });
 
+test("sessions can be archived from a split sidebar context menu", () => {
+  assert.ok(apiSource.includes("is_archived: boolean;"));
+  assert.ok(apiSource.includes("archiveSession"));
+  assert.ok(apiSource.includes('body: JSON.stringify({ archived })'));
+  assert.ok(app.includes("regularSessions"));
+  assert.ok(app.includes("archivedSessions"));
+  assert.ok(app.includes("session-context-menu"));
+  assert.ok(app.includes("openSessionMenu"));
+  assert.ok(app.includes("archiveSession(sessionMenu.session, true)"));
+  assert.ok(app.includes("archiveSession(sessionMenu.session, false)"));
+  assert.ok(app.includes("最近会话"));
+  assert.ok(app.includes("已归档"));
+  assert.ok(app.includes("归档"));
+  assert.ok(app.includes("取消归档"));
+  assert.match(app, /<div className="session-section session-section-main">[\s\S]*regularSessions\.map/);
+  assert.match(app, /<div className="session-section session-section-archived">[\s\S]*archivedSessions\.map/);
+  assert.match(styles, /\.session-sections\s*{[^}]*grid-template-rows:\s*minmax\(0,\s*1fr\) minmax\(120px,\s*38%\);/s);
+  assert.match(styles, /\.session-section-list\s*{[^}]*overflow-y:\s*auto;/s);
+  assert.match(styles, /\.session-context-menu\s*{[^}]*position:\s*fixed;/s);
+});
+
 test("admin page can update AI config without echoing the key", () => {
   assert.match(app, /AI 设置/);
   assert.ok(!app.includes(">邀请码</button>"));
@@ -346,15 +367,21 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
 });
 
 test("chat top bar is compact and keeps retention copy in the expanded sidebar", () => {
-  assert.match(app, /<aside className="sessions-pane">[\s\S]*最近 7 天会话会保留，报告长期保存。[\s\S]*<div className="session-list">/);
+  assert.match(app, /<aside className="sessions-pane">[\s\S]*最近 7 天会话会保留，报告长期保存。[\s\S]*<div className="session-sections">/);
   assert.doesNotMatch(app, /<header className="pane-header">[\s\S]*<h2>\{active\?\.title \|\| "新会话"\}<\/h2>[\s\S]*最近 7 天会话会保留，报告长期保存。[\s\S]*<\/header>/);
   assert.match(styles, /\.pane-header\s*{[^}]*min-height:\s*58px;[^}]*padding:\s*8px 20px;/s);
 });
 
-test("reports can be exported as stable four-page PDF print layouts", () => {
+test("reports can be exported as downloaded PDF files without opening print", () => {
   assert.ok(app.includes("Download"));
   assert.ok(app.includes("function exportReportPdf"));
-  assert.ok(app.includes("window.print()"));
+  assert.ok(app.includes("reportPreviewRef"));
+  assert.ok(app.includes("exportReportElementToPdf"));
+  assert.ok(app.includes("showSaveFilePicker"));
+  assert.ok(app.includes("URL.createObjectURL(blob)"));
+  assert.ok(!app.includes("window.print()"));
+  assert.ok(packageJson.includes('"html2canvas"'));
+  assert.ok(packageJson.includes('"jspdf"'));
   assert.ok(app.includes("report-toolbar"));
   assert.ok(app.includes("print-export-button"));
   assert.ok(app.includes("导出 PDF"));

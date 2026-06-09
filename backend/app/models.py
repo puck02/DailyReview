@@ -44,6 +44,7 @@ class ChatSession(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(255), default="新会话")
     default_model: Mapped[str] = mapped_column(String(64), default="gpt-5.4-mini")
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
