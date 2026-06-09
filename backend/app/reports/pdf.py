@@ -101,11 +101,199 @@ def _styles() -> dict[str, ParagraphStyle]:
 
 
 def _inline_markdown(text: str) -> str:
-    escaped = html.escape(text.strip())
+    escaped = html.escape(_replace_inline_latex_math(text.strip()))
     escaped = re.sub(r"`([^`]+)`", r"<font name='DailyReviewMono'>\1</font>", escaped)
     escaped = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", escaped)
     escaped = re.sub(r"\*([^*]+)\*", r"<i>\1</i>", escaped)
     return escaped
+
+
+superscript_map = str.maketrans(
+    {
+        "0": "⁰",
+        "1": "¹",
+        "2": "²",
+        "3": "³",
+        "4": "⁴",
+        "5": "⁵",
+        "6": "⁶",
+        "7": "⁷",
+        "8": "⁸",
+        "9": "⁹",
+        "+": "⁺",
+        "-": "⁻",
+        "(": "⁽",
+        ")": "⁾",
+    }
+)
+subscript_map = str.maketrans(
+    {
+        "0": "₀",
+        "1": "₁",
+        "2": "₂",
+        "3": "₃",
+        "4": "₄",
+        "5": "₅",
+        "6": "₆",
+        "7": "₇",
+        "8": "₈",
+        "9": "₉",
+        "+": "₊",
+        "-": "₋",
+        "=": "₌",
+        "(": "₍",
+        ")": "₎",
+        "n": "ₙ",
+        "x": "ₓ",
+        "k": "ₖ",
+    }
+)
+latex_symbol_map = {
+    r"\alpha": "α",
+    r"\beta": "β",
+    r"\gamma": "γ",
+    r"\delta": "δ",
+    r"\theta": "θ",
+    r"\lambda": "λ",
+    r"\mu": "μ",
+    r"\pi": "π",
+    r"\sigma": "σ",
+    r"\omega": "ω",
+    r"\sum": "Σ",
+    r"\cdots": "...",
+    r"\ldots": "…",
+    r"\leq": "≤",
+    r"\geq": "≥",
+    r"\neq": "≠",
+    r"\times": "×",
+    r"\div": "÷",
+    r"\pm": "±",
+    r"\to": "→",
+    r"\infty": "∞",
+    r"\ln": "ln",
+    r"\sin": "sin",
+    r"\cos": "cos",
+    r"\tan": "tan",
+    r"\left": "",
+    r"\right": "",
+}
+
+
+def _replace_latex_sums(expression: str) -> str:
+    expression = re.sub(
+        r"\\sum_\{([^{}]+)\}\^\{([^{}]+)\}",
+        lambda match: f"Σ({match.group(1).replace('-', '−')}→{match.group(2).replace('-', '−')})",
+        expression,
+    )
+    return re.sub(
+        r"\\sum_\{([^{}]+)\}\^([A-Za-z0-9+\-]+)",
+        lambda match: f"Σ({match.group(1).replace('-', '−')}→{match.group(2).replace('-', '−')})",
+        expression,
+    )
+
+
+def _replace_latex_roots(expression: str) -> str:
+    return re.sub(r"\\sqrt\s*\{([^{}]+)\}", lambda match: f"√({match.group(1)})", expression)
+
+
+def _replace_latex_fractions(expression: str) -> str:
+    pattern = re.compile(r"\\d?frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}")
+    while True:
+        replaced = pattern.sub(lambda match: f"{match.group(1)}/{match.group(2)}", expression)
+        if replaced == expression:
+            return re.sub(r"\\d?frac\s*([A-Za-z0-9])\s*([A-Za-z0-9])", r"\1/\2", replaced)
+        expression = replaced
+
+
+def _script_text(value: str, translation: dict[int, str]) -> str:
+    if translation is superscript_map:
+        if value in {"1", "2", "3"}:
+            return value.translate(translation)
+        return f"^({value.replace('-', '−')})" if len(value) > 1 else f"^{value}"
+    if translation is subscript_map and not value.isdigit():
+        return f"_({value.replace('-', '−')})" if len(value) > 1 else f"_{value}"
+    converted = value.translate(translation)
+    return converted if converted != value else f"^{value}"
+
+
+def _replace_latex_scripts(expression: str) -> str:
+    def replace_grouped(match: re.Match[str]) -> str:
+        translation = superscript_map if match.group(1) == "^" else subscript_map
+        return _script_text(match.group(2), translation)
+
+    def replace_single(match: re.Match[str]) -> str:
+        translation = superscript_map if match.group(1) == "^" else subscript_map
+        return _script_text(match.group(2), translation)
+
+    expression = re.sub(r"([_^])\{([^{}]+)\}", replace_grouped, expression)
+    return re.sub(r"([_^])\\?([A-Za-z0-9+\-()])", replace_single, expression)
+
+
+def _latex_math_to_text(expression: str) -> str:
+    text = expression.strip().strip("$").strip()
+    text = _replace_latex_sums(text)
+    text = _replace_latex_roots(text)
+    text = _replace_latex_fractions(text)
+    for command, replacement in latex_symbol_map.items():
+        text = text.replace(command, replacement)
+    text = _replace_latex_scripts(text)
+    text = text.replace(r"\,", " ").replace(r"\;", " ").replace(r"\!", "")
+    text = text.replace("\\", "")
+    text = text.replace("-", "−")
+    text = text.replace("sim", "∼")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _replace_inline_latex_math(text: str) -> str:
+    return re.sub(r"\\\((.+?)\\\)", lambda match: _latex_math_to_text(match.group(1)), text)
+
+
+def _math_block_from_lines(lines: list[str], index: int) -> tuple[str, int, str] | None:
+    stripped = lines[index].strip()
+    if stripped.startswith(r"\["):
+        start_delimiter = r"\["
+        end_delimiter = r"\]"
+    elif stripped.startswith("$$"):
+        start_delimiter = "$$"
+        end_delimiter = "$$"
+    elif stripped.startswith("[") and stripped.endswith("]") and ("\\" in stripped or "^" in stripped):
+        return stripped[1:-1].strip(), index + 1, ""
+    else:
+        return None
+
+    parts = [stripped[len(start_delimiter) :]]
+    next_index = index + 1
+    while parts:
+        end_position = parts[-1].find(end_delimiter)
+        if end_position >= 0:
+            remainder = parts[-1][end_position + len(end_delimiter) :].strip()
+            parts[-1] = parts[-1][:end_position]
+            return " ".join(part.strip() for part in parts).strip(), next_index, remainder
+        if next_index >= len(lines):
+            return " ".join(part.strip() for part in parts).rstrip("\\").strip(), next_index, ""
+        parts.append(lines[next_index].strip())
+        next_index += 1
+
+    return None
+
+
+def _inline_math_blocks(text: str) -> list[str]:
+    blocks: list[str] = []
+    patterns = [
+        re.compile(r"\\\[(.+?)\\\]"),
+        re.compile(r"\$\$(.+?)\$\$"),
+        re.compile(r"(?<!\S)\[(.+?\\.+?)\](?!\S)"),
+    ]
+    for pattern in patterns:
+        blocks.extend(match.group(1).strip() for match in pattern.finditer(text))
+    return blocks
+
+
+def _append_math_blocks(blocks: list[str], story: list, styles: dict[str, ParagraphStyle]) -> None:
+    for expression in blocks:
+        rendered = _latex_math_to_text(expression)
+        if rendered:
+            story.append(Paragraph(html.escape(rendered), styles["body"]))
 
 
 def _is_table_separator(line: str) -> bool:
@@ -196,6 +384,24 @@ def markdown_to_pdf_bytes(markdown: str) -> bytes:
         if in_code:
             code_lines.append(line)
             index += 1
+            continue
+
+        inline_math_blocks = _inline_math_blocks(line)
+        if inline_math_blocks:
+            _flush_paragraph(paragraph_parts, story, styles)
+            _flush_list(list_items, story, styles)
+            _append_math_blocks(inline_math_blocks, story, styles)
+            index += 1
+            continue
+
+        math_block = _math_block_from_lines(lines, index)
+        if math_block is not None:
+            _flush_paragraph(paragraph_parts, story, styles)
+            _flush_list(list_items, story, styles)
+            expression, index, remainder = math_block
+            _append_math_blocks([expression], story, styles)
+            if remainder:
+                lines.insert(index, remainder)
             continue
 
         if _is_table_start(lines, index):
