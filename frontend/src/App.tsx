@@ -3,7 +3,6 @@ import {
   ChangeEvent,
   FormEvent,
   KeyboardEvent,
-  PointerEvent,
   ReactNode,
   isValidElement,
   useEffect,
@@ -65,6 +64,12 @@ type TranslationCloudItem = {
   count: number;
   weight: number;
   entry: TranslationEntry;
+};
+type TranslationCloudLane = {
+  id: number;
+  duration: number;
+  delay: number;
+  items: TranslationCloudItem[];
 };
 
 const defaultModel = "gpt-5.4-mini";
@@ -355,13 +360,51 @@ function translationCloudItems(entries: TranslationEntry[]) {
     });
   });
 
-  return Array.from(cloud.values())
-    .map((item) => ({
-      ...item,
-      weight: Math.min(5, 1 + Math.floor(Math.log2(item.count + 1)))
-    }))
-    .sort((left, right) => right.count - left.count || right.entry.id - left.entry.id)
-    .slice(0, 36);
+  const items = Array.from(cloud.values()).sort(
+    (left, right) => right.count - left.count || right.entry.id - left.entry.id
+  );
+  const maxCount = Math.max(1, ...items.map((item) => item.count));
+  const minCount = Math.min(maxCount, ...items.map((item) => item.count));
+  return items
+    .map((item) => {
+      const spread = maxCount - minCount;
+      const weight = spread ? 1 + Math.round(((item.count - minCount) / spread) * 4) : 3;
+      return { ...item, weight: Math.max(1, Math.min(5, weight)) };
+    })
+    .slice(0, 40);
+}
+
+function shuffleTranslationCloudItems(items: TranslationCloudItem[]) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function buildTranslationCloudLanes(items: TranslationCloudItem[]): TranslationCloudLane[] {
+  const shuffled = shuffleTranslationCloudItems(items);
+  const laneCount = Math.min(4, Math.max(1, Math.ceil(shuffled.length / 8)));
+  const lanes = Array.from({ length: laneCount }, (_, index) => ({
+    id: index,
+    duration: 26 + index * 5,
+    delay: -index * 3,
+    items: [] as TranslationCloudItem[]
+  }));
+
+  shuffled.forEach((item, index) => {
+    lanes[index % laneCount].items.push(item);
+  });
+  return lanes;
+}
+
+function repeatedLaneItems(items: TranslationCloudItem[]) {
+  if (!items.length) return [];
+  if (items.length >= 8) return items;
+  const repeated: TranslationCloudItem[] = [];
+  while (repeated.length < 8) repeated.push(...items);
+  return repeated.slice(0, 8);
 }
 
 function TranslationWordCloud({
@@ -373,68 +416,8 @@ function TranslationWordCloud({
   activeId: number | null;
   onSelect: (entry: TranslationEntry) => void;
 }) {
-  const cloudRef = useRef<HTMLDivElement>(null);
-  const dragState = useRef({ active: false, moved: false, scrollLeft: 0, x: 0 });
-  const [dragging, setDragging] = useState(false);
   const items = useMemo(() => translationCloudItems(entries), [entries]);
-
-  useEffect(() => {
-    if (!items.length) return;
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reducedMotion) return;
-    let frame = 0;
-    let previous = performance.now();
-
-    function drift(now: number) {
-      const element = cloudRef.current;
-      if (element && !dragState.current.active && element.scrollWidth > element.clientWidth) {
-        const distance = Math.min((now - previous) * 0.012, 0.9);
-        const end = element.scrollWidth - element.clientWidth - 4;
-        element.scrollLeft = element.scrollLeft >= end ? 0 : element.scrollLeft + distance;
-      }
-      previous = now;
-      frame = window.requestAnimationFrame(drift);
-    }
-
-    frame = window.requestAnimationFrame(drift);
-    return () => window.cancelAnimationFrame(frame);
-  }, [items.length]);
-
-  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
-    const element = cloudRef.current;
-    if (!element) return;
-    dragState.current = {
-      active: true,
-      moved: false,
-      scrollLeft: element.scrollLeft,
-      x: event.clientX
-    };
-    setDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  }
-
-  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
-    const element = cloudRef.current;
-    const state = dragState.current;
-    if (!element || !state.active) return;
-    const delta = event.clientX - state.x;
-    if (Math.abs(delta) > 4) state.moved = true;
-    element.scrollLeft = state.scrollLeft - delta;
-    event.preventDefault();
-  }
-
-  function handlePointerEnd() {
-    dragState.current.active = false;
-    setDragging(false);
-  }
-
-  function selectItem(item: TranslationCloudItem) {
-    if (dragState.current.moved) {
-      dragState.current.moved = false;
-      return;
-    }
-    onSelect(item.entry);
-  }
+  const lanes = useMemo(() => buildTranslationCloudLanes(items), [items]);
 
   return (
     <section className="translation-cloud">
@@ -443,32 +426,35 @@ function TranslationWordCloud({
         <strong>{items.length ? `${items.length} 个词 / 短语` : "等待积累"}</strong>
       </div>
       {items.length ? (
-        <div
-          ref={cloudRef}
-          className={dragging ? "word-cloud-stage dragging" : "word-cloud-stage"}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerEnd}
-          onPointerCancel={handlePointerEnd}
-          onPointerLeave={handlePointerEnd}
-        >
-          <div className="word-cloud-track">
-            {items.map((item) => (
-              <button
-                key={item.key}
-                className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
-                style={
-                  {
-                    "--cloud-weight": item.weight
-                  } as CSSProperties
-                }
-                onClick={() => selectItem(item)}
-              >
-                <span>{item.label}</span>
-                {item.count > 1 && <small>{item.count}</small>}
-              </button>
-            ))}
-          </div>
+        <div className="word-cloud-stage">
+          {lanes.map((lane) => {
+            const laneItems = repeatedLaneItems(lane.items);
+            return (
+              <div key={lane.id} className="word-cloud-lane">
+                <div
+                  className="word-cloud-run"
+                  style={
+                    {
+                      "--lane-duration": `${lane.duration}s`,
+                      "--lane-delay": `${lane.delay}s`
+                    } as CSSProperties
+                  }
+                >
+                  {[...laneItems, ...laneItems].map((item, index) => (
+                    <button
+                      key={`${lane.id}-${item.key}-${index}`}
+                      className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
+                      data-size={item.weight}
+                      onClick={() => onSelect(item.entry)}
+                    >
+                      <span>{item.label}</span>
+                      {item.count > 1 && <small>{item.count}</small>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="translation-cloud-empty">翻译几次后，这里会积累词和短语。</div>

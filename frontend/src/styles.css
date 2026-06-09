@@ -1342,20 +1342,26 @@ textarea:focus {
 }
 
 .translation-loading {
-  width: 34px;
-  height: 18px;
+  width: 22px;
+  height: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
+  color: currentColor;
+  font-size: 0;
+  line-height: 0;
 }
 
 .translation-loading span {
-  width: 7px;
-  height: 7px;
+  width: 4px;
+  height: 4px;
+  display: block;
+  flex: 0 0 4px;
   background: currentColor;
   border-radius: 50%;
-  animation: translation-pulse 900ms ease-in-out infinite;
+  transform: translateY(0);
+  animation: translation-pulse 840ms ease-in-out infinite;
 }
 
 .translation-loading span:nth-child(2) {
@@ -1369,13 +1375,13 @@ textarea:focus {
 @keyframes translation-pulse {
   0%,
   100% {
-    opacity: 0.32;
-    transform: translateY(2px) scale(0.78);
+    opacity: 0.28;
+    transform: translateY(1px);
   }
 
   45% {
     opacity: 1;
-    transform: translateY(-2px) scale(1.18);
+    transform: translateY(-1px);
   }
 }
 
@@ -1456,36 +1462,47 @@ textarea:focus {
 }
 
 .word-cloud-stage {
-  min-height: 132px;
-  overflow-x: auto;
+  min-height: 148px;
+  display: grid;
+  align-content: center;
+  gap: 9px;
+  overflow-x: hidden;
   overflow-y: hidden;
-  scrollbar-width: none;
-  cursor: grab;
   mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
 }
 
-.word-cloud-stage::-webkit-scrollbar {
-  display: none;
+.word-cloud-lane {
+  min-width: 0;
+  overflow: hidden;
 }
 
-.word-cloud-stage.dragging {
-  cursor: grabbing;
-}
-
-.word-cloud-track {
-  width: max(100%, 1180px);
+.word-cloud-run {
+  width: max-content;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  align-content: center;
-  justify-content: center;
-  gap: 9px;
-  padding: 10px 18px;
+  gap: 12px;
+  padding-right: 12px;
+  will-change: transform;
+  animation: word-cloud-marquee var(--lane-duration) linear infinite;
+  animation-delay: var(--lane-delay);
+}
+
+.word-cloud-stage:hover .word-cloud-run {
+  animation-play-state: paused;
+}
+
+@keyframes word-cloud-marquee {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 .word-cloud-chip {
-  --cloud-scale: calc(0.88 + var(--cloud-weight) * 0.1);
-  min-height: 34px;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -1493,20 +1510,49 @@ textarea:focus {
   background: var(--button-surface);
   border: 1px solid var(--stroke);
   border-radius: 999px;
-  padding: 0 13px;
-  font-size: calc(12px + var(--cloud-weight) * 1px);
+  padding: 0 12px;
+  font-size: 13px;
   font-weight: 720;
-  transform: scale(var(--cloud-scale));
-  transform-origin: center;
   user-select: none;
+  white-space: nowrap;
   transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.word-cloud-chip[data-size="1"] {
+  min-height: 28px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.word-cloud-chip[data-size="2"] {
+  min-height: 30px;
+  font-size: 13px;
+  font-weight: 690;
+}
+
+.word-cloud-chip[data-size="3"] {
+  min-height: 32px;
+  font-size: 14px;
+  font-weight: 730;
+}
+
+.word-cloud-chip[data-size="4"] {
+  min-height: 35px;
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.word-cloud-chip[data-size="5"] {
+  min-height: 38px;
+  font-size: 17px;
+  font-weight: 790;
 }
 
 .word-cloud-chip:hover,
 .word-cloud-chip.active {
   background: var(--button-surface-hover);
   border-color: var(--stroke-strong);
-  transform: translateY(-1px) scale(calc(var(--cloud-scale) + 0.03));
+  transform: translateY(-1px);
 }
 
 .word-cloud-chip small {
@@ -1750,12 +1796,6 @@ textarea:focus {
 
   .word-cloud-stage {
     mask-image: none;
-  }
-
-  .word-cloud-track {
-    width: 100%;
-    justify-content: flex-start;
-    padding: 8px 2px;
   }
 
   .chat-pane {

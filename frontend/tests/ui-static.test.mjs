@@ -259,7 +259,12 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("prompt-editor"));
   assert.ok(app.includes("TranslationWordCloud"));
   assert.ok(app.includes("translationCloudItems"));
+  assert.ok(app.includes("shuffleTranslationCloudItems"));
+  assert.ok(app.includes("buildTranslationCloudLanes"));
+  assert.ok(app.includes("data-size={item.weight}"));
   assert.ok(app.includes("word-cloud-stage"));
+  assert.ok(app.includes("word-cloud-lane"));
+  assert.ok(app.includes("word-cloud-run"));
   assert.ok(app.includes("word-cloud-chip"));
   assert.ok(app.includes("TranslationLoading"));
   assert.ok(app.includes("aria-label={busy ? \"正在翻译\" : \"翻译\"}"));
@@ -273,9 +278,13 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-card\s*{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px solid var\(--stroke\);/s);
   assert.match(styles, /\.translation-result\s*{[^}]*background:\s*var\(--message-surface\);/s);
   assert.match(styles, /\.translation-submit\s*{[^}]*border-radius:\s*50%;/s);
-  assert.match(styles, /\.translation-loading span\s*{[^}]*animation:\s*translation-pulse 900ms ease-in-out infinite;/s);
+  assert.match(styles, /\.translation-loading\s*{[^}]*width:\s*22px;[^}]*height:\s*8px;/s);
+  assert.match(styles, /\.translation-loading span\s*{[^}]*width:\s*4px;[^}]*height:\s*4px;[^}]*animation:\s*translation-pulse 840ms ease-in-out infinite;/s);
   assert.match(styles, /\.translation-cloud\s*{[^}]*background:\s*var\(--surface\);/s);
-  assert.match(styles, /\.word-cloud-stage\s*{[^}]*cursor:\s*grab;/s);
+  assert.match(styles, /\.word-cloud-run\s*{[^}]*animation:\s*word-cloud-marquee var\(--lane-duration\) linear infinite;/s);
+  for (const size of ["1", "2", "3", "4", "5"]) {
+    assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-size="${size}"\\]`));
+  }
   assert.match(styles, /\.word-cloud-chip\.active\s*{[^}]*background:\s*var\(--button-surface-hover\);/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);
 });
