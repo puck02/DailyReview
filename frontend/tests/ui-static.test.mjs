@@ -257,13 +257,26 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("api.updateTranslationPrompt(promptDraft)"));
   assert.ok(app.includes("api.translationEntries()"));
   assert.ok(app.includes("prompt-editor"));
+  assert.ok(app.includes("TranslationWordCloud"));
+  assert.ok(app.includes("translationCloudItems"));
+  assert.ok(app.includes("word-cloud-stage"));
+  assert.ok(app.includes("word-cloud-chip"));
+  assert.ok(app.includes("TranslationLoading"));
+  assert.ok(app.includes("aria-label={busy ? \"正在翻译\" : \"翻译\"}"));
+  assert.ok(!app.includes("最近记录"));
+  assert.ok(!app.includes("单词会补充词根词缀、易混词、用法和例句"));
   assert.ok(app.includes("考研英语一"));
   assert.ok(app.includes("词根词缀"));
   assert.ok(app.includes("翻译 / 讲解"));
   assert.match(styles, /\.translation-panel\s*{[^}]*display:\s*grid;/s);
-  assert.match(styles, /\.translation-workbench\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/s);
+  assert.match(styles, /\.translation-workbench\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) 64px minmax\(0,\s*1fr\);/s);
   assert.match(styles, /\.translation-card\s*{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px solid var\(--stroke\);/s);
   assert.match(styles, /\.translation-result\s*{[^}]*background:\s*var\(--message-surface\);/s);
+  assert.match(styles, /\.translation-submit\s*{[^}]*border-radius:\s*50%;/s);
+  assert.match(styles, /\.translation-loading span\s*{[^}]*animation:\s*translation-pulse 900ms ease-in-out infinite;/s);
+  assert.match(styles, /\.translation-cloud\s*{[^}]*background:\s*var\(--surface\);/s);
+  assert.match(styles, /\.word-cloud-stage\s*{[^}]*cursor:\s*grab;/s);
+  assert.match(styles, /\.word-cloud-chip\.active\s*{[^}]*background:\s*var\(--button-surface-hover\);/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);
 });
 

@@ -1,7 +1,9 @@
 import {
+  CSSProperties,
   ChangeEvent,
   FormEvent,
   KeyboardEvent,
+  PointerEvent,
   ReactNode,
   isValidElement,
   useEffect,
@@ -57,6 +59,13 @@ type View = "chat" | "translate" | "reports" | "admin";
 type AuthMode = "login" | "register";
 type ThemePreference = "light" | "dark";
 type PendingAttachment = Attachment & { previewUrl: string; name: string };
+type TranslationCloudItem = {
+  key: string;
+  label: string;
+  count: number;
+  weight: number;
+  entry: TranslationEntry;
+};
 
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "5.5";
@@ -287,6 +296,195 @@ function MarkdownPreview({ markdown }: { markdown: string }) {
 
 function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
   return <MarkdownRenderer markdown={markdown} className="message-markdown" copyable={copyable} />;
+}
+
+const englishStopWords = new Set([
+  "and",
+  "are",
+  "but",
+  "for",
+  "from",
+  "has",
+  "have",
+  "into",
+  "not",
+  "that",
+  "the",
+  "this",
+  "was",
+  "were",
+  "with",
+  "you"
+]);
+
+function compactCloudLabel(text: string) {
+  const value = text.trim().replace(/\s+/g, " ");
+  return value.length > 28 ? `${value.slice(0, 28)}...` : value;
+}
+
+function labelsForTranslationEntry(entry: TranslationEntry) {
+  const source = entry.source_text.trim().replace(/\s+/g, " ");
+  if (!source) return [];
+  if (entry.source_kind === "chinese" || entry.source_kind === "word") return [compactCloudLabel(source)];
+
+  const words = source.match(/[A-Za-z][A-Za-z'-]*/g) || [];
+  if (words.length <= 3) return [compactCloudLabel(source)];
+  const labels = words
+    .map((word) => word.toLowerCase())
+    .filter((word) => word.length > 2 && !englishStopWords.has(word));
+  return Array.from(new Set(labels)).slice(0, 8);
+}
+
+function translationCloudItems(entries: TranslationEntry[]) {
+  const cloud = new Map<string, TranslationCloudItem>();
+  entries.slice(0, 60).forEach((entry) => {
+    labelsForTranslationEntry(entry).forEach((label) => {
+      const key = label.toLowerCase();
+      const existing = cloud.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        cloud.set(key, {
+          key,
+          label,
+          count: 1,
+          weight: 1,
+          entry
+        });
+      }
+    });
+  });
+
+  return Array.from(cloud.values())
+    .map((item) => ({
+      ...item,
+      weight: Math.min(5, 1 + Math.floor(Math.log2(item.count + 1)))
+    }))
+    .sort((left, right) => right.count - left.count || right.entry.id - left.entry.id)
+    .slice(0, 36);
+}
+
+function TranslationWordCloud({
+  entries,
+  activeId,
+  onSelect
+}: {
+  entries: TranslationEntry[];
+  activeId: number | null;
+  onSelect: (entry: TranslationEntry) => void;
+}) {
+  const cloudRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef({ active: false, moved: false, scrollLeft: 0, x: 0 });
+  const [dragging, setDragging] = useState(false);
+  const items = useMemo(() => translationCloudItems(entries), [entries]);
+
+  useEffect(() => {
+    if (!items.length) return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) return;
+    let frame = 0;
+    let previous = performance.now();
+
+    function drift(now: number) {
+      const element = cloudRef.current;
+      if (element && !dragState.current.active && element.scrollWidth > element.clientWidth) {
+        const distance = Math.min((now - previous) * 0.012, 0.9);
+        const end = element.scrollWidth - element.clientWidth - 4;
+        element.scrollLeft = element.scrollLeft >= end ? 0 : element.scrollLeft + distance;
+      }
+      previous = now;
+      frame = window.requestAnimationFrame(drift);
+    }
+
+    frame = window.requestAnimationFrame(drift);
+    return () => window.cancelAnimationFrame(frame);
+  }, [items.length]);
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    const element = cloudRef.current;
+    if (!element) return;
+    dragState.current = {
+      active: true,
+      moved: false,
+      scrollLeft: element.scrollLeft,
+      x: event.clientX
+    };
+    setDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const element = cloudRef.current;
+    const state = dragState.current;
+    if (!element || !state.active) return;
+    const delta = event.clientX - state.x;
+    if (Math.abs(delta) > 4) state.moved = true;
+    element.scrollLeft = state.scrollLeft - delta;
+    event.preventDefault();
+  }
+
+  function handlePointerEnd() {
+    dragState.current.active = false;
+    setDragging(false);
+  }
+
+  function selectItem(item: TranslationCloudItem) {
+    if (dragState.current.moved) {
+      dragState.current.moved = false;
+      return;
+    }
+    onSelect(item.entry);
+  }
+
+  return (
+    <section className="translation-cloud">
+      <div className="translation-card-head">
+        <span>词云</span>
+        <strong>{items.length ? `${items.length} 个词 / 短语` : "等待积累"}</strong>
+      </div>
+      {items.length ? (
+        <div
+          ref={cloudRef}
+          className={dragging ? "word-cloud-stage dragging" : "word-cloud-stage"}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+          onPointerLeave={handlePointerEnd}
+        >
+          <div className="word-cloud-track">
+            {items.map((item) => (
+              <button
+                key={item.key}
+                className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
+                style={
+                  {
+                    "--cloud-weight": item.weight
+                  } as CSSProperties
+                }
+                onClick={() => selectItem(item)}
+              >
+                <span>{item.label}</span>
+                {item.count > 1 && <small>{item.count}</small>}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="translation-cloud-empty">翻译几次后，这里会积累词和短语。</div>
+      )}
+    </section>
+  );
+}
+
+function TranslationLoading() {
+  return (
+    <div className="translation-loading" role="status" aria-label="正在翻译">
+      <span />
+      <span />
+      <span />
+    </div>
+  );
 }
 
 function TypingIndicator() {
@@ -885,20 +1083,30 @@ function TranslationView() {
               onChange={(event) => setInput(event.target.value)}
               placeholder="输入中文、英文单词、短语或句子..."
             />
-            <div className="translation-actions">
-              <span>单词会补充词根词缀、易混词、用法和例句。</span>
-              <button className="primary-button compact" onClick={submitTranslation} disabled={busy || !input.trim()}>
-                {busy ? "处理中..." : "翻译"}
-              </button>
-            </div>
           </section>
+
+          <div className="translation-submit-slot">
+            <button
+              className={busy ? "translation-submit loading" : "translation-submit"}
+              onClick={submitTranslation}
+              disabled={busy || !input.trim()}
+              aria-label={busy ? "正在翻译" : "翻译"}
+            >
+              {busy ? <TranslationLoading /> : "翻译"}
+            </button>
+          </div>
 
           <section className="translation-card translation-result">
             <div className="translation-card-head">
               <span>结果</span>
               <strong>{activeResult ? sourceKindLabel(activeResult.source_kind) : "等待输入"}</strong>
             </div>
-            {activeResult ? (
+            {busy ? (
+              <div className="translation-result-loading">
+                <TranslationLoading />
+                <span>正在整理译文</span>
+              </div>
+            ) : activeResult ? (
               <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
             ) : (
               <div className="translation-empty">输入内容后，这里会显示简洁译文、重点拆解和例句。</div>
@@ -929,20 +1137,7 @@ function TranslationView() {
 
         {(error || saved) && <div className={error ? "form-error" : "form-success"}>{error || saved}</div>}
 
-        <section className="translation-history">
-          <div className="translation-card-head">
-            <span>最近记录</span>
-            <strong>{entries.length} 条</strong>
-          </div>
-          <div className="translation-history-list">
-            {entries.map((entry) => (
-              <button key={entry.id} className="translation-history-item" onClick={() => setResult(entry)}>
-                <span>{entry.source_text}</span>
-                <strong>{sourceKindLabel(entry.source_kind)}</strong>
-              </button>
-            ))}
-          </div>
-        </section>
+        <TranslationWordCloud entries={entries} activeId={activeResult?.id || null} onSelect={setResult} />
       </div>
     </section>
   );
