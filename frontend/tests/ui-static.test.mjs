@@ -223,6 +223,13 @@ test("empty chat shows a centered greeting with the composer below it", () => {
   assert.match(styles, /\.composer-floating\s*{[^}]*padding:\s*0;/s);
 });
 
+test("new chat stays local until the first message is sent", () => {
+  assert.ok(app.includes("const [draftSessionActive, setDraftSessionActive]"));
+  assert.match(app, /async function newSession\(\)\s*{[\s\S]*setDraftSessionActive\(true\);[\s\S]*setActive\(null\);[\s\S]*setMessages\(\[\]\);/);
+  assert.doesNotMatch(app, /async function newSession\(\)\s*{[\s\S]*api\.createSession\("新会话", model\)/);
+  assert.match(app, /if \(!session\)\s*{[\s\S]*api\.createSession\(content\.slice\(0,\s*24\),\s*model\)/);
+});
+
 test("sessions can be deleted from the sidebar", () => {
   assert.ok(app.includes("Trash2"));
   assert.ok(app.includes("deleteSession(session)"));
@@ -280,14 +287,24 @@ test("settings page exposes report schedule and word cloud visibility controls",
   assert.ok(app.includes("api.updateSettings"));
   assert.ok(app.includes("daily_report_time"));
   assert.ok(app.includes("weekly_report_time"));
-  assert.ok(app.includes("monthly_report_time"));
+  assert.ok(app.includes("weekly_report_day"));
+  assert.ok(!app.includes("monthly_report_time"));
   assert.ok(app.includes("word_cloud_enabled"));
   assert.ok(app.includes('type="time"'));
+  assert.ok(app.includes("type=\"button\""));
+  assert.ok(app.includes("settingsAutoSave"));
+  assert.ok(app.includes("window.setTimeout"));
   assert.ok(app.includes("wordCloudEnabled"));
   assert.match(app, /wordCloudEnabled\s*\?\s*\(/);
+  assert.ok(!app.includes("保存设置"));
+  assert.ok(!app.includes("settings-header"));
+  assert.doesNotMatch(app, /<h2>设置<\/h2>/);
+  assert.doesNotMatch(app, /调整报告生成节奏和学习工具展示。/);
   assert.match(styles, /\.settings-panel\s*{/);
   assert.match(styles, /\.settings-toggle\s*{/);
   assert.ok(apiSource.includes("export type AppSettings"));
+  assert.ok(apiSource.includes("weekly_report_day:"));
+  assert.ok(!apiSource.includes("monthly_report_time: string;"));
   assert.ok(apiSource.includes('settings: () => request<AppSettings>("/api/settings")'));
   assert.ok(apiSource.includes('updateSettings: (payload: Partial<AppSettings>)'));
 });

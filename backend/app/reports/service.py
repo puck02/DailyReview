@@ -35,7 +35,12 @@ def _messages_for_day(db: Session, user_id: int, day: date) -> list[Message]:
     return db.scalars(
         select(Message)
         .join(ChatSession, Message.session_id == ChatSession.id)
-        .where(ChatSession.user_id == user_id, Message.created_at >= start, Message.created_at < end)
+        .where(
+            ChatSession.user_id == user_id,
+            ChatSession.is_archived.is_(False),
+            Message.created_at >= start,
+            Message.created_at < end,
+        )
         .order_by(Message.created_at.asc())
     ).all()
 

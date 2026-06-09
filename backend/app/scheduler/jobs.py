@@ -6,7 +6,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.app_settings import ApplicationSettings, get_app_settings, split_report_time
+from app.app_settings import ApplicationSettings, get_app_settings, split_report_time, weekly_report_day_index
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Attachment, ChatSession, Message
@@ -58,9 +58,9 @@ async def run_daily_report_job(day: date, session_factory: sessionmaker[Session]
 
 
 async def run_weekly_report_job(day: date, session_factory: sessionmaker[Session] = SessionLocal) -> None:
-    if day.weekday() != 6:
-        return
     with session_factory() as db:
+        if day.weekday() != weekly_report_day_index(get_app_settings(db).weekly_report_day):
+            return
         users = all_users(db)
         for user in users:
             generate_weekly_report(db, user.id, day)
@@ -95,7 +95,6 @@ def reschedule_report_jobs(scheduler: BackgroundScheduler, app_settings: Applica
             app_settings = get_app_settings(db)
     daily_hour, daily_minute = split_report_time(app_settings.daily_report_time)
     weekly_hour, weekly_minute = split_report_time(app_settings.weekly_report_time)
-    monthly_hour, monthly_minute = split_report_time(app_settings.monthly_report_time)
 
     scheduler.add_job(
         _run_daily_job,
@@ -110,7 +109,7 @@ def reschedule_report_jobs(scheduler: BackgroundScheduler, app_settings: Applica
         "cron",
         id="weekly_report",
         replace_existing=True,
-        day_of_week="sun",
+        day_of_week=app_settings.weekly_report_day,
         hour=weekly_hour,
         minute=weekly_minute,
     )
@@ -119,8 +118,8 @@ def reschedule_report_jobs(scheduler: BackgroundScheduler, app_settings: Applica
         "cron",
         id="monthly_report",
         replace_existing=True,
-        hour=monthly_hour,
-        minute=monthly_minute,
+        hour=daily_hour,
+        minute=daily_minute,
     )
 
 

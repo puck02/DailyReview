@@ -60,7 +60,7 @@ def test_settings_api_returns_defaults(tmp_path: Path):
     assert response.json() == {
         "daily_report_time": "23:00",
         "weekly_report_time": "23:00",
-        "monthly_report_time": "23:00",
+        "weekly_report_day": "sun",
         "word_cloud_enabled": True,
     }
     app.dependency_overrides.clear()
@@ -75,7 +75,7 @@ def test_admin_can_update_app_settings(tmp_path: Path):
         json={
             "daily_report_time": "22:15",
             "weekly_report_time": "21:30",
-            "monthly_report_time": "20:45",
+            "weekly_report_day": "wed",
             "word_cloud_enabled": False,
         },
     )
@@ -85,7 +85,7 @@ def test_admin_can_update_app_settings(tmp_path: Path):
     assert response.json() == {
         "daily_report_time": "22:15",
         "weekly_report_time": "21:30",
-        "monthly_report_time": "20:45",
+        "weekly_report_day": "wed",
         "word_cloud_enabled": False,
     }
     assert read.json()["word_cloud_enabled"] is False
@@ -101,7 +101,7 @@ def test_settings_api_rejects_invalid_time(tmp_path: Path):
         json={
             "daily_report_time": "25:99",
             "weekly_report_time": "23:00",
-            "monthly_report_time": "23:00",
+            "weekly_report_day": "sun",
             "word_cloud_enabled": True,
         },
     )
@@ -120,7 +120,7 @@ def test_non_admin_cannot_update_app_settings(tmp_path: Path):
         json={
             "daily_report_time": "22:15",
             "weekly_report_time": "21:30",
-            "monthly_report_time": "20:45",
+            "weekly_report_day": "sun",
             "word_cloud_enabled": False,
         },
     )
@@ -142,7 +142,7 @@ def test_report_scheduler_uses_configured_times():
         ApplicationSettings(
             daily_report_time="22:15",
             weekly_report_time="21:30",
-            monthly_report_time="20:45",
+            weekly_report_day="wed",
             word_cloud_enabled=True,
         ),
     )
@@ -150,8 +150,8 @@ def test_report_scheduler_uses_configured_times():
     jobs = {call["id"]: call for call in calls}
     assert jobs["daily_report"]["hour"] == 22
     assert jobs["daily_report"]["minute"] == 15
-    assert jobs["weekly_report"]["day_of_week"] == "sun"
+    assert jobs["weekly_report"]["day_of_week"] == "wed"
     assert jobs["weekly_report"]["hour"] == 21
     assert jobs["weekly_report"]["minute"] == 30
-    assert jobs["monthly_report"]["hour"] == 20
-    assert jobs["monthly_report"]["minute"] == 45
+    assert jobs["monthly_report"]["hour"] == 22
+    assert jobs["monthly_report"]["minute"] == 15

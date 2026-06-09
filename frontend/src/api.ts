@@ -63,7 +63,7 @@ export type AiConfigTest = {
 export type AppSettings = {
   daily_report_time: string;
   weekly_report_time: string;
-  monthly_report_time: string;
+  weekly_report_day: string;
   word_cloud_enabled: boolean;
 };
 

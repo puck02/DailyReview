@@ -59,6 +59,8 @@ def test_sessions_list_only_current_user_recent_sessions(tmp_path: Path):
     register_user(client, "student@example.com")
     created = client.post("/api/sessions", json={"title": "线性代数", "model": "gpt-5.4-mini"})
     assert created.status_code == 200
+    empty = client.post("/api/sessions", json={"title": "空白会话", "model": "gpt-5.4-mini"})
+    assert empty.status_code == 200
 
     other_client = TestClient(app)
     register_user(other_client, "other@example.com")
@@ -82,6 +84,7 @@ def test_sessions_list_only_current_user_recent_sessions(tmp_path: Path):
             updated_at=datetime.utcnow() - timedelta(days=30),
         )
         session.add_all([old, archived])
+        session.add(Message(session_id=created.json()["id"], role="user", content="矩阵"))
         session.commit()
 
     response = client.get("/api/sessions")

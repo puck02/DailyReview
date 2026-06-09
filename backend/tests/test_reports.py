@@ -57,6 +57,27 @@ def test_generate_daily_report_skips_empty_day(tmp_path: Path):
     app.dependency_overrides.clear()
 
 
+def test_generate_daily_report_skips_day_with_only_archived_sessions(tmp_path: Path):
+    _client, session_factory = make_client(tmp_path)
+    with session_factory() as db:
+        user = db.scalar(select(User).where(User.email == "owner@example.com"))
+        archived_chat = ChatSession(
+            user_id=user.id,
+            title="归档复盘",
+            default_model="gpt-5.4-mini",
+            is_archived=True,
+        )
+        db.add(archived_chat)
+        db.flush()
+        db.add(Message(session_id=archived_chat.id, role="user", content="旧内容", created_at=datetime(2026, 6, 8, 10, 0, 0)))
+        db.commit()
+
+        report = generate_daily_report(db, user.id, date(2026, 6, 8))
+
+    assert report is None
+    app.dependency_overrides.clear()
+
+
 def test_generate_daily_report_writes_markdown_and_index(tmp_path: Path):
     _client, session_factory = make_client(tmp_path)
     with session_factory() as db:

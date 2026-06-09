@@ -1973,7 +1973,7 @@ textarea:focus {
 .settings-panel {
   height: 100vh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   background: transparent;
 }
 
@@ -2027,7 +2027,8 @@ textarea:focus {
   gap: 12px;
 }
 
-.settings-field input {
+.settings-field input,
+.settings-field select {
   min-height: 44px;
 }
 

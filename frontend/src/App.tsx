@@ -753,6 +753,7 @@ function ChatView({
 }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [active, setActive] = useState<ChatSession | null>(null);
+  const [draftSessionActive, setDraftSessionActive] = useState(false);
   const [sessionMenu, setSessionMenu] = useState<{ session: ChatSession; x: number; y: number } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport());
   const [messages, setMessages] = useState<Message[]>([]);
@@ -760,6 +761,8 @@ function ChatView({
   const [model, setModel] = useState(defaultModel);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
+  const activeRef = useRef<ChatSession | null>(null);
+  const draftSessionActiveRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -769,7 +772,8 @@ function ChatView({
   async function refreshSessions() {
     const items = await api.sessions();
     setSessions(items);
-    if (!active && items[0]) {
+    if (!activeRef.current && !draftSessionActiveRef.current && items[0]) {
+      activeRef.current = items[0];
       setActive(items[0]);
     }
   }
@@ -811,6 +815,14 @@ function ChatView({
   }, [attachments]);
 
   useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  useEffect(() => {
+    draftSessionActiveRef.current = draftSessionActive;
+  }, [draftSessionActive]);
+
+  useEffect(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = "auto";
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 88)}px`;
@@ -836,16 +848,23 @@ function ChatView({
   }, []);
 
   async function newSession() {
-    const created = await api.createSession("新会话", model);
-    setSessions([created, ...sessions]);
-    setActive(created);
+    setDraftSessionActive(true);
+    draftSessionActiveRef.current = true;
+    activeRef.current = null;
+    setActive(null);
     setMessages([]);
+    setInput("");
+    clearAttachments();
+    setError("");
     setOpeningLine(randomOpeningLine());
     if (isMobileViewport()) setSidebarOpen(false);
   }
 
   function selectSession(session: ChatSession) {
     setSessionMenu(null);
+    setDraftSessionActive(false);
+    draftSessionActiveRef.current = false;
+    activeRef.current = session;
     setActive(session);
     if (isMobileViewport()) setSidebarOpen(false);
   }
@@ -868,6 +887,7 @@ function ChatView({
         })
       );
       if (active?.id === updated.id) setActive(updated);
+      if (active?.id === updated.id) activeRef.current = updated;
     } catch (err) {
       setError(err instanceof Error ? err.message : archived ? "归档失败" : "取消归档失败");
     }
@@ -883,6 +903,9 @@ function ChatView({
       setSessions(remaining);
       if (active?.id === session.id) {
         const nextSession = remaining[0] || null;
+        setDraftSessionActive(false);
+        draftSessionActiveRef.current = false;
+        activeRef.current = nextSession;
         setActive(nextSession);
         if (!nextSession) {
           setMessages([]);
@@ -942,9 +965,13 @@ function ChatView({
     }
     let session = active;
     if (!session) {
-      session = await api.createSession(content.slice(0, 24), model);
-      setActive(session);
-      setSessions([session, ...sessions]);
+      const createdSession = await api.createSession(content.slice(0, 24), model);
+      session = createdSession;
+      setDraftSessionActive(false);
+      draftSessionActiveRef.current = false;
+      activeRef.current = createdSession;
+      setActive(createdSession);
+      setSessions((current) => [createdSession, ...current.filter((item) => item.id !== createdSession.id)]);
     }
     const pendingUser: Message = {
       id: Date.now(),
@@ -1505,9 +1532,19 @@ function sourceKindLabel(kind: TranslationEntry["source_kind"]) {
 const defaultAppSettings: AppSettings = {
   daily_report_time: "23:00",
   weekly_report_time: "23:00",
-  monthly_report_time: "23:00",
+  weekly_report_day: "sun",
   word_cloud_enabled: true
 };
+
+const weeklyReportDays = [
+  { value: "mon", label: "周一" },
+  { value: "tue", label: "周二" },
+  { value: "wed", label: "周三" },
+  { value: "thu", label: "周四" },
+  { value: "fri", label: "周五" },
+  { value: "sat", label: "周六" },
+  { value: "sun", label: "周日" }
+];
 
 function SettingsView({
   settings,
@@ -1521,54 +1558,69 @@ function SettingsView({
   const currentSettings = settings || defaultAppSettings;
   const [dailyTime, setDailyTime] = useState(currentSettings.daily_report_time);
   const [weeklyTime, setWeeklyTime] = useState(currentSettings.weekly_report_time);
-  const [monthlyTime, setMonthlyTime] = useState(currentSettings.monthly_report_time);
+  const [weeklyDay, setWeeklyDay] = useState(currentSettings.weekly_report_day);
   const [wordCloudEnabled, setWordCloudEnabled] = useState(currentSettings.word_cloud_enabled);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
+  const settingsAutoSave = useRef<number | null>(null);
+  const settingsLoaded = useRef(false);
+  const skipSettingsAutoSave = useRef(false);
 
   useEffect(() => {
     const nextSettings = settings || defaultAppSettings;
+    skipSettingsAutoSave.current = true;
     setDailyTime(nextSettings.daily_report_time);
     setWeeklyTime(nextSettings.weekly_report_time);
-    setMonthlyTime(nextSettings.monthly_report_time);
+    setWeeklyDay(nextSettings.weekly_report_day);
     setWordCloudEnabled(nextSettings.word_cloud_enabled);
+    settingsLoaded.current = Boolean(settings);
   }, [settings]);
 
-  async function saveSettings() {
-    if (!isAdmin) {
-      setSaved("");
-      setError("需要管理员权限");
+  useEffect(() => {
+    if (!isAdmin || !settingsLoaded.current) return;
+    if (skipSettingsAutoSave.current) {
+      skipSettingsAutoSave.current = false;
       return;
     }
-    setBusy(true);
-    setError("");
-    setSaved("");
-    try {
-      const updated = await api.updateSettings({
-        daily_report_time: dailyTime,
-        weekly_report_time: weeklyTime,
-        monthly_report_time: monthlyTime,
-        word_cloud_enabled: wordCloudEnabled
-      });
-      onSaved(updated);
-      setSaved("设置已保存");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败");
-    } finally {
-      setBusy(false);
+    if (
+      settings &&
+      dailyTime === settings.daily_report_time &&
+      weeklyTime === settings.weekly_report_time &&
+      weeklyDay === settings.weekly_report_day &&
+      wordCloudEnabled === settings.word_cloud_enabled
+    ) {
+      return;
     }
-  }
+
+    if (settingsAutoSave.current) window.clearTimeout(settingsAutoSave.current);
+    settingsAutoSave.current = window.setTimeout(async () => {
+      setBusy(true);
+      setError("");
+      setSaved("");
+      try {
+        const updated = await api.updateSettings({
+          daily_report_time: dailyTime,
+          weekly_report_time: weeklyTime,
+          weekly_report_day: weeklyDay,
+          word_cloud_enabled: wordCloudEnabled
+        });
+        onSaved(updated);
+        setSaved("设置已保存");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "保存失败");
+      } finally {
+        setBusy(false);
+      }
+    }, 500);
+
+    return () => {
+      if (settingsAutoSave.current) window.clearTimeout(settingsAutoSave.current);
+    };
+  }, [dailyTime, weeklyTime, weeklyDay, wordCloudEnabled, isAdmin, settings, onSaved]);
 
   return (
     <section className="settings-panel">
-      <header className="pane-header settings-header">
-        <div>
-          <h2>设置</h2>
-          <p>调整报告生成节奏和学习工具展示。</p>
-        </div>
-      </header>
-
       <div className="settings-content">
         <section className="settings-card">
           <div className="settings-card-head">
@@ -1581,12 +1633,18 @@ function SettingsView({
               <input type="time" value={dailyTime} onChange={(event) => setDailyTime(event.target.value)} disabled={!isAdmin} />
             </label>
             <label className="settings-field">
-              <span>周报</span>
-              <input type="time" value={weeklyTime} onChange={(event) => setWeeklyTime(event.target.value)} disabled={!isAdmin} />
+              <span>周报日期</span>
+              <select value={weeklyDay} onChange={(event) => setWeeklyDay(event.target.value)} disabled={!isAdmin}>
+                {weeklyReportDays.map((day) => (
+                  <option key={day.value} value={day.value}>
+                    {day.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="settings-field">
-              <span>月报</span>
-              <input type="time" value={monthlyTime} onChange={(event) => setMonthlyTime(event.target.value)} disabled={!isAdmin} />
+              <span>周报时间</span>
+              <input type="time" value={weeklyTime} onChange={(event) => setWeeklyTime(event.target.value)} disabled={!isAdmin} />
             </label>
           </div>
         </section>
@@ -1611,13 +1669,7 @@ function SettingsView({
         </section>
 
         {!isAdmin && <div className="form-error">当前账号只能查看设置，保存需要管理员权限。</div>}
-        {(error || saved) && <div className={error ? "form-error" : "form-success"}>{error || saved}</div>}
-
-        <div className="settings-actions">
-          <button className="primary-button" onClick={saveSettings} disabled={busy || !isAdmin}>
-            {busy ? "保存中..." : "保存设置"}
-          </button>
-        </div>
+        {(error || saved || busy) && <div className={error ? "form-error" : "form-success"}>{error || saved || "正在保存..."}</div>}
       </div>
     </section>
   );

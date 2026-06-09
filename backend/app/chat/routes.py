@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.admin.ai_config import get_ai_config
@@ -106,11 +106,13 @@ def list_sessions(
     db: Session = Depends(get_db),
 ) -> list[SessionResponse]:
     cutoff = datetime.utcnow() - timedelta(days=7)
+    has_messages = exists(select(Message.id).where(Message.session_id == ChatSession.id))
     sessions = db.scalars(
         select(ChatSession)
         .where(
             ChatSession.user_id == user.id,
             or_(ChatSession.updated_at >= cutoff, ChatSession.is_archived.is_(True)),
+            or_(ChatSession.is_archived.is_(True), has_messages),
         )
         .order_by(ChatSession.is_archived.asc(), ChatSession.updated_at.desc())
     ).all()
