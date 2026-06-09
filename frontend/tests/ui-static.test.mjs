@@ -377,6 +377,13 @@ test("reports can be exported as downloaded PDF files without opening print", ()
   assert.ok(app.includes("function exportReportPdf"));
   assert.ok(app.includes("reportPreviewRef"));
   assert.ok(app.includes("exportReportElementToPdf"));
+  assert.ok(app.includes("pdfCanvasScale"));
+  assert.ok(app.includes("pdfImageQuality"));
+  assert.ok(app.includes('toDataURL("image/jpeg", pdfImageQuality)'));
+  assert.ok(app.includes('pdf.addImage(pageImageData, "JPEG"'));
+  assert.ok(app.includes('document.createElement("canvas")'));
+  assert.ok(!app.includes('toDataURL("image/png")'));
+  assert.ok(!app.includes('pdf.addImage(imageData, "PNG"'));
   assert.ok(app.includes("showSaveFilePicker"));
   assert.ok(app.includes("URL.createObjectURL(blob)"));
   assert.ok(!app.includes("window.print()"));

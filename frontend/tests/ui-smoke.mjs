@@ -672,9 +672,54 @@ async function checkSessionArchive(client) {
 }
 
 async function checkReportPdfDownload(client) {
+  const longReportMarkdown = [
+    "# 2026-06-09 学习日报",
+    "",
+    "## 今日重点",
+    "",
+    "- 导数与极限：梳理了连续、可导和极限存在之间的关系。",
+    "- 泰勒展开：复习了常见等价无穷小和二阶展开式。",
+    "- 英语长难句：练习了主从句识别、插入语剥离和谓语定位。",
+    "",
+    "| 模块 | 今日进展 | 下一步 |",
+    "| --- | --- | --- |",
+    "| 高数 | 复盘 6 道极限题 | 归纳洛必达和等价替换的触发条件 |",
+    "| 英语 | 拆解 5 个长难句 | 继续补充同义替换和语法标记 |",
+    "| 复盘 | 记录 3 个易错点 | 明天先做 15 分钟错题回看 |",
+    "",
+    ...Array.from({ length: 18 }, (_, index) => {
+      const dayIndex = index + 1;
+      return [
+        `## 知识块 ${dayIndex}`,
+        "",
+        "### 关键结论",
+        "",
+        `- 本轮重点是把概念、公式和题目触发条件连接起来，避免只记结论。`,
+        `- 例题中最容易出错的是条件判断，尤其是第 ${dayIndex} 组题里变量趋近方式变化后，原公式不能直接套用。`,
+        "- 做题时先写出目标形式，再决定使用等价替换、泰勒展开或拆分因式。",
+        "",
+        "### 例题整理",
+        "",
+        "```text",
+        "先判断目标极限的阶数，再比较分子分母的主导项。",
+        "如果出现复合函数，先把内层变量替换成趋近于 0 的标准形式。",
+        "```",
+        "",
+        "### 下一步",
+        "",
+        "- 明天优先回看今天标记的错题。",
+        "- 用 10 分钟默写常见展开式，再做一组限时训练。",
+        ""
+      ].join("\\n");
+    }),
+    "## 简洁建议",
+    "",
+    "明天先用短时间复现今天的错因，再进入新题。重点不是多刷，而是确认每个公式的使用边界。"
+  ].join("\\n");
   await evaluate(
     client,
     `(() => {
+      const longReportMarkdown = ${JSON.stringify(longReportMarkdown)};
       const originalFetch = window.fetch.bind(window);
       window.__dailyreviewReportFetch = originalFetch;
       window.fetch = (input, init) => {
@@ -693,9 +738,9 @@ async function checkReportPdfDownload(client) {
             id: 990001,
             report_type: "daily",
             period: "2026-06-09",
-            stats: { message_count: 2 },
+            stats: { message_count: 48 },
             created_at: new Date().toISOString(),
-            markdown: "# 2026-06-09 学习日报\\n\\n## 今日重点\\n\\n- 导数与极限。\\n- 泰勒展开。"
+            markdown: longReportMarkdown
           }), { status: 200, headers: { "Content-Type": "application/json" } }));
         }
         return originalFetch(input, init);
@@ -711,6 +756,7 @@ async function checkReportPdfDownload(client) {
       window.__dailyreviewPrinted = false;
       window.__dailyreviewSavePickerOpened = false;
       window.__dailyreviewSavedPdf = false;
+      window.__dailyreviewSavedPdfSize = 0;
       window.__dailyreviewOriginalPrint = window.print;
       window.__dailyreviewOriginalSavePicker = window.showSaveFilePicker;
       window.print = () => { window.__dailyreviewPrinted = true; };
@@ -720,6 +766,7 @@ async function checkReportPdfDownload(client) {
           createWritable: async () => ({
             write: async (blob) => {
               window.__dailyreviewSavedPdf = blob instanceof Blob && blob.type === "application/pdf";
+              window.__dailyreviewSavedPdfSize = blob instanceof Blob ? blob.size : 0;
             },
             close: async () => {}
           })
@@ -737,6 +784,7 @@ async function checkReportPdfDownload(client) {
       printed: window.__dailyreviewPrinted,
       savePickerOpened: window.__dailyreviewSavePickerOpened,
       savedPdf: window.__dailyreviewSavedPdf,
+      savedPdfSize: window.__dailyreviewSavedPdfSize,
       exportError: document.querySelector('.report-export-error')?.textContent || ""
     }))()`
   );
@@ -753,6 +801,7 @@ async function checkReportPdfDownload(client) {
       delete window.__dailyreviewPrinted;
       delete window.__dailyreviewSavePickerOpened;
       delete window.__dailyreviewSavedPdf;
+      delete window.__dailyreviewSavedPdfSize;
       delete window.__dailyreviewOriginalPrint;
       delete window.__dailyreviewOriginalSavePicker;
       return true;
@@ -761,6 +810,9 @@ async function checkReportPdfDownload(client) {
   if (result.printed) throw new Error(`pdf export opened print: ${JSON.stringify(result)}`);
   if (!result.savePickerOpened) throw new Error(`pdf export did not open save picker: ${JSON.stringify(result)}`);
   if (!result.savedPdf) throw new Error(`pdf export did not write a PDF blob: ${JSON.stringify(result)}`);
+  if (!result.savedPdfSize || result.savedPdfSize > 2_500_000) {
+    throw new Error(`pdf export is too large: ${JSON.stringify(result)}`);
+  }
 }
 
 async function createRenderedMessage(client) {

@@ -98,6 +98,8 @@ const complexModel = "5.5";
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const wordCloudLaneCount = 4;
+const pdfCanvasScale = 1.25;
+const pdfImageQuality = 0.78;
 const openingLines = [
   "准备好了，随时开始",
   "有什么想学的，直接开始",
@@ -366,7 +368,7 @@ async function exportReportElementToPdf(element: HTMLElement, filename: string, 
   if (target.kind === "cancelled") return;
   const canvas = await html2canvas(element, {
     backgroundColor: "#ffffff",
-    scale: Math.min(2, window.devicePixelRatio || 1),
+    scale: Math.min(pdfCanvasScale, Math.max(1, window.devicePixelRatio || 1)),
     useCORS: true
   });
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -376,12 +378,23 @@ async function exportReportElementToPdf(element: HTMLElement, filename: string, 
   const marginY = 12;
   const contentWidth = pageWidth - marginX * 2;
   const contentHeight = pageHeight - marginY * 2;
-  const imageHeight = (canvas.height * contentWidth) / canvas.width;
-  const imageData = canvas.toDataURL("image/png");
+  const pageCanvas = document.createElement("canvas");
+  const pageContext = pageCanvas.getContext("2d");
+  if (!pageContext) throw new Error("PDF 导出失败");
 
-  for (let offset = 0, page = 0; offset < imageHeight; offset += contentHeight, page += 1) {
+  pageCanvas.width = canvas.width;
+  const pagePixelHeight = Math.floor((contentHeight * canvas.width) / contentWidth);
+
+  for (let sourceY = 0, page = 0; sourceY < canvas.height; sourceY += pagePixelHeight, page += 1) {
     if (page > 0) pdf.addPage();
-    pdf.addImage(imageData, "PNG", marginX, marginY - offset, contentWidth, imageHeight);
+    const sliceHeight = Math.min(pagePixelHeight, canvas.height - sourceY);
+    pageCanvas.height = sliceHeight;
+    pageContext.fillStyle = "#ffffff";
+    pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    pageContext.drawImage(canvas, 0, sourceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+    const pageImageData = pageCanvas.toDataURL("image/jpeg", pdfImageQuality);
+    const pageImageHeight = (sliceHeight * contentWidth) / canvas.width;
+    pdf.addImage(pageImageData, "JPEG", marginX, marginY, contentWidth, pageImageHeight, undefined, "FAST");
   }
 
   await savePdfBlob(pdf.output("blob"), filename, target);
