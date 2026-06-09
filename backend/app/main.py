@@ -11,6 +11,7 @@ from app.db import initialize_database
 from app.invites.routes import router as invites_router
 from app.reports.routes import router as reports_router
 from app.scheduler.jobs import start_scheduler
+from app.translation.routes import router as translation_router
 
 
 app = FastAPI(title="DailyReview")
@@ -19,6 +20,7 @@ app.include_router(auth_router)
 app.include_router(invites_router)
 app.include_router(chat_router)
 app.include_router(reports_router)
+app.include_router(translation_router)
 
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if frontend_dist.exists():

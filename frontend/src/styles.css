@@ -1209,6 +1209,196 @@ textarea:focus {
   padding: 24px;
 }
 
+.translation-panel {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: transparent;
+}
+
+.translation-header p {
+  max-width: 620px;
+}
+
+.translation-body {
+  min-height: 0;
+  display: grid;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.translation-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.translation-card {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px);
+}
+
+.translation-card {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.translation-result {
+  background: var(--message-surface);
+}
+
+.translation-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.translation-card-head span {
+  color: var(--muted-text);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.translation-card-head strong {
+  color: var(--headline);
+  font-size: 13px;
+}
+
+.translation-input {
+  min-height: 220px;
+  resize: vertical;
+  line-height: 1.58;
+}
+
+.translation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.translation-actions span {
+  color: var(--muted-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.translation-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.translation-markdown {
+  display: grid;
+  gap: 10px;
+}
+
+.translation-markdown h1,
+.translation-markdown h2,
+.translation-markdown h3,
+.translation-markdown p,
+.translation-markdown ul,
+.translation-markdown ol {
+  margin: 0;
+}
+
+.translation-markdown h1,
+.translation-markdown h2 {
+  color: var(--headline);
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.translation-markdown h3 {
+  color: var(--headline);
+  font-size: 15px;
+}
+
+.translation-markdown p,
+.translation-markdown li {
+  color: var(--paragraph);
+  line-height: 1.62;
+}
+
+.translation-empty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: var(--muted-text);
+  border: 1px dashed var(--stroke);
+  border-radius: 14px;
+  padding: 18px;
+  text-align: center;
+}
+
+.prompt-editor textarea {
+  min-height: 220px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.translation-history {
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(18px);
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.translation-history-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.translation-history-item {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--headline);
+  background: var(--button-surface);
+  border: 1px solid var(--stroke);
+  border-radius: 13px;
+  padding: 10px 11px;
+  text-align: left;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.translation-history-item:hover {
+  background: var(--button-surface-hover);
+  transform: translateY(-1px);
+}
+
+.translation-history-item span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.translation-history-item strong {
+  flex: 0 0 auto;
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
 .report-toolbar {
   max-width: 860px;
   display: flex;
@@ -1381,7 +1571,8 @@ textarea:focus {
   }
 
   .workspace,
-  .report-layout {
+  .report-layout,
+  .translation-panel {
     height: calc(100dvh - 62px);
     grid-template-columns: 1fr;
   }
@@ -1414,6 +1605,14 @@ textarea:focus {
     max-height: 180px;
     border-right: 0;
     border-bottom: 1px solid var(--stroke);
+  }
+
+  .translation-body {
+    padding: 18px 16px;
+  }
+
+  .translation-workbench {
+    grid-template-columns: 1fr;
   }
 
   .chat-pane {
@@ -1528,6 +1727,20 @@ textarea:focus {
   .admin-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .translation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .translation-action-buttons {
+    justify-content: stretch;
+  }
+
+  .translation-action-buttons .secondary-button,
+  .translation-actions .primary-button {
+    width: 100%;
   }
 
   .admin-action-buttons {

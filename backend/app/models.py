@@ -94,6 +94,19 @@ class Report(Base):
     user = relationship("User")
 
 
+class TranslationEntry(Base):
+    __tablename__ = "translation_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    source_text: Mapped[str] = mapped_column(Text)
+    source_kind: Mapped[str] = mapped_column(String(32), index=True)
+    result_markdown: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    user = relationship("User")
+
+
 class AppSetting(Base):
     __tablename__ = "app_settings"
 

@@ -21,6 +21,7 @@ import {
   Download,
   ImagePlus,
   KeyRound,
+  Languages,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -42,6 +43,7 @@ import {
   Message,
   ReportContent,
   ReportItem,
+  TranslationEntry,
   streamChat,
   User
 } from "./api";
@@ -51,7 +53,7 @@ import { normalizeMarkdownMath } from "./markdown";
 import appIconUrl from "./assets/app-icon.svg?url";
 import "katex/dist/katex.min.css";
 
-type View = "chat" | "reports" | "admin";
+type View = "chat" | "translate" | "reports" | "admin";
 type AuthMode = "login" | "register";
 type ThemePreference = "light" | "dark";
 type PendingAttachment = Attachment & { previewUrl: string; name: string };
@@ -795,6 +797,163 @@ function ReportsView() {
   );
 }
 
+function TranslationView() {
+  const [input, setInput] = useState("");
+  const [result, setResult] = useState<TranslationEntry | null>(null);
+  const [entries, setEntries] = useState<TranslationEntry[]>([]);
+  const [promptDraft, setPromptDraft] = useState("");
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    Promise.all([api.translationPrompt(), api.translationEntries()])
+      .then(([prompt, history]) => {
+        setPromptDraft(prompt.system_prompt);
+        setEntries(history);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "翻译模块加载失败"));
+  }, []);
+
+  async function submitTranslation() {
+    const text = input.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setError("");
+    setSaved("");
+    try {
+      const translated = await api.translate(text);
+      setResult(translated);
+      setEntries((current) => [translated, ...current.filter((item) => item.id !== translated.id)].slice(0, 30));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "翻译失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePrompt() {
+    setError("");
+    setSaved("");
+    try {
+      const prompt = await api.updateTranslationPrompt(promptDraft);
+      setPromptDraft(prompt.system_prompt);
+      setSaved("Prompt 已保存");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败");
+    }
+  }
+
+  async function resetPrompt() {
+    setPromptDraft("");
+    setError("");
+    setSaved("");
+    try {
+      const prompt = await api.updateTranslationPrompt("");
+      setPromptDraft(prompt.system_prompt);
+      setSaved("已恢复预设 Prompt");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "恢复失败");
+    }
+  }
+
+  const activeResult = result || entries[0] || null;
+
+  return (
+    <section className="translation-panel">
+      <header className="pane-header translation-header">
+        <div>
+          <h2>翻译 / 讲解</h2>
+          <p>围绕考研英语一，做中英互译、词根词缀和句子拆解。</p>
+        </div>
+        <button className="secondary-button compact" onClick={() => setPromptOpen((current) => !current)}>
+          {promptOpen ? "收起 Prompt" : "修改 Prompt"}
+        </button>
+      </header>
+
+      <div className="translation-body">
+        <div className="translation-workbench">
+          <section className="translation-card">
+            <div className="translation-card-head">
+              <span>输入</span>
+              <strong>中文 / English</strong>
+            </div>
+            <textarea
+              className="translation-input"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="输入中文、英文单词、短语或句子..."
+            />
+            <div className="translation-actions">
+              <span>单词会补充词根词缀、易混词、用法和例句。</span>
+              <button className="primary-button compact" onClick={submitTranslation} disabled={busy || !input.trim()}>
+                {busy ? "处理中..." : "翻译"}
+              </button>
+            </div>
+          </section>
+
+          <section className="translation-card translation-result">
+            <div className="translation-card-head">
+              <span>结果</span>
+              <strong>{activeResult ? sourceKindLabel(activeResult.source_kind) : "等待输入"}</strong>
+            </div>
+            {activeResult ? (
+              <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
+            ) : (
+              <div className="translation-empty">输入内容后，这里会显示简洁译文、重点拆解和例句。</div>
+            )}
+          </section>
+        </div>
+
+        {promptOpen && (
+          <section className="translation-card prompt-editor">
+            <div className="translation-card-head">
+              <span>System Prompt</span>
+              <strong>默认预设可随时恢复编辑</strong>
+            </div>
+            <textarea value={promptDraft} onChange={(event) => setPromptDraft(event.target.value)} />
+            <div className="translation-actions">
+              <span>建议保持“考研英语一、简洁、词根词缀、句子拆解”这些约束。</span>
+              <div className="translation-action-buttons">
+                <button className="secondary-button compact" onClick={resetPrompt}>
+                  恢复预设
+                </button>
+                <button className="secondary-button compact" onClick={savePrompt}>
+                  保存 Prompt
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {(error || saved) && <div className={error ? "form-error" : "form-success"}>{error || saved}</div>}
+
+        <section className="translation-history">
+          <div className="translation-card-head">
+            <span>最近记录</span>
+            <strong>{entries.length} 条</strong>
+          </div>
+          <div className="translation-history-list">
+            {entries.map((entry) => (
+              <button key={entry.id} className="translation-history-item" onClick={() => setResult(entry)}>
+                <span>{entry.source_text}</span>
+                <strong>{sourceKindLabel(entry.source_kind)}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function sourceKindLabel(kind: TranslationEntry["source_kind"]) {
+  if (kind === "chinese") return "中文 -> English";
+  if (kind === "word") return "Word";
+  return "English -> 中文";
+}
+
 function AdminView() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
@@ -981,6 +1140,15 @@ export default function App() {
           <span className="nav-label">问答</span>
         </button>
         <button
+          className={view === "translate" ? "active" : ""}
+          onClick={() => setView("translate")}
+          aria-label="翻译"
+          title="翻译"
+        >
+          <Languages size={17} />
+          <span className="nav-label">翻译</span>
+        </button>
+        <button
           className={view === "reports" ? "active" : ""}
           onClick={() => setView("reports")}
           aria-label="报告"
@@ -1009,6 +1177,7 @@ export default function App() {
       </nav>
       <section className="app-content">
         {view === "chat" && <ChatView currentTheme={currentTheme} onToggleTheme={toggleThemePreference} />}
+        {view === "translate" && <TranslationView />}
         {view === "reports" && <ReportsView />}
         {view === "admin" && <AdminView />}
       </section>

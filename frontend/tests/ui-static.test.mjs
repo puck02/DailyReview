@@ -64,6 +64,7 @@ test("desktop global sidebar is a narrow icon rail", () => {
   assert.match(styles, /\.app-nav button\s*{[^}]*width:\s*40px;[^}]*place-items:\s*center;/s);
   assert.match(styles, /\.nav-brand span,[\s\S]*?\.nav-label,[\s\S]*?\.user-chip\s*{[^}]*display:\s*none;/s);
   assert.ok(app.includes('aria-label="问答"'));
+  assert.ok(app.includes('aria-label="翻译"'));
   assert.ok(app.includes('title="AI 设置"'));
   assert.ok(app.includes('className="nav-label"'));
 });
@@ -245,6 +246,25 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("setApiKey(\"\")"));
   assert.match(styles, /\.admin-form\s*{/);
   assert.match(styles, /\.admin-section\s*{/);
+});
+
+test("translation panel is a designed first-stage tool with editable prompt", () => {
+  assert.ok(app.includes('type View = "chat" | "translate" | "reports" | "admin";'));
+  assert.ok(app.includes("TranslationView"));
+  assert.ok(app.includes("Languages"));
+  assert.ok(app.includes("api.translate("));
+  assert.ok(app.includes("api.translationPrompt()"));
+  assert.ok(app.includes("api.updateTranslationPrompt(promptDraft)"));
+  assert.ok(app.includes("api.translationEntries()"));
+  assert.ok(app.includes("prompt-editor"));
+  assert.ok(app.includes("考研英语一"));
+  assert.ok(app.includes("词根词缀"));
+  assert.ok(app.includes("翻译 / 讲解"));
+  assert.match(styles, /\.translation-panel\s*{[^}]*display:\s*grid;/s);
+  assert.match(styles, /\.translation-workbench\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/s);
+  assert.match(styles, /\.translation-card\s*{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px solid var\(--stroke\);/s);
+  assert.match(styles, /\.translation-result\s*{[^}]*background:\s*var\(--message-surface\);/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);
 });
 
 test("chat top bar is compact and keeps retention copy in the expanded sidebar", () => {

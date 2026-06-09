@@ -59,6 +59,18 @@ export type AiConfigTest = {
   message: string;
 };
 
+export type TranslationEntry = {
+  id: number;
+  source_text: string;
+  source_kind: "chinese" | "english" | "word";
+  result_markdown: string;
+  created_at: string;
+};
+
+export type TranslationPrompt = {
+  system_prompt: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -139,6 +151,18 @@ export const api = {
     request<AiConfigTest>("/api/admin/ai-config/test", {
       method: "POST",
       body: JSON.stringify({ base_url: baseUrl, api_key: apiKey })
+    }),
+  translationPrompt: () => request<TranslationPrompt>("/api/translation/prompt"),
+  updateTranslationPrompt: (systemPrompt: string) =>
+    request<TranslationPrompt>("/api/translation/prompt", {
+      method: "PUT",
+      body: JSON.stringify({ system_prompt: systemPrompt })
+    }),
+  translationEntries: () => request<TranslationEntry[]>("/api/translation/entries"),
+  translate: (text: string) =>
+    request<TranslationEntry>("/api/translation", {
+      method: "POST",
+      body: JSON.stringify({ text })
     })
 };
 
