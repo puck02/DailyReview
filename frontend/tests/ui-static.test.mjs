@@ -230,6 +230,13 @@ test("new chat stays local until the first message is sent", () => {
   assert.match(app, /if \(!session\)\s*{[\s\S]*api\.createSession\(content\.slice\(0,\s*24\),\s*model\)/);
 });
 
+test("draft chat first message skips the initial history reload while streaming", () => {
+  assert.ok(app.includes("skipNextMessageLoadSessionIdRef"));
+  assert.match(app, /const skipNextMessageLoadSessionIdRef = useRef<number \| null>\(null\);/);
+  assert.match(app, /if \(skipNextMessageLoadSessionIdRef\.current === active\.id\)\s*{[\s\S]*skipNextMessageLoadSessionIdRef\.current = null;[\s\S]*return;/);
+  assert.match(app, /if \(!session\)\s*{[\s\S]*skipNextMessageLoadSessionIdRef\.current = createdSession\.id;[\s\S]*setActive\(createdSession\);/);
+});
+
 test("sessions can be deleted from the sidebar", () => {
   assert.ok(app.includes("Trash2"));
   assert.ok(app.includes("deleteSession(session)"));

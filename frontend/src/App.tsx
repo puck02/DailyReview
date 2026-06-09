@@ -759,6 +759,7 @@ function ChatView({
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const activeRef = useRef<ChatSession | null>(null);
   const draftSessionActiveRef = useRef(false);
+  const skipNextMessageLoadSessionIdRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -796,7 +797,12 @@ function ChatView({
 
   useEffect(() => {
     if (!active) {
+      skipNextMessageLoadSessionIdRef.current = null;
       setMessages([]);
+      return;
+    }
+    if (skipNextMessageLoadSessionIdRef.current === active.id) {
+      skipNextMessageLoadSessionIdRef.current = null;
       return;
     }
     api.messages(active.id).then(setMessages).catch((err) => setError(err.message));
@@ -846,6 +852,7 @@ function ChatView({
   async function newSession() {
     setDraftSessionActive(true);
     draftSessionActiveRef.current = true;
+    skipNextMessageLoadSessionIdRef.current = null;
     activeRef.current = null;
     setActive(null);
     setMessages([]);
@@ -860,6 +867,7 @@ function ChatView({
     setSessionMenu(null);
     setDraftSessionActive(false);
     draftSessionActiveRef.current = false;
+    skipNextMessageLoadSessionIdRef.current = null;
     activeRef.current = session;
     setActive(session);
     if (isMobileViewport()) setSidebarOpen(false);
@@ -966,6 +974,7 @@ function ChatView({
       setDraftSessionActive(false);
       draftSessionActiveRef.current = false;
       activeRef.current = createdSession;
+      skipNextMessageLoadSessionIdRef.current = createdSession.id;
       setActive(createdSession);
       setSessions((current) => [createdSession, ...current.filter((item) => item.id !== createdSession.id)]);
     }

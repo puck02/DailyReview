@@ -282,6 +282,110 @@ async function checkLiveMathRendering(client) {
   );
 }
 
+async function checkDraftFirstMessageStreaming(client) {
+  const fakeSession = {
+    id: 990901,
+    title: "首条回复 smoke",
+    default_model: "gpt-5.4-mini",
+    is_archived: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  const streamedText = "首条回复已显示";
+  await evaluate(client, "document.querySelector('.app-nav button[aria-label=\"问答\"]').click()");
+  await waitFor(client, "Boolean(document.querySelector('.new-session') && document.querySelector('.composer textarea'))", "chat composer");
+  await evaluate(
+    client,
+    `(() => {
+      const fakeSession = ${JSON.stringify(fakeSession)};
+      const streamedText = ${JSON.stringify(streamedText)};
+      const originalFetch = window.fetch.bind(window);
+      window.__dailyreviewDraftFirstFetch = originalFetch;
+      window.__dailyreviewDraftFirstMessagesRequested = false;
+      window.fetch = (input, init = {}) => {
+        const url = typeof input === "string" ? input : input.url;
+        const method = init.method || (typeof input === "string" ? "GET" : input.method);
+        if (url.endsWith("/api/sessions") && method === "POST") {
+          return Promise.resolve(new Response(JSON.stringify(fakeSession), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }));
+        }
+        if (url.endsWith("/api/sessions/" + fakeSession.id + "/messages")) {
+          window.__dailyreviewDraftFirstMessagesRequested = true;
+          return new Promise((resolve) => {
+            window.setTimeout(() => {
+              resolve(new Response(JSON.stringify([]), {
+                status: 200,
+                headers: { "Content-Type": "application/json" }
+              }));
+            }, 80);
+          });
+        }
+        if (url.endsWith("/api/chat/stream")) {
+          const encoder = new TextEncoder();
+          const body = new ReadableStream({
+            start(controller) {
+              window.setTimeout(() => {
+                controller.enqueue(encoder.encode("data: " + JSON.stringify(streamedText) + "\\n\\n"));
+                controller.enqueue(encoder.encode("data: [DONE]\\n\\n"));
+                controller.close();
+              }, 160);
+            }
+          });
+          return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }));
+        }
+        if (url.endsWith("/api/sessions") && method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify([fakeSession]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }));
+        }
+        return originalFetch(input, init);
+      };
+      document.querySelector(".new-session").click();
+      const textarea = document.querySelector(".composer textarea");
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setter.call(textarea, "首条回复测试");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector(".send-button").click();
+      return true;
+    })()`,
+    true
+  );
+  await waitFor(
+    client,
+    `document.querySelector('.message.assistant .message-content')?.textContent.includes(${JSON.stringify(streamedText)})`,
+    "draft first assistant reply",
+    15000
+  );
+  const result = await evaluate(
+    client,
+    `(() => ({
+      messagesRequested: Boolean(window.__dailyreviewDraftFirstMessagesRequested),
+      assistantText: document.querySelector('.message.assistant .message-content')?.textContent || ""
+    }))()`
+  );
+  await evaluate(
+    client,
+    `(() => {
+      if (window.__dailyreviewDraftFirstFetch) {
+        window.fetch = window.__dailyreviewDraftFirstFetch;
+        delete window.__dailyreviewDraftFirstFetch;
+      }
+      delete window.__dailyreviewDraftFirstMessagesRequested;
+      return true;
+    })()`,
+    true
+  );
+  if (result.messagesRequested) {
+    throw new Error(`draft first message loaded history while streaming: ${JSON.stringify(result)}`);
+  }
+  if (!result.assistantText.includes(streamedText)) {
+    throw new Error(`draft first assistant reply is missing: ${JSON.stringify(result)}`);
+  }
+}
+
 async function checkTranslationLoadingLayout(client) {
   await evaluate(client, "document.querySelector('.app-nav button[aria-label=\"翻译\"]').click()");
   await waitFor(client, "Boolean(document.querySelector('.translation-panel'))", "translation panel");
@@ -906,6 +1010,7 @@ try {
   await checkLayout(client);
   await removePreview(client);
   await checkLiveMathRendering(client);
+  await checkDraftFirstMessageStreaming(client);
   await checkTranslationLoadingLayout(client);
   await checkWordCloudDetail(client);
   await checkTranslationInputLimit(client);
