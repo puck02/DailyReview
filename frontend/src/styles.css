@@ -759,6 +759,7 @@ textarea:focus {
 }
 
 .message-content {
+  position: relative;
   width: fit-content;
   max-width: min(680px, calc(100vw - 420px));
   overflow-wrap: anywhere;
@@ -769,6 +770,7 @@ textarea:focus {
 }
 
 .message.assistant .message-content {
+  padding-right: 48px;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.06);
 }
 
@@ -905,14 +907,9 @@ textarea:focus {
   min-width: 0;
 }
 
-.copyable-text-block {
-  padding-right: 36px;
-}
-
-.copy-block-button {
+.copy-block-button,
+.message-copy-button {
   position: absolute;
-  top: 4px;
-  right: 4px;
   width: 28px;
   height: 28px;
   display: grid;
@@ -927,18 +924,35 @@ textarea:focus {
   transition: background 160ms ease, opacity 160ms ease, transform 160ms ease;
 }
 
+.copy-block-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.message-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
 .copyable-markdown-block:hover .copy-block-button,
+.message.assistant .message-content:hover .message-copy-button,
 .copy-block-button:focus-visible,
-.copy-block-button.copied {
+.message-copy-button:focus-visible,
+.copy-block-button.copied,
+.message-copy-button.copied {
   opacity: 1;
 }
 
-.copy-block-button:hover {
+.copy-block-button:hover,
+.message-copy-button:hover {
   background: var(--button-surface-hover);
   transform: translateY(-1px);
 }
 
-.copy-block-button.copied {
+.copy-block-button.copied,
+.message-copy-button.copied {
   color: var(--primary-text);
   background: var(--primary-bg);
 }
@@ -2328,6 +2342,10 @@ textarea:focus {
     max-width: calc(100vw - 64px);
     border-radius: 18px;
     padding: 11px 13px;
+  }
+
+  .message.assistant .message-content {
+    padding-right: 44px;
   }
 
   .admin-actions {

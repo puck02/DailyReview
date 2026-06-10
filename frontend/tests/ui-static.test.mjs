@@ -161,16 +161,25 @@ test("message code blocks use syntax highlighting in light and dark themes", () 
   assert.match(styles, /\.markdown-code \.hljs-number[\s\S]*color:\s*var\(--syntax-number\);/);
 });
 
-test("assistant markdown text and code blocks have copy controls", () => {
+test("assistant messages have one reply copy control while code blocks keep their own copy control", () => {
   assert.ok(app.includes("CopyableMarkdownBlock"));
+  assert.ok(app.includes("MessageCopyButton"));
   assert.ok(app.includes("copyMarkdownText"));
   assert.ok(app.includes("navigator.clipboard.writeText"));
   assert.ok(app.includes('copyable={message.role === "assistant"}'));
+  assert.ok(app.includes('message-copy-button'));
+  assert.ok(app.includes('text={message.content}'));
+  assert.ok(app.includes('aria-label={copied ? "已复制整条回复" : "复制整条回复"}'));
   assert.ok(app.includes('aria-label={copied ? "已复制" : "复制此块"}'));
   assert.ok(app.includes("Copy size={14}"));
   assert.ok(app.includes("Check size={14}"));
+  assert.doesNotMatch(app, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{heading\}<\/CopyableMarkdownBlock>;/);
+  assert.doesNotMatch(app, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{paragraph\}<\/CopyableMarkdownBlock>;/);
+  assert.doesNotMatch(app, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{list\}<\/CopyableMarkdownBlock>;/);
   assert.match(styles, /\.copyable-markdown-block\s*{[^}]*position:\s*relative;/s);
   assert.match(styles, /\.copy-block-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*4px;[^}]*right:\s*4px;/s);
+  assert.match(styles, /\.message-copy-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*8px;[^}]*right:\s*8px;/s);
+  assert.match(styles, /\.message\.assistant \.message-content:hover \.message-copy-button/s);
   assert.match(styles, /\.copyable-markdown-block \.markdown-code\s*{[^}]*padding-right:\s*42px;/s);
 });
 

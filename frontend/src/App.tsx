@@ -210,6 +210,28 @@ function CopyableMarkdownBlock({
   );
 }
 
+function MessageCopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!(await copyMarkdownText(text))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <button
+      type="button"
+      className={copied ? "message-copy-button copied" : "message-copy-button"}
+      onClick={handleCopy}
+      aria-label={copied ? "已复制整条回复" : "复制整条回复"}
+      title={copied ? "已复制" : "复制整条回复"}
+    >
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+    </button>
+  );
+}
+
 function copyableComponents(copyable: boolean): Components {
   return {
     a({ href = "", children }) {
@@ -222,24 +244,16 @@ function copyableComponents(copyable: boolean): Components {
       );
     },
     h1({ children }) {
-      const heading = <h1>{children}</h1>;
-      if (!copyable) return heading;
-      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{heading}</CopyableMarkdownBlock>;
+      return <h1>{children}</h1>;
     },
     h2({ children }) {
-      const heading = <h2>{children}</h2>;
-      if (!copyable) return heading;
-      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{heading}</CopyableMarkdownBlock>;
+      return <h2>{children}</h2>;
     },
     h3({ children }) {
-      const heading = <h3>{children}</h3>;
-      if (!copyable) return heading;
-      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{heading}</CopyableMarkdownBlock>;
+      return <h3>{children}</h3>;
     },
     p({ children }) {
-      const paragraph = <p className={copyable ? "copyable-text-block" : undefined}>{children}</p>;
-      if (!copyable) return paragraph;
-      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{paragraph}</CopyableMarkdownBlock>;
+      return <p>{children}</p>;
     },
     code({ className, children, node: _node, ...props }) {
       const isMath = className?.includes("language-math");
@@ -278,19 +292,13 @@ function copyableComponents(copyable: boolean): Components {
       );
     },
     ul({ children }) {
-      const list = <ul className={copyable ? "markdown-list copyable-text-block" : "markdown-list"}>{children}</ul>;
-      if (!copyable) return list;
-      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{list}</CopyableMarkdownBlock>;
+      return <ul className="markdown-list">{children}</ul>;
     },
     ol({ children }) {
-      const list = <ol className={copyable ? "markdown-list copyable-text-block" : "markdown-list"}>{children}</ol>;
-      if (!copyable) return list;
-      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{list}</CopyableMarkdownBlock>;
+      return <ol className="markdown-list">{children}</ol>;
     },
     blockquote({ children }) {
-      const quote = <blockquote className={copyable ? "copyable-text-block" : undefined}>{children}</blockquote>;
-      if (!copyable) return quote;
-      return <CopyableMarkdownBlock text={markdownTextFromNode(children)}>{quote}</CopyableMarkdownBlock>;
+      return <blockquote>{children}</blockquote>;
     }
   };
 }
@@ -1351,7 +1359,10 @@ function ChatView({
                         </div>
                       )}
                       {message.content.trim() && (
-                        <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
+                        <>
+                          <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
+                          {message.role === "assistant" && <MessageCopyButton text={message.content} />}
+                        </>
                       )}
                     </div>
                   </div>
