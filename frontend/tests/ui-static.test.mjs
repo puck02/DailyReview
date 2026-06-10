@@ -189,8 +189,21 @@ test("app icon is used for favicon and brand", () => {
   assert.ok(main.includes("link[rel='icon']"));
   assert.ok(app.includes("AppIcon"));
   assert.match(appIcon, /id="knot"/);
+  assert.match(appIcon, /<circle[^>]*cx="1203"[^>]*cy="1203"[^>]*r="1203"[^>]*fill="#ffffff"/);
+  assert.doesNotMatch(appIcon, /<path d="M1 578\.4C1 259\.5/);
   assert.match(appIcon, /fill="#111111"/);
+  assert.match(styles, /\.app-icon\s*{[^}]*border-radius:\s*50%;/s);
+  assert.match(styles, /\.ai-avatar img\s*{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*border-radius:\s*50%;/s);
   assert.ok(!appIcon.includes("#faae2b"));
+});
+
+test("chat scrolls to the latest message after loading and streaming updates", () => {
+  assert.ok(app.includes("const messagesEndRef = useRef<HTMLDivElement>(null);"));
+  assert.ok(app.includes("messagesEndRef.current?.scrollIntoView"));
+  assert.ok(app.includes("window.requestAnimationFrame"));
+  assert.match(app, /useEffect\(\(\) => \{[\s\S]*messagesEndRef\.current\?\.scrollIntoView\(\{ block: "end" \}\);[\s\S]*\}, \[messages, messagesLoading\]\);/);
+  assert.match(app, /<div[\s\S]*ref=\{messagesEndRef\}[\s\S]*className="messages-end"[\s\S]*aria-hidden="true"/);
+  assert.match(styles, /\.messages-end\s*{[^}]*height:\s*1px;/s);
 });
 
 test("chat sidebar can collapse from the top-left control", () => {

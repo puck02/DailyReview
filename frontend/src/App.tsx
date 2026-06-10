@@ -769,6 +769,7 @@ function ChatView({
   const messageLoadRequestRef = useRef(0);
   const nextPendingAttachmentIdRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -870,6 +871,14 @@ function ChatView({
     textareaRef.current.style.height = "auto";
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 88)}px`;
   }, [input]);
+
+  useEffect(() => {
+    if (!messages.length || messagesLoading) return;
+    const frame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, messagesLoading]);
 
   useEffect(() => {
     return () => {
@@ -1318,35 +1327,38 @@ function ChatView({
               {composer}
             </div>
           ) : (
-            messages.map((message) => {
-              const isAssistantThinking = message.role === "assistant" && busy && !message.content.trim();
-              return (
-                <div key={message.id} className={`message ${message.role}`}>
-                  {message.role === "assistant" && <ChatGptAvatar />}
-                  <div className="message-content">
-                    {isAssistantThinking && <TypingIndicator />}
-                    {message.attachments.length > 0 && (
-                      <div className="message-attachments" aria-label="消息图片">
-                        {message.attachments.map((attachment) => (
-                          <a
-                            key={attachment.id}
-                            className="message-attachment-thumb"
-                            href={attachment.url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            <img src={attachment.url} alt="消息图片" />
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                    {message.content.trim() && (
-                      <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
-                    )}
+            <>
+              {messages.map((message) => {
+                const isAssistantThinking = message.role === "assistant" && busy && !message.content.trim();
+                return (
+                  <div key={message.id} className={`message ${message.role}`}>
+                    {message.role === "assistant" && <ChatGptAvatar />}
+                    <div className="message-content">
+                      {isAssistantThinking && <TypingIndicator />}
+                      {message.attachments.length > 0 && (
+                        <div className="message-attachments" aria-label="消息图片">
+                          {message.attachments.map((attachment) => (
+                            <a
+                              key={attachment.id}
+                              className="message-attachment-thumb"
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <img src={attachment.url} alt="消息图片" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      {message.content.trim() && (
+                        <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })
+                );
+              })}
+              <div ref={messagesEndRef} className="messages-end" aria-hidden="true" />
+            </>
           )}
         </div>
         {!isEmptyChat && composer}

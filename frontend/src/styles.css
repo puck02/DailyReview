@@ -183,7 +183,7 @@ textarea {
 
 .app-icon {
   display: block;
-  border-radius: 8px;
+  border-radius: 50%;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
@@ -693,6 +693,10 @@ textarea:focus {
   padding: 28px 24px;
 }
 
+.messages-end {
+  height: 1px;
+}
+
 .empty-chat {
   display: grid;
   place-items: center;
@@ -748,10 +752,10 @@ textarea:focus {
 }
 
 .ai-avatar img {
-  width: 25px;
-  height: 25px;
+  width: 100%;
+  height: 100%;
   display: block;
-  border-radius: 0;
+  border-radius: 50%;
 }
 
 .message-content {
@@ -2318,11 +2322,6 @@ textarea:focus {
   .message-avatar {
     width: 28px;
     height: 28px;
-  }
-
-  .ai-avatar img {
-    width: 22px;
-    height: 22px;
   }
 
   .message-content {
