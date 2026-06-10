@@ -1,6 +1,8 @@
 import type { Env } from "./env";
 import { adminRoutes } from "./admin/routes";
+import { attachmentRoutes } from "./attachments/routes";
 import { ensureInitialAdmin, authRoutes } from "./auth/routes";
+import { chatRoutes } from "./chat/routes";
 import { dispatch, errorResponse, json } from "./http";
 import { settingsRoutes } from "./settings/routes";
 
@@ -10,7 +12,10 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     await ensureInitialAdmin(env);
     return json({ status: "ok", runtime: "cloudflare-workers" });
   }
-  const response = await dispatch([...authRoutes(env), ...settingsRoutes(env), ...adminRoutes(env)], request);
+  const response = await dispatch(
+    [...authRoutes(env), ...settingsRoutes(env), ...adminRoutes(env), ...attachmentRoutes(env), ...chatRoutes(env)],
+    request
+  );
   if (response) {
     return response;
   }
