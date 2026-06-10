@@ -1,0 +1,27 @@
+name = "dailyreview"
+main = "src/index.ts"
+compatibility_date = "2026-06-10"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "../frontend/dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dailyreview-prod"
+database_id = "replace-with-cloudflare-d1-id"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "dailyreview-prod-assets"
+
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+APP_TIMEZONE = "Asia/Shanghai"
+AI_DEFAULT_MODEL = "gpt-5.4-mini"
+AI_COMPLEX_MODEL = "5.5"
+MAX_UPLOAD_BYTES = "10485760"
+PDF_EXPORT_MODE = "downgraded"

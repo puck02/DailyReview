@@ -1,0 +1,22 @@
+{
+  "scripts": {
+    "build": "tsc --noEmit",
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "load": "node tests/load/ten-users.mjs"
+  },
+  "dependencies": {
+    "itty-router": "^5.0.22",
+    "jose": "^6.2.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.14",
+    "@cloudflare/workers-types": "^4.20260610.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8",
+    "wrangler": "^4.99.0"
+  }
+}

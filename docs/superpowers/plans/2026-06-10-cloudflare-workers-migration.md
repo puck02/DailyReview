@@ -1126,7 +1126,7 @@ Expected:
 Run:
 
 ```bash
-rg -n "cfut_[A-Za-z0-9_-]+|AI_API_KEY=.*[A-Za-z0-9_-]{20,}|SECRET_KEY=.*[A-Za-z0-9_-]{20,}|CLOUDFLARE_API_TOKEN=.*[A-Za-z0-9_-]{20,}" .
+rg -n "cfut_[A-Za-z0-9_-]+|AI_API_KEY=.*[A-Za-z0-9_-]{20,}|SECRET_KEY=.*[A-Za-z0-9_-]{20,}|CLOUDFLARE_API_TOKEN=.*[A-Za-z0-9_-]{20,}" . --glob '!docs/superpowers/plans/2026-06-10-cloudflare-workers-migration.md'
 ```
 
 Expected: no real secret values.
