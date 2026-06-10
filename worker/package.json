@@ -5,7 +5,8 @@
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
-    "load": "node tests/load/ten-users.mjs"
+    "load": "node tests/load/ten-users.mjs",
+    "load:local-server": "node tests/load/local-worker-server.mjs"
   },
   "dependencies": {
     "itty-router": "^5.0.22",
