@@ -93,7 +93,7 @@ type PdfSavePickerWindow = Window &
 type PdfSaveTarget = { kind: "handle"; handle: PdfFileHandle } | { kind: "download" } | { kind: "cancelled" };
 
 const defaultModel = "gpt-5.4-mini";
-const complexModel = "5.5";
+const complexModel = "gpt-5.5";
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const wordCloudLaneCount = 4;

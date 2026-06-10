@@ -91,7 +91,7 @@ export function createTestEnv(overrides: Partial<Env> = {}): Env {
     ASSETS: { fetch: () => new Response("asset") },
     SECRET_KEY: "test-secret",
     AI_DEFAULT_MODEL: "gpt-5.4-mini",
-    AI_COMPLEX_MODEL: "5.5",
+    AI_COMPLEX_MODEL: "gpt-5.5",
     ADMIN_EMAIL: "admin@example.com",
     ADMIN_INITIAL_PASSWORD: "admin-password",
     APP_TIMEZONE: "Asia/Shanghai",

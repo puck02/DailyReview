@@ -143,7 +143,7 @@ const env = {
   AI_BASE_URL: "",
   AI_API_KEY: "",
   AI_DEFAULT_MODEL: "gpt-5.4-mini",
-  AI_COMPLEX_MODEL: "5.5",
+  AI_COMPLEX_MODEL: "gpt-5.5",
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || "admin@example.com",
   ADMIN_INITIAL_PASSWORD: process.env.ADMIN_INITIAL_PASSWORD || process.env.ADMIN_PASSWORD || "admin-password",
   APP_TIMEZONE: "Asia/Shanghai",

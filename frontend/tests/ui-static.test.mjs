@@ -60,6 +60,12 @@ test("chat header can manually toggle light and dark theme before the model pick
   assert.match(styles, /\.theme-toggle\s*{[^}]*width:\s*38px;[^}]*height:\s*38px;/s);
 });
 
+test("chat model picker uses the full upstream model names", () => {
+  assert.match(app, /const defaultModel = "gpt-5\.4-mini";/);
+  assert.match(app, /const complexModel = "gpt-5\.5";/);
+  assert.doesNotMatch(app, /const complexModel = "5\.5";/);
+});
+
 test("desktop global sidebar is a narrow icon rail", () => {
   assert.match(styles, /\.app-shell\s*{[^}]*grid-template-columns:\s*56px minmax\(0,\s*1fr\);/s);
   assert.match(styles, /\.app-nav button\s*{[^}]*width:\s*40px;[^}]*place-items:\s*center;/s);
