@@ -5,6 +5,7 @@ import { ensureInitialAdmin, authRoutes } from "./auth/routes";
 import { chatRoutes } from "./chat/routes";
 import { dispatch, errorResponse, json } from "./http";
 import { settingsRoutes } from "./settings/routes";
+import { translationRoutes } from "./translation/routes";
 
 async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
@@ -13,7 +14,14 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     return json({ status: "ok", runtime: "cloudflare-workers" });
   }
   const response = await dispatch(
-    [...authRoutes(env), ...settingsRoutes(env), ...adminRoutes(env), ...attachmentRoutes(env), ...chatRoutes(env)],
+    [
+      ...authRoutes(env),
+      ...settingsRoutes(env),
+      ...adminRoutes(env),
+      ...attachmentRoutes(env),
+      ...chatRoutes(env),
+      ...translationRoutes(env)
+    ],
     request
   );
   if (response) {
