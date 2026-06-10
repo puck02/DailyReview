@@ -3,7 +3,8 @@ import { pbkdf2 } from "node:crypto";
 
 const HASH_NAME = "sha256";
 const HASH_ALGORITHM = `pbkdf2_${HASH_NAME}`;
-const HASH_ITERATIONS = 240_000;
+const HASH_ITERATIONS = 100_000;
+const MAX_PBKDF2_ITERATIONS = 100_000;
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 type SessionPayload = {
@@ -88,11 +89,20 @@ export async function verifyPassword(password: string, passwordHash: string): Pr
     return false;
   }
   const iterations = Number.parseInt(rawIterations, 10);
-  if (!Number.isFinite(iterations) || iterations <= 0) {
+  if (!Number.isFinite(iterations) || iterations <= 0 || iterations > MAX_PBKDF2_ITERATIONS) {
     return false;
   }
   const expected = await derivePasswordDigest(password, salt, iterations);
   return equalBytes(hexToBytes(expected), hexToBytes(digest));
+}
+
+export function isPasswordHashSupported(passwordHash: string): boolean {
+  const [algorithm, rawIterations, salt, digest] = passwordHash.split("$");
+  if (algorithm !== HASH_ALGORITHM || !rawIterations || !salt || !digest) {
+    return false;
+  }
+  const iterations = Number.parseInt(rawIterations, 10);
+  return Number.isFinite(iterations) && iterations > 0 && iterations <= MAX_PBKDF2_ITERATIONS;
 }
 
 export async function signSession(userId: number, secret: string): Promise<string> {

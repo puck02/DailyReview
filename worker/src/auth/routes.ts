@@ -12,7 +12,14 @@ import {
   sessionCookie,
   type Route
 } from "../http";
-import { hashPassword, sessionMaxAgeSeconds, signSession, verifyPassword, verifySession } from "./security";
+import {
+  hashPassword,
+  isPasswordHashSupported,
+  sessionMaxAgeSeconds,
+  signSession,
+  verifyPassword,
+  verifySession
+} from "./security";
 
 type UserRow = Row & {
   id: number;
@@ -77,6 +84,11 @@ export async function ensureInitialAdmin(env: Env): Promise<void> {
   }
   const existing = await first<UserRow>(env.DB.prepare("SELECT * FROM users WHERE role = 'admin' LIMIT 1"));
   if (existing) {
+    if (existing.email === env.ADMIN_EMAIL.toLowerCase() && !isPasswordHashSupported(existing.password_hash)) {
+      await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+        .bind(await hashPassword(env.ADMIN_INITIAL_PASSWORD), existing.id)
+        .run();
+    }
     return;
   }
   await env.DB.prepare("INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, 'admin', ?)")
