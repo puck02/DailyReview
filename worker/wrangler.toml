@@ -2,6 +2,11 @@ name = "dailyreview"
 main = "src/index.ts"
 compatibility_date = "2026-06-10"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
+routes = [
+  { pattern = "aphrodite.cc.cd", custom_domain = true, enabled = true, previews_enabled = false }
+]
 
 [assets]
 directory = "../frontend/dist"
