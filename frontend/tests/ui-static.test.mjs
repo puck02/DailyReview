@@ -453,6 +453,15 @@ test("reports can be exported as downloaded PDF files without opening print", ()
   assert.match(styles, /@media print\s*{[\s\S]*\.markdown-preview h2,[\s\S]*\.markdown-preview h3,[\s\S]*\.markdown-preview table,[\s\S]*\.markdown-preview pre,[\s\S]*\.markdown-preview blockquote\s*{[\s\S]*break-inside:\s*avoid;/);
 });
 
+test("Workers PDF downgrade displays the API error before any save target is created", () => {
+  const exportFunction = app.match(/async function exportReportPdf\(\) \{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.ok(apiSource.includes("Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。"));
+  assert.ok(exportFunction.includes("api.reportPdf(active.id)"));
+  assert.ok(exportFunction.includes("pickPdfSaveTarget(filename)"));
+  assert.ok(exportFunction.indexOf("api.reportPdf(active.id)") < exportFunction.indexOf("pickPdfSaveTarget(filename)"));
+  assert.ok(exportFunction.includes("setExportError(error instanceof Error ? error.message : \"PDF 导出失败\")"));
+});
+
 test("mobile chat uses a slide-over session drawer", () => {
   assert.ok(app.includes("isMobileViewport()"));
   assert.ok(app.includes("if (isMobileViewport()) setSidebarOpen(false);"));

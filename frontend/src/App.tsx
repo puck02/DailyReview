@@ -1270,9 +1270,9 @@ function ReportsView() {
       setExportingPdf(true);
       setExportError("");
       const filename = `${active.period}-${reportTypeLabel}.pdf`;
+      const blob = await api.reportPdf(active.id);
       const target = await pickPdfSaveTarget(filename);
       if (target.kind === "cancelled") return;
-      const blob = await api.reportPdf(active.id);
       await savePdfBlob(blob, filename, target);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "PDF 导出失败");

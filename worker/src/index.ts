@@ -4,6 +4,8 @@ import { attachmentRoutes } from "./attachments/routes";
 import { ensureInitialAdmin, authRoutes } from "./auth/routes";
 import { chatRoutes } from "./chat/routes";
 import { dispatch, errorResponse, json } from "./http";
+import { runScheduledJobs } from "./cron/jobs";
+import { reportRoutes } from "./reports/routes";
 import { settingsRoutes } from "./settings/routes";
 import { translationRoutes } from "./translation/routes";
 
@@ -20,7 +22,8 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
       ...adminRoutes(env),
       ...attachmentRoutes(env),
       ...chatRoutes(env),
-      ...translationRoutes(env)
+      ...translationRoutes(env),
+      ...reportRoutes(env)
     ],
     request
   );
@@ -42,7 +45,7 @@ export default {
       return errorResponse(error);
     }
   },
-  async scheduled(_event: ScheduledEvent, _env: Env): Promise<void> {
-    return;
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    await runScheduledJobs(env, new Date());
   }
 };
