@@ -82,6 +82,29 @@ describe("auth and invite routes", () => {
     expect(login.status).toBe(200);
   });
 
+  it("resets an existing initial admin password when it does not match the configured secret", async () => {
+    const env = createTestEnv();
+    const oldHash = await hashPassword("old-admin-password");
+    await env.DB.prepare("INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, 'admin', ?)")
+      .bind("admin@example.com", oldHash, new Date().toISOString())
+      .run();
+
+    const health = await fetchWorker(env, "/api/health");
+    expect(health.status).toBe(200);
+
+    const oldLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "old-admin-password" })
+    });
+    expect(oldLogin.status).toBe(401);
+
+    const newLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    expect(newLogin.status).toBe(200);
+  });
+
   it("allows admins to create invites and blocks normal users from creating invites", async () => {
     const env = createTestEnv();
     await fetchWorker(env, "/api/health");

@@ -84,7 +84,12 @@ export async function ensureInitialAdmin(env: Env): Promise<void> {
   }
   const existing = await first<UserRow>(env.DB.prepare("SELECT * FROM users WHERE role = 'admin' LIMIT 1"));
   if (existing) {
-    if (existing.email === env.ADMIN_EMAIL.toLowerCase() && !isPasswordHashSupported(existing.password_hash)) {
+    const isConfiguredAdmin = existing.email === env.ADMIN_EMAIL.toLowerCase();
+    const needsPasswordReset =
+      isConfiguredAdmin &&
+      (!isPasswordHashSupported(existing.password_hash) ||
+        !(await verifyPassword(env.ADMIN_INITIAL_PASSWORD, existing.password_hash)));
+    if (needsPasswordReset) {
       await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
         .bind(await hashPassword(env.ADMIN_INITIAL_PASSWORD), existing.id)
         .run();
