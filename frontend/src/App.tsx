@@ -62,7 +62,12 @@ import "katex/dist/katex.min.css";
 type View = "chat" | "translate" | "reports" | "admin" | "settings";
 type AuthMode = "login" | "register";
 type ThemePreference = "light" | "dark";
-type PendingAttachment = Attachment & { previewUrl: string; name: string };
+type PendingAttachment = Attachment & {
+  previewUrl: string;
+  name: string;
+  status: "uploading" | "ready" | "failed";
+  error?: string;
+};
 type TranslationCloudItem = {
   key: string;
   label: string;
@@ -762,6 +767,7 @@ function ChatView({
   const skipNextMessageLoadSessionIdRef = useRef<number | null>(null);
   const sessionLoadRequestRef = useRef(0);
   const messageLoadRequestRef = useRef(0);
+  const nextPendingAttachmentIdRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -957,18 +963,50 @@ function ChatView({
   }
 
   async function uploadFile(file: File) {
+    const previewUrl = URL.createObjectURL(file);
+    const localId = nextPendingAttachmentIdRef.current;
+    nextPendingAttachmentIdRef.current -= 1;
+    const pending: PendingAttachment = {
+      id: localId,
+      mime_type: file.type || "image/*",
+      size: file.size,
+      expires_at: "",
+      url: "",
+      previewUrl,
+      name: file.name || "图片",
+      status: "uploading"
+    };
+    setAttachments((current) => [...current, pending]);
     setUploadingCount((current) => current + 1);
     try {
       const uploaded = await api.upload(file);
       setError("");
-      setAttachments((current) => [
-        ...current,
-        {
-          ...uploaded,
-          previewUrl: URL.createObjectURL(file),
-          name: file.name || "图片"
-        }
-      ]);
+      setAttachments((current) =>
+        current.map((attachment) =>
+          attachment.id === localId
+            ? {
+                ...uploaded,
+                previewUrl,
+                name: pending.name,
+                status: "ready"
+              }
+            : attachment
+        )
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "图片上传失败";
+      setError(message);
+      setAttachments((current) =>
+        current.map((attachment) =>
+          attachment.id === localId
+            ? {
+                ...attachment,
+                status: "failed",
+                error: message
+              }
+            : attachment
+        )
+      );
     } finally {
       setUploadingCount((current) => Math.max(0, current - 1));
     }
@@ -1002,6 +1040,11 @@ function ChatView({
       setError("图片上传中，请稍等");
       return;
     }
+    if (attachments.some((attachment) => attachment.status === "failed")) {
+      setError("请先删除上传失败的图片");
+      return;
+    }
+    const readyAttachments = attachments.filter((attachment) => attachment.status === "ready");
     let session = active;
     if (!session) {
       const createdSession = await api.createSession(content.slice(0, 24), model);
@@ -1019,7 +1062,7 @@ function ChatView({
       content,
       model,
       created_at: new Date().toISOString(),
-      attachments
+      attachments: readyAttachments
     };
     const assistant: Message = {
       id: Date.now() + 1,
@@ -1036,7 +1079,12 @@ function ChatView({
     setError("");
     try {
       await streamChat(
-        { session_id: session.id, content, model, attachment_ids: attachments.map((item) => item.id) },
+        {
+          session_id: session.id,
+          content,
+          model,
+          attachment_ids: readyAttachments.map((item) => item.id)
+        },
         (token) => {
           setMessages((current) =>
             current.map((message) =>
@@ -1062,13 +1110,34 @@ function ChatView({
 
   const isEmptyChat = !messagesLoading && messages.length === 0;
   const isUploading = uploadingCount > 0;
+  const hasFailedAttachments = attachments.some((attachment) => attachment.status === "failed");
   const composer = (
     <footer className={`composer ${isEmptyChat ? "composer-floating" : ""}`}>
       {attachments.length > 0 && (
         <div className="attachment-grid" aria-label="已附加图片">
           {attachments.map((attachment) => (
-            <div key={attachment.id} className="attachment-preview">
+            <div
+              key={attachment.id}
+              className={`attachment-preview ${
+                attachment.status === "uploading"
+                  ? "is-uploading"
+                  : attachment.status === "failed"
+                    ? "is-failed"
+                    : "is-ready"
+              }`}
+            >
               <img src={attachment.previewUrl} alt={attachment.name} />
+              {attachment.status === "uploading" && (
+                <div className="attachment-upload-overlay" aria-label="图片上传中">
+                  <span className="attachment-upload-spinner" />
+                  <span className="attachment-upload-label">上传中</span>
+                </div>
+              )}
+              {attachment.status === "failed" && (
+                <div className="attachment-upload-overlay attachment-upload-error" aria-label={attachment.error || "图片上传失败"}>
+                  <span className="attachment-upload-label">失败</span>
+                </div>
+              )}
               <button
                 type="button"
                 className="attachment-remove"
@@ -1081,12 +1150,15 @@ function ChatView({
           ))}
         </div>
       )}
-      {isUploading && <div className="upload-status">图片上传中...</div>}
       {error && <div className="form-error">{error}</div>}
       <div className="composer-row">
-        <label className={`icon-button ${isUploading ? "disabled" : ""}`} title="上传图片" aria-disabled={isUploading}>
+        <label
+          className={`icon-button ${isUploading || busy ? "disabled" : ""}`}
+          title="上传图片"
+          aria-disabled={isUploading || busy}
+        >
           <ImagePlus size={18} />
-          <input type="file" accept="image/*" hidden onChange={handleFileSelect} disabled={isUploading} />
+          <input type="file" accept="image/*" hidden onChange={handleFileSelect} disabled={isUploading || busy} />
         </label>
         <textarea
           ref={textareaRef}
@@ -1096,7 +1168,7 @@ function ChatView({
           placeholder="输入问题，或直接粘贴图片..."
           rows={1}
         />
-        <button className="send-button" onClick={sendMessage} disabled={busy || isUploading}>
+        <button className="send-button" onClick={sendMessage} disabled={busy || isUploading || hasFailedAttachments}>
           <Send size={18} />
         </button>
       </div>

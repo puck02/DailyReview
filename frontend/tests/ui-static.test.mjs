@@ -97,11 +97,22 @@ test("assistant reply shows a pulsing black dot while waiting for the first toke
 });
 
 test("pending image previews are removable above the composer", () => {
+  assert.ok(app.includes('status: "uploading"'));
+  assert.ok(app.includes('status: "ready"'));
+  assert.ok(app.includes('status: "failed"'));
   assert.ok(app.includes("attachment-grid"));
   assert.ok(app.includes("attachment-preview"));
+  assert.ok(app.includes("attachment.status"));
+  assert.ok(app.includes("attachment-upload-overlay"));
+  assert.ok(app.includes("attachment-upload-spinner"));
+  assert.ok(app.includes("attachment-upload-label"));
   assert.ok(app.includes("attachment-remove"));
   assert.ok(app.includes("removeAttachment(attachment.id)"));
   assert.match(styles, /\.attachment-remove\s*{[^}]*position:\s*absolute;/s);
+  assert.match(styles, /\.attachment-preview\.is-uploading\s*{/);
+  assert.match(styles, /\.attachment-upload-overlay\s*{[^}]*position:\s*absolute;/s);
+  assert.match(styles, /\.attachment-upload-spinner\s*{[^}]*animation:\s*attachment-spin 820ms linear infinite;/s);
+  assert.match(styles, /@keyframes attachment-spin\s*{/);
 });
 
 test("sent messages render image thumbnails and markdown content", () => {
@@ -166,10 +177,11 @@ test("assistant markdown text and code blocks have copy controls", () => {
 test("composer blocks sending while image upload is still running", () => {
   assert.ok(app.includes("uploadingCount"));
   assert.ok(app.includes("图片上传中，请稍等"));
-  assert.ok(app.includes("图片上传中..."));
-  assert.ok(app.includes("disabled={busy || isUploading}"));
-  assert.ok(app.includes("aria-disabled={isUploading}"));
-  assert.match(styles, /\.upload-status\s*{/);
+  assert.ok(app.includes("请先删除上传失败的图片"));
+  assert.ok(app.includes("上传中"));
+  assert.ok(app.includes("hasFailedAttachments"));
+  assert.ok(app.includes("disabled={busy || isUploading || hasFailedAttachments}"));
+  assert.ok(app.includes("aria-disabled={isUploading || busy}"));
   assert.match(styles, /\.icon-button\.disabled\s*{/);
 });
 
