@@ -760,18 +760,36 @@ function ChatView({
   const activeRef = useRef<ChatSession | null>(null);
   const draftSessionActiveRef = useRef(false);
   const skipNextMessageLoadSessionIdRef = useRef<number | null>(null);
+  const sessionLoadRequestRef = useRef(0);
+  const messageLoadRequestRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState("");
   const [openingLine, setOpeningLine] = useState(randomOpeningLine);
 
   async function refreshSessions() {
-    const items = await api.sessions();
-    setSessions(items);
-    if (!activeRef.current && !draftSessionActiveRef.current && items[0]) {
-      activeRef.current = items[0];
-      setActive(items[0]);
+    const requestId = ++sessionLoadRequestRef.current;
+    setSessionsLoading(true);
+    try {
+      const items = await api.sessions();
+      if (requestId !== sessionLoadRequestRef.current) return;
+      setSessions(items);
+      if (activeRef.current) {
+        const updatedActive = items.find((item) => item.id === activeRef.current?.id);
+        if (updatedActive) {
+          activeRef.current = updatedActive;
+          setActive(updatedActive);
+        }
+      }
+      if (!activeRef.current && !draftSessionActiveRef.current && items[0]) {
+        activeRef.current = items[0];
+        setActive(items[0]);
+      }
+    } finally {
+      if (requestId === sessionLoadRequestRef.current) setSessionsLoading(false);
     }
   }
 
@@ -796,16 +814,33 @@ function ChatView({
   }, []);
 
   useEffect(() => {
+    const requestId = ++messageLoadRequestRef.current;
     if (!active) {
       skipNextMessageLoadSessionIdRef.current = null;
+      setMessagesLoading(false);
       setMessages([]);
       return;
     }
     if (skipNextMessageLoadSessionIdRef.current === active.id) {
       skipNextMessageLoadSessionIdRef.current = null;
+      setMessagesLoading(false);
       return;
     }
-    api.messages(active.id).then(setMessages).catch((err) => setError(err.message));
+    setMessages([]);
+    setMessagesLoading(true);
+    api
+      .messages(active.id)
+      .then((items) => {
+        if (requestId !== messageLoadRequestRef.current) return;
+        setMessages(items);
+      })
+      .catch((err) => {
+        if (requestId !== messageLoadRequestRef.current) return;
+        setError(err.message);
+      })
+      .finally(() => {
+        if (requestId === messageLoadRequestRef.current) setMessagesLoading(false);
+      });
   }, [active?.id]);
 
   useEffect(() => {
@@ -1025,7 +1060,7 @@ function ChatView({
     void sendMessage();
   }
 
-  const isEmptyChat = messages.length === 0;
+  const isEmptyChat = !messagesLoading && messages.length === 0;
   const isUploading = uploadingCount > 0;
   const composer = (
     <footer className={`composer ${isEmptyChat ? "composer-floating" : ""}`}>
@@ -1085,6 +1120,7 @@ function ChatView({
                   <small>{regularSessions.length}</small>
                 </div>
                 <div className="session-section-list">
+                  {sessionsLoading && !sessions.length ? <div className="session-empty">正在加载会话...</div> : null}
                   {regularSessions.map((session) => (
                     <div
                       key={session.id}
@@ -1106,7 +1142,7 @@ function ChatView({
                       </button>
                     </div>
                   ))}
-                  {!regularSessions.length && <div className="session-empty">暂无最近会话</div>}
+                  {!sessionsLoading && !regularSessions.length && <div className="session-empty">暂无最近会话</div>}
                 </div>
               </div>
               <div className="session-section session-section-archived">
@@ -1136,7 +1172,7 @@ function ChatView({
                       </button>
                     </div>
                   ))}
-                  {!archivedSessions.length && <div className="session-empty">暂无归档会话</div>}
+                  {!sessionsLoading && !archivedSessions.length && <div className="session-empty">暂无归档会话</div>}
                 </div>
               </div>
             </div>
@@ -1198,8 +1234,13 @@ function ChatView({
             </select>
           </div>
         </header>
-        <div className={isEmptyChat ? "messages empty-chat" : "messages"}>
-          {isEmptyChat ? (
+        <div className={isEmptyChat || (messagesLoading && !messages.length) ? "messages empty-chat" : "messages"}>
+          {messagesLoading && !messages.length ? (
+            <div className="empty-chat-content empty-chat-loading">
+              <TranslationLoading />
+              <span>正在加载消息...</span>
+            </div>
+          ) : isEmptyChat ? (
             <div className="empty-chat-content">
               <h1 className="empty-chat-greeting">{openingLine}</h1>
               {composer}
@@ -1247,15 +1288,43 @@ function ReportsView() {
   const [type, setType] = useState<ReportItem["report_type"]>("daily");
   const [items, setItems] = useState<ReportItem[]>([]);
   const [active, setActive] = useState<ReportContent | null>(null);
+  const [reportsLoading, setReportsLoading] = useState(true);
+  const [reportContentLoading, setReportContentLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportError, setExportError] = useState("");
+  const [reportError, setReportError] = useState("");
+  const reportListRequestRef = useRef(0);
+  const reportContentRequestRef = useRef(0);
 
   useEffect(() => {
-    api.reports(type, month).then((reports) => {
-      setItems(reports);
-      if (reports[0]) api.report(reports[0].id).then(setActive);
-      else setActive(null);
-    });
+    const listRequestId = ++reportListRequestRef.current;
+    const contentRequestId = ++reportContentRequestRef.current;
+    setReportsLoading(true);
+    setReportContentLoading(true);
+    setReportError("");
+    api
+      .reports(type, month)
+      .then(async (reports) => {
+        if (listRequestId !== reportListRequestRef.current) return;
+        setItems(reports);
+        if (!reports[0]) {
+          setActive(null);
+          return;
+        }
+        const content = await api.report(reports[0].id);
+        if (listRequestId !== reportListRequestRef.current || contentRequestId !== reportContentRequestRef.current) return;
+        setActive(content);
+      })
+      .catch((err) => {
+        if (listRequestId !== reportListRequestRef.current) return;
+        setItems([]);
+        setActive(null);
+        setReportError(err instanceof Error ? err.message : "报告加载失败");
+      })
+      .finally(() => {
+        if (listRequestId === reportListRequestRef.current) setReportsLoading(false);
+        if (contentRequestId === reportContentRequestRef.current) setReportContentLoading(false);
+      });
   }, [month, type]);
 
   const totalMessages = useMemo(
@@ -1281,6 +1350,22 @@ function ReportsView() {
     }
   }
 
+  async function selectReport(item: ReportItem) {
+    const requestId = ++reportContentRequestRef.current;
+    setReportContentLoading(true);
+    setReportError("");
+    try {
+      const content = await api.report(item.id);
+      if (requestId !== reportContentRequestRef.current) return;
+      setActive(content);
+    } catch (error) {
+      if (requestId !== reportContentRequestRef.current) return;
+      setReportError(error instanceof Error ? error.message : "报告加载失败");
+    } finally {
+      if (requestId === reportContentRequestRef.current) setReportContentLoading(false);
+    }
+  }
+
   return (
     <div className="report-layout">
       <section className="report-sidebar">
@@ -1296,15 +1381,19 @@ function ReportsView() {
           <span>{items.length} 份报告</span>
           <span>{totalMessages} 条问答</span>
         </div>
+        {reportsLoading && !items.length ? <div className="empty-state compact">正在加载报告...</div> : null}
         {items.map((item) => (
-          <button key={item.id} className="report-item" onClick={() => api.report(item.id).then(setActive)}>
+          <button key={item.id} className="report-item" onClick={() => selectReport(item)}>
             <FileText size={15} />
             <span>{item.period}</span>
           </button>
         ))}
       </section>
       <section className="report-content">
-        {active ? (
+        {reportError && <div className="form-error report-export-error">{reportError}</div>}
+        {reportContentLoading && !active ? (
+          <div className="empty-state">正在加载报告内容...</div>
+        ) : active ? (
           <>
             <div className="report-toolbar">
               <div>
@@ -1324,7 +1413,7 @@ function ReportsView() {
             <MarkdownPreview markdown={active.markdown} />
           </>
         ) : (
-          <div className="empty-state">这个月份还没有报告。</div>
+          <div className="empty-state">{reportsLoading ? "正在加载报告..." : "这个月份还没有报告。"}</div>
         )}
       </section>
     </div>
@@ -1337,6 +1426,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   const [entries, setEntries] = useState<TranslationEntry[]>([]);
   const [promptDraft, setPromptDraft] = useState("");
   const [promptOpen, setPromptOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
@@ -1347,7 +1437,8 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
         setPromptDraft(prompt.system_prompt);
         setEntries(history);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "翻译模块加载失败"));
+      .catch((err) => setError(err instanceof Error ? err.message : "翻译模块加载失败"))
+      .finally(() => setHistoryLoading(false));
   }, []);
 
   useEffect(() => {
@@ -1477,6 +1568,8 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
                   <TranslationPhonetic phonetic={activeResult.phonetic} />
                   <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
                 </>
+              ) : historyLoading ? (
+                <div className="translation-empty">正在加载翻译历史...</div>
               ) : (
                 <div className="translation-empty">输入内容后，这里会显示简洁译文、重点拆解和例句。</div>
               )}
@@ -1554,11 +1647,13 @@ const weeklyReportDays = [
 function SettingsView({
   settings,
   onSaved,
-  isAdmin
+  isAdmin,
+  loading
 }: {
   settings: AppSettings | null;
   onSaved: (settings: AppSettings) => void;
   isAdmin: boolean;
+  loading: boolean;
 }) {
   const currentSettings = settings || defaultAppSettings;
   const [dailyTime, setDailyTime] = useState(currentSettings.daily_report_time);
@@ -1627,6 +1722,7 @@ function SettingsView({
   return (
     <section className="settings-panel">
       <div className="settings-content">
+        {loading ? <div className="empty-state">正在加载设置...</div> : null}
         <section className="settings-card">
           <div className="settings-card-head">
             <span>报告生成时间</span>
@@ -1685,6 +1781,7 @@ function AdminView() {
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [loadingAdmin, setLoadingAdmin] = useState(true);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const [testResult, setTestResult] = useState("");
@@ -1698,7 +1795,9 @@ function AdminView() {
   }
 
   useEffect(() => {
-    refresh().catch((err) => setError(err.message));
+    refresh()
+      .catch((err) => setError(err.message))
+      .finally(() => setLoadingAdmin(false));
   }, []);
 
   async function createInvite() {
@@ -1752,6 +1851,9 @@ function AdminView() {
             <p>只保存调用地址和密钥，不在页面回显密钥明文。</p>
           </div>
         </header>
+        {loadingAdmin ? (
+          <div className="empty-state">正在加载 AI 配置...</div>
+        ) : (
         <form className="admin-form" onSubmit={saveAiConfig}>
           <label>
             Base URL
@@ -1778,6 +1880,7 @@ function AdminView() {
             </div>
           </div>
         </form>
+        )}
         {testResult && <div className="form-success">{testResult}</div>}
         {saved && <div className="form-success">{saved}</div>}
       </section>
@@ -1793,6 +1896,7 @@ function AdminView() {
           </button>
         </header>
       <div className="invite-table">
+        {loadingAdmin && !invites.length ? <div className="empty-state compact">正在加载邀请码...</div> : null}
         {invites.map((invite) => (
           <div key={invite.code} className="invite-row">
             <code>{invite.code}</code>
@@ -1810,6 +1914,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<View>("chat");
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [systemTheme, setSystemTheme] = useState<ThemePreference>(currentSystemTheme);
   const [themePreference, setThemePreference] = useState<ThemePreference | null>(readThemePreference);
@@ -1825,12 +1930,15 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setAppSettings(null);
+      setSettingsLoading(false);
       return;
     }
+    setSettingsLoading(true);
     api
       .settings()
       .then(setAppSettings)
-      .catch(() => setAppSettings(defaultAppSettings));
+      .catch(() => setAppSettings(defaultAppSettings))
+      .finally(() => setSettingsLoading(false));
   }, [user]);
 
   useEffect(() => {
@@ -1928,7 +2036,12 @@ export default function App() {
         {view === "reports" && <ReportsView />}
         {view === "admin" && <AdminView />}
         {view === "settings" && (
-          <SettingsView settings={appSettings} onSaved={setAppSettings} isAdmin={user.role === "admin"} />
+          <SettingsView
+            settings={appSettings}
+            onSaved={setAppSettings}
+            isAdmin={user.role === "admin"}
+            loading={settingsLoading}
+          />
         )}
       </section>
     </main>

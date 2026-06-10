@@ -6,7 +6,7 @@ import { requireUser } from "../auth/routes";
 import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
-import { streamChatCompletion, type ChatMessage } from "../ai/client";
+import { isAiConfigured, streamChatCompletion, type AiConfig, type ChatMessage } from "../ai/client";
 
 type SessionRow = Row & {
   id: number;
@@ -42,6 +42,10 @@ const chatStreamSchema = z.object({
   model: z.string().default("gpt-5.4-mini"),
   attachment_ids: z.array(z.number().int()).default([])
 });
+
+type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
 function sessionResponse(session: SessionRow): Record<string, unknown> {
   return {
@@ -157,11 +161,57 @@ async function deleteSession(request: Request, env: Env, params: Record<string, 
   return json({ status: "ok" });
 }
 
-async function historyForSession(env: Env, sessionId: number): Promise<ChatMessage[]> {
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
+async function dataUrlForAttachment(env: Env, attachment: AttachmentRow): Promise<string> {
+  const object = await env.BUCKET.get(attachment.object_key);
+  if (!object) {
+    throw new HttpError(400, "附件不存在");
+  }
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  return `data:${attachment.mime_type};base64,${bytesToBase64(bytes)}`;
+}
+
+async function contentWithAttachments(env: Env, content: string, attachments: AttachmentRow[]): Promise<ChatContentPart[]> {
+  const parts: ChatContentPart[] = [{ type: "text", text: content }];
+  for (const attachment of attachments) {
+    parts.push({ type: "image_url", image_url: { url: await dataUrlForAttachment(env, attachment) } });
+  }
+  return parts;
+}
+
+async function historyForSession(
+  env: Env,
+  sessionId: number,
+  aiConfig: AiConfig,
+  imageMessageId: number | null
+): Promise<ChatMessage[]> {
   const messages = await all<MessageRow>(
-    env.DB.prepare("SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC").bind(sessionId)
+    env.DB.prepare("SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC").bind(sessionId)
   );
-  return messages.map((message) => ({ role: message.role, content: message.content }));
+  if (!imageMessageId || !isAiConfigured(aiConfig)) {
+    return messages.map((message) => ({ role: message.role, content: message.content }));
+  }
+  const attachments = await all<AttachmentRow>(
+    env.DB.prepare("SELECT * FROM attachments WHERE message_id = ? ORDER BY id ASC").bind(imageMessageId)
+  );
+  const history: ChatMessage[] = [];
+  for (const message of messages) {
+    if (message.id === imageMessageId && attachments.length > 0) {
+      history.push({ role: message.role, content: await contentWithAttachments(env, message.content, attachments) });
+    } else {
+      history.push({ role: message.role, content: message.content });
+    }
+  }
+  return history;
 }
 
 async function streamChat(request: Request, env: Env): Promise<Response> {
@@ -187,8 +237,8 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
     await env.DB.prepare("UPDATE attachments SET message_id = ? WHERE id = ?").bind(userMessageId, attachment.id).run();
   }
 
-  const history = await historyForSession(env, session.id);
   const aiConfig = await getAiConfig(env);
+  const history = await historyForSession(env, session.id, aiConfig, userMessageId);
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

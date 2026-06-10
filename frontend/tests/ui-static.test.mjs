@@ -217,7 +217,7 @@ test("empty chat shows a centered greeting with the composer below it", () => {
   assert.ok(app.includes("openingLines"));
   assert.ok(app.includes("randomOpeningLine"));
   assert.ok(app.includes("setOpeningLine(randomOpeningLine())"));
-  assert.ok(app.includes("const isEmptyChat = messages.length === 0;"));
+  assert.ok(app.includes("const isEmptyChat = !messagesLoading && messages.length === 0;"));
   assert.ok(app.includes("准备好了，随时开始"));
   assert.ok(app.includes("有什么想学的，直接开始"));
   assert.ok(app.includes("{openingLine}"));
@@ -241,6 +241,36 @@ test("draft chat first message skips the initial history reload while streaming"
   assert.match(app, /const skipNextMessageLoadSessionIdRef = useRef<number \| null>\(null\);/);
   assert.match(app, /if \(skipNextMessageLoadSessionIdRef\.current === active\.id\)\s*{[\s\S]*skipNextMessageLoadSessionIdRef\.current = null;[\s\S]*return;/);
   assert.match(app, /if \(!session\)\s*{[\s\S]*skipNextMessageLoadSessionIdRef\.current = createdSession\.id;[\s\S]*setActive\(createdSession\);/);
+});
+
+test("chat data loading keeps previous UI stable and ignores stale requests", () => {
+  assert.ok(app.includes("const [sessionsLoading, setSessionsLoading]"));
+  assert.ok(app.includes("const [messagesLoading, setMessagesLoading]"));
+  assert.ok(app.includes("const sessionLoadRequestRef = useRef(0);"));
+  assert.ok(app.includes("const messageLoadRequestRef = useRef(0);"));
+  assert.match(app, /const requestId = \+\+sessionLoadRequestRef\.current;[\s\S]*if \(requestId !== sessionLoadRequestRef\.current\) return;/);
+  assert.match(app, /const requestId = \+\+messageLoadRequestRef\.current;[\s\S]*if \(requestId !== messageLoadRequestRef\.current\) return;/);
+  assert.match(app, /setSessionsLoading\(true\);[\s\S]*setSessionsLoading\(false\);/);
+  assert.match(app, /setMessagesLoading\(true\);[\s\S]*setMessagesLoading\(false\);/);
+  assert.ok(app.includes("{sessionsLoading && !sessions.length ? <div className=\"session-empty\">正在加载会话...</div>"));
+  assert.ok(app.includes("{messagesLoading && !messages.length ? ("));
+  assert.ok(app.includes("empty-chat-loading"));
+});
+
+test("secondary pages show loading states instead of transient empty content", () => {
+  assert.ok(app.includes("const [reportsLoading, setReportsLoading]"));
+  assert.ok(app.includes("const [reportContentLoading, setReportContentLoading]"));
+  assert.ok(app.includes("const reportListRequestRef = useRef(0);"));
+  assert.ok(app.includes("const reportContentRequestRef = useRef(0);"));
+  assert.ok(app.includes("正在加载报告..."));
+  assert.ok(app.includes("正在加载报告内容..."));
+  assert.ok(app.includes("const [historyLoading, setHistoryLoading]"));
+  assert.ok(app.includes("正在加载翻译历史..."));
+  assert.ok(app.includes("const [settingsLoading, setSettingsLoading]"));
+  assert.ok(app.includes("正在加载设置..."));
+  assert.ok(app.includes("const [loadingAdmin, setLoadingAdmin]"));
+  assert.ok(app.includes("正在加载 AI 配置..."));
+  assert.ok(app.includes("正在加载邀请码..."));
 });
 
 test("sessions can be deleted from the sidebar", () => {
