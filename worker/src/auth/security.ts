@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
+import { pbkdf2 } from "node:crypto";
 
 const HASH_NAME = "sha256";
 const HASH_ALGORITHM = `pbkdf2_${HASH_NAME}`;
@@ -45,18 +46,30 @@ function randomHex(bytes: number): string {
 
 async function derivePasswordDigest(password: string, salt: string, iterations: number): Promise<string> {
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: encoder.encode(salt),
-      iterations
-    },
-    key,
-    256
-  );
-  return bytesToHex(bits);
+  try {
+    const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt: encoder.encode(salt),
+        iterations
+      },
+      key,
+      256
+    );
+    return bytesToHex(bits);
+  } catch {
+    return await new Promise((resolve, reject) => {
+      pbkdf2(password, salt, iterations, 32, HASH_NAME, (error, digest) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(digest.toString("hex"));
+      });
+    });
+  }
 }
 
 function jwtKey(secret: string): Uint8Array {

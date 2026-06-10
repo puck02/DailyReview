@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { hashPassword, signSession, verifyPassword, verifySession } from "../src/auth/security";
 import { cookieFrom, createTestEnv, fetchWorker } from "./helpers";
@@ -13,6 +13,15 @@ describe("auth security", () => {
 
   it("rejects wrong passwords for PBKDF2 hashes", async () => {
     await expect(verifyPassword("wrong-password", LEGACY_HASH)).resolves.toBe(false);
+  });
+
+  it("verifies PBKDF2 hashes without WebCrypto deriveBits", async () => {
+    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockRejectedValue(new Error("deriveBits unavailable"));
+    try {
+      await expect(verifyPassword("CorrectHorseBatteryStaple1!", LEGACY_HASH)).resolves.toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("hashes new passwords using the compatible PBKDF2 format", async () => {

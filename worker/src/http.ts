@@ -61,6 +61,11 @@ export function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
     return json({ detail: error.message }, { status: error.status });
   }
+  if (error instanceof Error) {
+    console.error("Unhandled request error", { name: error.name, message: error.message });
+  } else {
+    console.error("Unhandled request error", { valueType: typeof error });
+  }
   return json({ detail: "服务器内部错误" }, { status: 500 });
 }
 
