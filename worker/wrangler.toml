@@ -10,7 +10,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "dailyreview-prod"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "a7ec6d1f-a140-4714-bf21-0c7ba6b77625"
 
 [[r2_buckets]]
 binding = "BUCKET"
