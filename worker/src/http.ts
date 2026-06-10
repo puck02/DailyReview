@@ -4,6 +4,45 @@ export class HttpError extends Error {
   }
 }
 
+export type RouteHandler = (request: Request, params: Record<string, string>) => Promise<Response> | Response;
+
+export type Route = {
+  method: string;
+  pattern: RegExp;
+  keys: string[];
+  handler: RouteHandler;
+};
+
+export function route(method: string, path: string, handler: RouteHandler): Route {
+  const keys: string[] = [];
+  const source = path
+    .replace(/\/:([^/]+)/g, (_match, key: string) => {
+      keys.push(key);
+      return "/([^/]+)";
+    })
+    .replace(/\//g, "\\/");
+  return { method, pattern: new RegExp(`^${source}$`), keys, handler };
+}
+
+export async function dispatch(routes: Route[], request: Request): Promise<Response | null> {
+  const url = new URL(request.url);
+  for (const item of routes) {
+    if (item.method !== request.method) {
+      continue;
+    }
+    const match = item.pattern.exec(url.pathname);
+    if (!match) {
+      continue;
+    }
+    const params: Record<string, string> = {};
+    item.keys.forEach((key, index) => {
+      params[key] = decodeURIComponent(match[index + 1] || "");
+    });
+    return await item.handler(request, params);
+  }
+  return null;
+}
+
 export function json(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), {
     ...init,
@@ -12,6 +51,10 @@ export function json(data: unknown, init: ResponseInit = {}): Response {
       ...(init.headers || {})
     }
   });
+}
+
+export function empty(status = 204, init: ResponseInit = {}): Response {
+  return new Response(null, { ...init, status });
 }
 
 export function errorResponse(error: unknown): Response {
@@ -40,4 +83,8 @@ export function getCookie(request: Request, name: string): string | null {
 
 export function sessionCookie(value: string, maxAge: number): string {
   return `session=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+
+export function expiredSessionCookie(): string {
+  return "session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
 }

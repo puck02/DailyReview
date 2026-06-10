@@ -1,10 +1,16 @@
 import type { Env } from "./env";
-import { errorResponse, json } from "./http";
+import { ensureInitialAdmin, authRoutes } from "./auth/routes";
+import { dispatch, errorResponse, json } from "./http";
 
-async function handleApi(request: Request, _env: Env): Promise<Response> {
+async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/health") {
+    await ensureInitialAdmin(env);
     return json({ status: "ok", runtime: "cloudflare-workers" });
+  }
+  const response = await dispatch([...authRoutes(env)], request);
+  if (response) {
+    return response;
   }
   return json({ detail: "接口未实现" }, { status: 404 });
 }
