@@ -1,6 +1,8 @@
 import { all, first, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError } from "../http";
+import { getAiConfig } from "../admin/routes";
+import { completeChat } from "../ai/client";
 
 export const PDF_DOWNGRADE_MESSAGE = "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。";
 
@@ -38,6 +40,44 @@ function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function timeZoneOffsetMs(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const localAsUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+  return localAsUtc - date.getTime();
+}
+
+function zonedLocalTimeToUtc(localTime: string, timeZone: string): Date {
+  let result = new Date(`${localTime}Z`);
+  for (let index = 0; index < 3; index += 1) {
+    result = new Date(Date.parse(`${localTime}Z`) - timeZoneOffsetMs(result, timeZone));
+  }
+  return result;
+}
+
+function dayBounds(day: string, timeZone: string): { start: string; end: string } {
+  const start = zonedLocalTimeToUtc(`${day}T00:00:00.000`, timeZone);
+  const endLocal = formatDate(addDays(parseDate(day), 1));
+  const end = zonedLocalTimeToUtc(`${endLocal}T00:00:00.000`, timeZone);
+  return { start: start.toISOString(), end: end.toISOString() };
 }
 
 function mondayOfWeek(day: Date): Date {
@@ -119,7 +159,8 @@ async function writeReport(
      VALUES (?, ?, ?, ?, NULL, ?, ?)
      ON CONFLICT(user_id, report_type, period) DO UPDATE SET
        markdown_key = excluded.markdown_key,
-       stats_json = excluded.stats_json`
+       stats_json = excluded.stats_json,
+       created_at = excluded.created_at`
   )
     .bind(userId, reportType, period, key, JSON.stringify(reportStats), nowIso())
     .run();
@@ -133,8 +174,7 @@ async function writeReport(
 }
 
 async function messagesForDay(env: Env, userId: number, day: string): Promise<MessageRow[]> {
-  const start = `${day}T00:00:00.000Z`;
-  const end = `${formatDate(addDays(parseDate(day), 1))}T00:00:00.000Z`;
+  const { start, end } = dayBounds(day, env.APP_TIMEZONE || "UTC");
   return await all<MessageRow>(
     env.DB.prepare(
       `SELECT m.*
@@ -156,9 +196,58 @@ function renderConversation(messages: MessageRow[]): string {
     .join("\n");
 }
 
+const STUDY_INCLUDE_PATTERNS = [
+  /考研|英语一|英语二|长难句|阅读理解|完形|翻译|作文|词汇|单词|语法|真题|复习|背诵|例句|音标|词根|词缀|派生|近义|反义/,
+  /数学|高数|线代|概率|极限|导数|微分|积分|矩阵|特征值|函数|级数|方程|证明|定理|公式|错题|题型|解题/,
+  /\b(?:word|vocabulary|grammar|sentence|translation|reading|writing|essay|derivative|limit|integral|matrix|probability)\b/i
+];
+
+const STUDY_EXCLUDE_PATTERNS = [
+  /部署|服务器|Cloudflare|Worker|wrangler|token|登录|报错|缓存|域名|GitHub|commit|push|branch|README|接口|数据库|D1|R2/i,
+  /冒泡排序|排序模板|代码|编程|C\+\+|Python|JavaScript|TypeScript|React|CSS|HTML|vector|include|bubbleSort|function|const|class|npm/i,
+  /傻逼|操|卧槽|他妈/
+];
+
+function isStudyMessage(message: MessageRow): boolean {
+  const content = message.content.trim();
+  if (!content) {
+    return false;
+  }
+  if (STUDY_EXCLUDE_PATTERNS.some((pattern) => pattern.test(content))) {
+    return STUDY_INCLUDE_PATTERNS.some((pattern) => pattern.test(content)) && content.length >= 12;
+  }
+  return STUDY_INCLUDE_PATTERNS.some((pattern) => pattern.test(content));
+}
+
+function studyMessages(messages: MessageRow[]): MessageRow[] {
+  return messages.filter(isStudyMessage);
+}
+
 export function extractKeywords(text: string, limit = 8): string[] {
   const matches = text.match(/[\u4e00-\u9fa5]{2,}|[A-Za-z][A-Za-z0-9_+-]{2,}/g) || [];
-  const ignored = new Set(["assistant", "user", "今天", "学习", "解释", "这个", "一个", "什么", "如何", "用于"]);
+  const ignored = new Set([
+    "assistant",
+    "user",
+    "今天",
+    "学习",
+    "解释",
+    "这个",
+    "一个",
+    "什么",
+    "如何",
+    "用于",
+    "for",
+    "int",
+    "const",
+    "function",
+    "include",
+    "vector",
+    "swapped",
+    "cpp",
+    "cloudflare",
+    "worker",
+    "部署"
+  ]);
   const counts = new Map<string, number>();
   for (const word of matches) {
     const key = word.toLowerCase();
@@ -171,6 +260,44 @@ export function extractKeywords(text: string, limit = 8): string[] {
     .sort((left, right) => right[1] - left[1])
     .slice(0, limit)
     .map(([word]) => word);
+}
+
+const DAILY_REPORT_MAX_CHARS = 1800;
+const DAILY_REPORT_SECTION_ITEM_LIMIT = 4;
+
+function compactDailyMarkdown(markdown: string): string {
+  if (markdown.length <= DAILY_REPORT_MAX_CHARS) {
+    return markdown;
+  }
+  const compacted: string[] = [];
+  let itemCount = 0;
+  let inSection = false;
+  for (const line of markdown.split("\n")) {
+    const stripped = line.trim();
+    if (stripped.startsWith("#")) {
+      compacted.push(stripped);
+      inSection = stripped.startsWith("## ");
+      itemCount = 0;
+      continue;
+    }
+    if (!stripped) {
+      continue;
+    }
+    if (!inSection) {
+      compacted.push(stripped.slice(0, 120));
+      continue;
+    }
+    if (itemCount >= DAILY_REPORT_SECTION_ITEM_LIMIT) {
+      continue;
+    }
+    compacted.push(stripped.length > 140 ? `${stripped.slice(0, 140)}...` : stripped);
+    itemCount += 1;
+  }
+  let result = compacted.join("\n");
+  if (result.length > DAILY_REPORT_MAX_CHARS) {
+    result = result.slice(0, DAILY_REPORT_MAX_CHARS - 34).trimEnd();
+  }
+  return `${result}\n\n> 内容已按日报篇幅要求压缩。`;
 }
 
 function fallbackDailyMarkdown(day: string, conversation: string, keywords: string[]): string {
@@ -195,7 +322,7 @@ ${highlights}
 - 标记仍然含糊的概念，下一次用例题验证。
 
 ## 5. 与历史内容的关联
-- Workers 版本会优先生成稳定 Markdown 报告，历史关联将在后续增强。
+- 今日未发现足够明确的历史关联，后续以错题和高频概念做追踪。
 
 ## 6. 下一步建议
 - 明天先用 10 分钟复述今日核心知识点。
@@ -206,16 +333,51 @@ ${highlights}
 `;
 }
 
+async function aiDailyMarkdown(env: Env, day: string, conversation: string, keywords: string[]): Promise<string> {
+  const prompt = `请根据以下“考研学习相关”的问答生成一份高质量 Markdown 学习日报。
+
+硬性要求：
+- 只讨论考研英语、数学、复习方法、错题和知识点；忽略编程、部署、闲聊、辱骂、系统排错等无关内容。
+- 不要复制完整聊天流水，不要输出代码块，不要把变量名或技术词当知识点。
+- 内容必须具体，可复习，可执行；不要写空泛套话。
+- 每节 2-4 条，整篇不超过 1400 个中文字符。
+- 必须使用这些标题：
+# ${day} 学习日报
+## 1. 今日学习概览
+## 2. 核心知识点
+## 3. 典型问题与解法
+## 4. 易错点 / 未解决问题
+## 5. 与历史内容的关联
+## 6. 下一步建议
+## 7. 简短复盘
+
+关键词：${keywords.join(", ")}
+
+今日有效学习问答：
+${conversation}`;
+  const fallback = fallbackDailyMarkdown(day, conversation, keywords);
+  const markdown = await completeChat(
+    [{ role: "user", content: prompt }],
+    env.AI_DEFAULT_MODEL,
+    fallback,
+    env,
+    await getAiConfig(env)
+  );
+  return compactDailyMarkdown(markdown);
+}
+
 export async function generateDailyReport(env: Env, userId: number, day: string): Promise<ReportRow | null> {
   const messages = await messagesForDay(env, userId, day);
-  if (!messages.length) {
+  const filteredMessages = studyMessages(messages);
+  if (!filteredMessages.length) {
     return null;
   }
-  const conversation = renderConversation(messages);
+  const conversation = renderConversation(filteredMessages);
   const keywords = extractKeywords(conversation);
-  const markdown = fallbackDailyMarkdown(day, conversation, keywords);
+  const markdown = await aiDailyMarkdown(env, day, conversation, keywords);
   return await writeReport(env, userId, "daily", day, markdown, {
-    message_count: messages.length,
+    message_count: filteredMessages.length,
+    raw_message_count: messages.length,
     keywords,
     related_count: 0
   });

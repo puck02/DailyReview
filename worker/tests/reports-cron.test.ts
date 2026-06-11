@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateDailyReports, generateMonthlyReports, generateWeeklyReports } from "../src/cron/jobs";
+import { generateDailyReports, generateMonthlyReports, generateWeeklyReports, runScheduledJobs } from "../src/cron/jobs";
 import { cookieFrom, createTestEnv, fetchWorker } from "./helpers";
 
 async function loginUser(email = "user@example.com"): Promise<{
@@ -43,6 +43,23 @@ async function createMessage(env: ReturnType<typeof createTestEnv>, userId: numb
 }
 
 describe("reports, cron jobs, and PDF downgrade", () => {
+  it("only generates daily reports at the configured local report time", async () => {
+    const { env, cookie, userId } = await loginUser();
+    await createMessage(env, userId, "今天复习了考研英语长难句和 derivative 的用法", "2026-06-11T10:00:00.000Z");
+
+    await runScheduledJobs(env, new Date("2026-06-11T01:00:00.000Z"));
+
+    const morning = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    expect(morning.status).toBe(200);
+    await expect(morning.json()).resolves.toEqual([]);
+
+    await runScheduledJobs(env, new Date("2026-06-11T15:00:00.000Z"));
+
+    const evening = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    expect(evening.status).toBe(200);
+    await expect(evening.json()).resolves.toMatchObject([{ period: "2026-06-11" }]);
+  });
+
   it("generates a daily report into R2 and lists its metadata", async () => {
     const { env, cookie, userId } = await loginUser();
     await createMessage(env, userId, "今天复习了极限和 derivative 的定义", "2026-06-09T10:00:00.000Z");
@@ -62,6 +79,54 @@ describe("reports, cron jobs, and PDF downgrade", () => {
       period: "2026-06-09",
       markdown: expect.stringContaining("# 2026-06-09 学习日报")
     });
+  });
+
+  it("refreshes daily report metadata when regenerating the same day", async () => {
+    const { env, cookie, userId } = await loginUser();
+    await createMessage(env, userId, "今天复习了极限和 derivative 的定义", "2026-06-09T10:00:00.000Z");
+
+    await generateDailyReports(env, "2026-06-09");
+    const before = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    const [firstReport] = (await before.json()) as Array<{ id: number; created_at: string }>;
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await createMessage(env, userId, "补充复习了考研英语长难句拆分", "2026-06-09T12:00:00.000Z");
+    await generateDailyReports(env, "2026-06-09");
+
+    const after = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    const [secondReport] = (await after.json()) as Array<{ id: number; created_at: string; stats: { message_count: number } }>;
+    expect(secondReport.id).toBe(firstReport.id);
+    expect(secondReport.created_at).not.toBe(firstReport.created_at);
+    expect(secondReport.stats.message_count).toBe(2);
+  });
+
+  it("skips daily reports when messages are unrelated to exam study", async () => {
+    const { env, cookie, userId } = await loginUser();
+    await createMessage(env, userId, "给个冒泡排序模板", "2026-06-09T10:00:00.000Z");
+    await createMessage(env, userId, "Cloudflare Worker 部署报错怎么处理", "2026-06-09T10:05:00.000Z");
+
+    await generateDailyReports(env, "2026-06-09");
+
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toEqual([]);
+  });
+
+  it("keeps only exam-study content in daily reports", async () => {
+    const { env, cookie, userId } = await loginUser();
+    await createMessage(env, userId, "给个冒泡排序模板", "2026-06-09T10:00:00.000Z");
+    await createMessage(env, userId, "今天复习了考研英语长难句和 derivative 的用法", "2026-06-09T11:00:00.000Z");
+
+    await generateDailyReports(env, "2026-06-09");
+
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    const [report] = (await list.json()) as Array<{ id: number; stats: { message_count?: number; raw_message_count?: number } }>;
+    expect(report.stats).toMatchObject({ message_count: 1, raw_message_count: 2 });
+    const content = await fetchWorker(env, `/api/reports/${report.id}`, { headers: { cookie } });
+    const body = (await content.json()) as { markdown: string };
+    expect(body.markdown).toContain("考研英语长难句");
+    expect(body.markdown).not.toContain("冒泡排序");
+    expect(body.markdown).not.toContain("bubbleSort");
   });
 
   it("builds weekly and monthly summaries from daily reports", async () => {
@@ -85,7 +150,7 @@ describe("reports, cron jobs, and PDF downgrade", () => {
 
   it("hides reports from other users and returns stable PDF downgrade JSON", async () => {
     const first = await loginUser("first@example.com");
-    await createMessage(first.env, first.userId, "PDF 降级稳定性测试", "2026-06-09T10:00:00.000Z");
+    await createMessage(first.env, first.userId, "今天复习了考研英语阅读理解的定位题", "2026-06-09T10:00:00.000Z");
     await generateDailyReports(first.env, "2026-06-09");
 
     const list = await fetchWorker(first.env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie: first.cookie } });

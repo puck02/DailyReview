@@ -22,7 +22,7 @@ binding = "BUCKET"
 bucket_name = "dailyreview-prod-assets"
 
 [triggers]
-crons = ["0 * * * *"]
+crons = ["* * * * *"]
 
 [vars]
 APP_TIMEZONE = "Asia/Shanghai"
