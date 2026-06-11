@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { generateDailyReports, generateMonthlyReports, generateWeeklyReports, runScheduledJobs } from "../src/cron/jobs";
-import { cookieFrom, createTestEnv, fetchWorker } from "./helpers";
+import { cookieFrom, createTestEnv, fetchWorker, MemoryReportScheduler } from "./helpers";
 
 async function loginUser(email = "user@example.com"): Promise<{
   env: ReturnType<typeof createTestEnv>;
@@ -43,21 +43,18 @@ async function createMessage(env: ReturnType<typeof createTestEnv>, userId: numb
 }
 
 describe("reports, cron jobs, and PDF downgrade", () => {
-  it("only generates daily reports at the configured local report time", async () => {
+  it("cron maintenance reschedules report alarms without generating reports directly", async () => {
     const { env, cookie, userId } = await loginUser();
+    const scheduler = env.REPORT_SCHEDULER as unknown as MemoryReportScheduler;
+    scheduler.scheduledUsers.length = 0;
     await createMessage(env, userId, "今天复习了考研英语长难句和 derivative 的用法", "2026-06-11T10:00:00.000Z");
 
     await runScheduledJobs(env, new Date("2026-06-11T01:00:00.000Z"));
 
-    const morning = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
-    expect(morning.status).toBe(200);
-    await expect(morning.json()).resolves.toEqual([]);
-
-    await runScheduledJobs(env, new Date("2026-06-11T15:00:00.000Z"));
-
-    const evening = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
-    expect(evening.status).toBe(200);
-    await expect(evening.json()).resolves.toMatchObject([{ period: "2026-06-11" }]);
+    expect(scheduler.scheduledUsers.map((entry) => entry.userId).sort((left, right) => left - right)).toEqual([1, userId]);
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toEqual([]);
   });
 
   it("generates a daily report into R2 and lists its metadata", async () => {

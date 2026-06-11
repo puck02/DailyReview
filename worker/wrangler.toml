@@ -21,8 +21,16 @@ database_id = "a7ec6d1f-a140-4714-bf21-0c7ba6b77625"
 binding = "BUCKET"
 bucket_name = "dailyreview-prod-assets"
 
+[[durable_objects.bindings]]
+name = "REPORT_SCHEDULER"
+class_name = "ReportScheduler"
+
+[[migrations]]
+tag = "v1_report_scheduler"
+new_sqlite_classes = ["ReportScheduler"]
+
 [triggers]
-crons = ["* * * * *"]
+crons = ["0 * * * *"]
 
 [vars]
 APP_TIMEZONE = "Asia/Shanghai"

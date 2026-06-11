@@ -1,6 +1,7 @@
 export type Env = {
   DB: D1Database;
   BUCKET: R2Bucket;
+  REPORT_SCHEDULER: DurableObjectNamespace;
   ASSETS: Fetcher;
   SECRET_KEY: string;
   AI_BASE_URL?: string;

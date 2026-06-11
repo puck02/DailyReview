@@ -6,6 +6,31 @@ import worker from "../src/index";
 import type { Env } from "../src/env";
 
 type BindValue = string | number | null;
+type ReportScheduleInput = {
+  userId: number;
+  nowIso?: string;
+};
+
+export class MemoryReportScheduler {
+  readonly scheduledUsers: ReportScheduleInput[] = [];
+
+  constructor(private shouldFail = false) {}
+
+  getByName(userId: string): { fetch: (request: Request | string, init?: RequestInit) => Promise<Response> } {
+    return {
+      fetch: async (request: Request | string, init?: RequestInit) => {
+        if (this.shouldFail) {
+          throw new Error("scheduler unavailable");
+        }
+        const body =
+          typeof request === "string" ? init?.body : request.body ? await request.text() : init?.body;
+        const input = body ? (JSON.parse(String(body)) as ReportScheduleInput) : { userId: Number(userId) };
+        this.scheduledUsers.push({ ...input, userId: Number(userId) });
+        return new Response(null, { status: 204 });
+      }
+    };
+  }
+}
 
 class SqliteStatement {
   private values: BindValue[] = [];
@@ -88,6 +113,7 @@ export function createTestEnv(overrides: Partial<Env> = {}): Env {
   return {
     DB: new SqliteD1() as unknown as D1Database,
     BUCKET: new MemoryR2() as unknown as R2Bucket,
+    REPORT_SCHEDULER: new MemoryReportScheduler() as unknown as Env["REPORT_SCHEDULER"],
     ASSETS: { fetch: () => new Response("asset") },
     SECRET_KEY: "test-secret",
     AI_DEFAULT_MODEL: "gpt-5.4-mini",

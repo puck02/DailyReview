@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { cookieFrom, createTestEnv, fetchWorker } from "./helpers";
+import type { Env } from "../src/env";
+import { cookieFrom, createTestEnv, fetchWorker, MemoryReportScheduler } from "./helpers";
 
 async function adminCookie(env = createTestEnv()): Promise<string> {
   await fetchWorker(env, "/api/health");
@@ -70,7 +71,7 @@ describe("settings and admin routes", () => {
     });
   });
 
-  it("blocks normal users from updating settings", async () => {
+  it("lets normal users update their own report schedule but not global word cloud settings", async () => {
     const env = createTestEnv();
     const admin = await adminCookie(env);
     const invite = await fetchWorker(env, "/api/invites", {
@@ -96,8 +97,58 @@ describe("settings and admin routes", () => {
       })
     });
 
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ detail: "需要管理员权限" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      daily_report_time: "22:30",
+      weekly_report_time: "21:15",
+      weekly_report_day: "fri",
+      word_cloud_enabled: true
+    });
+  });
+
+  it("reschedules the current user when report settings change", async () => {
+    const scheduler = new MemoryReportScheduler();
+    const env = createTestEnv({ REPORT_SCHEDULER: scheduler as unknown as Env["REPORT_SCHEDULER"] });
+    const cookie = await adminCookie(env);
+    scheduler.scheduledUsers.length = 0;
+
+    const response = await fetchWorker(env, "/api/settings", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify({
+        daily_report_time: "22:30",
+        weekly_report_time: "21:15",
+        weekly_report_day: "fri",
+        word_cloud_enabled: true
+      })
+    });
+
+    expect(response.status).toBe(200);
+    expect(scheduler.scheduledUsers).toHaveLength(1);
+    expect(scheduler.scheduledUsers[0]?.userId).toBe(1);
+  });
+
+  it("saves report settings even when alarm rescheduling is temporarily unavailable", async () => {
+    const env = createTestEnv({ REPORT_SCHEDULER: new MemoryReportScheduler(true) as unknown as Env["REPORT_SCHEDULER"] });
+    const cookie = await adminCookie(env);
+
+    const response = await fetchWorker(env, "/api/settings", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify({
+        daily_report_time: "20:10",
+        weekly_report_time: "20:20",
+        weekly_report_day: "sat",
+        word_cloud_enabled: true
+      })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      daily_report_time: "20:10",
+      weekly_report_time: "20:20",
+      weekly_report_day: "sat"
+    });
   });
 
   it("masks AI API keys and reports incomplete AI config", async () => {

@@ -20,6 +20,7 @@ import {
   verifyPassword,
   verifySession
 } from "./security";
+import { scheduleUserReports } from "../report-scheduler";
 
 type UserRow = Row & {
   id: number;
@@ -134,6 +135,7 @@ async function login(request: Request, env: Env): Promise<Response> {
   if (!user || !(await verifyPassword(payload.password, user.password_hash))) {
     throw new HttpError(401, "邮箱或密码错误");
   }
+  await scheduleUserReports(env, user.id);
   const token = await signSession(user.id, env.SECRET_KEY);
   return json(userResponse(user), {
     headers: { "set-cookie": sessionCookie(token, sessionMaxAgeSeconds) }
@@ -163,6 +165,7 @@ async function register(request: Request, env: Env): Promise<Response> {
   if (!user) {
     throw new HttpError(500, "服务器内部错误");
   }
+  await scheduleUserReports(env, user.id);
   const token = await signSession(user.id, env.SECRET_KEY);
   return json(userResponse(user), {
     headers: { "set-cookie": sessionCookie(token, sessionMaxAgeSeconds) }

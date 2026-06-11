@@ -1773,7 +1773,7 @@ function SettingsView({
   }, [settings]);
 
   useEffect(() => {
-    if (!isAdmin || !settingsLoaded.current) return;
+    if (!settingsLoaded.current) return;
     if (skipSettingsAutoSave.current) {
       skipSettingsAutoSave.current = false;
       return;
@@ -1812,7 +1812,7 @@ function SettingsView({
     return () => {
       if (settingsAutoSave.current) window.clearTimeout(settingsAutoSave.current);
     };
-  }, [dailyTime, weeklyTime, weeklyDay, wordCloudEnabled, isAdmin, settings, onSaved]);
+  }, [dailyTime, weeklyTime, weeklyDay, wordCloudEnabled, settings, onSaved]);
 
   return (
     <section className="settings-panel">
@@ -1826,11 +1826,11 @@ function SettingsView({
           <div className="settings-grid">
             <label className="settings-field">
               <span>日报</span>
-              <input type="time" value={dailyTime} onChange={(event) => setDailyTime(event.target.value)} disabled={!isAdmin} />
+              <input type="time" value={dailyTime} onChange={(event) => setDailyTime(event.target.value)} />
             </label>
             <label className="settings-field">
               <span>周报日期</span>
-              <select value={weeklyDay} onChange={(event) => setWeeklyDay(event.target.value)} disabled={!isAdmin}>
+              <select value={weeklyDay} onChange={(event) => setWeeklyDay(event.target.value)}>
                 {weeklyReportDays.map((day) => (
                   <option key={day.value} value={day.value}>
                     {day.label}
@@ -1840,7 +1840,7 @@ function SettingsView({
             </label>
             <label className="settings-field">
               <span>周报时间</span>
-              <input type="time" value={weeklyTime} onChange={(event) => setWeeklyTime(event.target.value)} disabled={!isAdmin} />
+              <input type="time" value={weeklyTime} onChange={(event) => setWeeklyTime(event.target.value)} />
             </label>
           </div>
         </section>
@@ -1864,7 +1864,7 @@ function SettingsView({
           </div>
         </section>
 
-        {!isAdmin && <div className="form-error">当前账号只能查看设置，保存需要管理员权限。</div>}
+        {!isAdmin && <div className="form-success">报告生成时间仅作用于当前账号，词云开关需要管理员权限。</div>}
         {(error || saved || busy) && <div className={error ? "form-error" : "form-success"}>{error || saved || "正在保存..."}</div>}
       </div>
     </section>

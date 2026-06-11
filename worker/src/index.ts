@@ -9,6 +9,8 @@ import { reportRoutes } from "./reports/routes";
 import { settingsRoutes } from "./settings/routes";
 import { translationRoutes } from "./translation/routes";
 
+export { ReportScheduler } from "./report-scheduler";
+
 async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/health") {
