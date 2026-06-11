@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = true
 routes = [
-  { pattern = "aphrodite.cc.cd", custom_domain = true, enabled = true, previews_enabled = false }
+  { pattern = "nektos.cn", custom_domain = true, enabled = true, previews_enabled = false }
 ]
 
 [assets]
