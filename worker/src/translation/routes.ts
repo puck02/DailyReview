@@ -15,6 +15,7 @@ import {
   detectSourceKind,
   extractPhoneticAndMarkdown,
   fallbackTranslation,
+  isFallbackTranslationMarkdown,
   isThinDictionaryMarkdown,
   labelsForAutoWordDetails,
   normalizeWord,
@@ -92,7 +93,11 @@ async function findCachedWordDetail(env: Env, sourceText: string): Promise<Dicti
   const entry = await first<DictionaryEntryRow>(
     env.DB.prepare("SELECT * FROM translation_dictionary_entries WHERE source_text = ?").bind(normalized)
   );
-  if (!entry?.result_markdown.trim() || isThinDictionaryMarkdown(entry.result_markdown)) {
+  if (
+    !entry?.result_markdown.trim() ||
+    isThinDictionaryMarkdown(entry.result_markdown) ||
+    isFallbackTranslationMarkdown(entry.result_markdown)
+  ) {
     return null;
   }
   return entry;
@@ -101,7 +106,7 @@ async function findCachedWordDetail(env: Env, sourceText: string): Promise<Dicti
 async function saveCachedWordDetail(env: Env, sourceText: string, phonetic: string | null, markdown: string): Promise<void> {
   const normalized = normalizeWord(sourceText);
   const resultMarkdown = markdown.trim();
-  if (!normalized || !resultMarkdown || isThinDictionaryMarkdown(resultMarkdown)) {
+  if (!normalized || !resultMarkdown || isThinDictionaryMarkdown(resultMarkdown) || isFallbackTranslationMarkdown(resultMarkdown)) {
     return;
   }
   await env.DB.prepare(

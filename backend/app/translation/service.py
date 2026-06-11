@@ -89,6 +89,10 @@ def fallback_translation(text: str, source_kind: str) -> str:
 - AI 配置不可用时暂时返回原文；配置完成后会生成中文译文和句式拆解。"""
 
 
+def is_fallback_translation_markdown(markdown: str) -> bool:
+    return "AI 配置不可用时暂时返回" in markdown
+
+
 def extract_phonetic_and_markdown(markdown: str) -> tuple[str | None, str]:
     match = re.search(r"(?im)^\s*(?:音标|IPA|Phonetic)\s*[:：]\s*(.+?)\s*$", markdown)
     if match is None:
@@ -108,7 +112,12 @@ def get_cached_word_detail(db: Session, source_text: str) -> TranslationDictiona
     if not normalized:
         return None
     entry = db.scalar(select(TranslationDictionaryEntry).where(TranslationDictionaryEntry.source_text == normalized))
-    if entry is None or not entry.result_markdown.strip() or is_thin_dictionary_markdown(entry.result_markdown):
+    if (
+        entry is None
+        or not entry.result_markdown.strip()
+        or is_thin_dictionary_markdown(entry.result_markdown)
+        or is_fallback_translation_markdown(entry.result_markdown)
+    ):
         return None
     return entry
 
@@ -132,7 +141,12 @@ def find_existing_ready_word_detail(db: Session, source_text: str) -> Translatio
         )
         .order_by(TranslationEntry.created_at.desc(), TranslationEntry.id.desc())
     )
-    if existing is None or not existing.result_markdown.strip() or is_thin_dictionary_markdown(existing.result_markdown):
+    if (
+        existing is None
+        or not existing.result_markdown.strip()
+        or is_thin_dictionary_markdown(existing.result_markdown)
+        or is_fallback_translation_markdown(existing.result_markdown)
+    ):
         return None
     return save_cached_word_detail(db, normalized, existing.phonetic, existing.result_markdown)
 
@@ -145,7 +159,7 @@ def save_cached_word_detail(
 ) -> TranslationDictionaryEntry | None:
     normalized = source_text.strip().lower()
     markdown = result_markdown.strip()
-    if not normalized or not markdown or is_thin_dictionary_markdown(markdown):
+    if not normalized or not markdown or is_thin_dictionary_markdown(markdown) or is_fallback_translation_markdown(markdown):
         return None
     entry = db.scalar(select(TranslationDictionaryEntry).where(TranslationDictionaryEntry.source_text == normalized))
     if entry is None:

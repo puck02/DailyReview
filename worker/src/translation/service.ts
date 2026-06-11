@@ -73,6 +73,10 @@ ${text}
 - AI 配置不可用时暂时返回原文；配置完成后会生成中文译文和句式拆解。`;
 }
 
+export function isFallbackTranslationMarkdown(markdown: string): boolean {
+  return markdown.includes("AI 配置不可用时暂时返回");
+}
+
 export function extractPhoneticAndMarkdown(markdown: string): { phonetic: string | null; markdown: string } {
   const match = markdown.match(/^\s*(?:音标|IPA|Phonetic)\s*[:：]\s*(.+?)\s*$/im);
   if (!match || match.index === undefined) {

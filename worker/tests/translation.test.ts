@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cookieFrom, createTestEnv, fetchWorker } from "./helpers";
 
-async function loginUser(): Promise<{ env: ReturnType<typeof createTestEnv>; cookie: string }> {
-  const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+async function loginUser(
+  envOverrides: Parameters<typeof createTestEnv>[0] = {}
+): Promise<{ env: ReturnType<typeof createTestEnv>; cookie: string }> {
+  const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "", ...envOverrides });
   await fetchWorker(env, "/api/health");
   const adminLogin = await fetchWorker(env, "/api/auth/login", {
     method: "POST",
@@ -24,6 +26,10 @@ async function loginUser(): Promise<{ env: ReturnType<typeof createTestEnv>; coo
 }
 
 describe("translation routes", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("translates Chinese, words, and English sentences with local fallback", async () => {
     const { env, cookie } = await loginUser();
 
@@ -131,5 +137,81 @@ describe("translation routes", () => {
     expect(entries.status).toBe(200);
     const body = (await entries.json()) as unknown[];
     expect(body).toHaveLength(30);
+  });
+
+  it("does not cache AI fallback word translations in the global dictionary", async () => {
+    const { env, cookie } = await loginUser();
+
+    const response = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ text: "Derivative" })
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      source_text: "derivative",
+      result_markdown: expect.stringContaining("AI 配置不可用")
+    });
+    const dictionary = await env.DB.prepare(
+      "SELECT source_text FROM translation_dictionary_entries WHERE source_text = ?"
+    )
+      .bind("derivative")
+      .all();
+    expect(dictionary.results).toEqual([]);
+  });
+
+  it("ignores polluted fallback dictionary cache when AI is available", async () => {
+    const { env, cookie } = await loginUser({
+      AI_BASE_URL: "https://ai.example/v1",
+      AI_API_KEY: "test-key"
+    });
+    await env.DB.prepare(
+      `INSERT INTO translation_dictionary_entries (source_text, phonetic, result_markdown, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+      .bind(
+        "derivative",
+        null,
+        "### 释义\nbad-cache\n\n### 重点\n- AI 配置不可用时暂时返回原词；配置完成后会补充词根词缀、易混词、用法和例句。",
+        new Date().toISOString(),
+        new Date().toISOString()
+      )
+      .run();
+    const aiFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "音标：/dɪˈrɪvətɪv/\n### 释义\n衍生物；派生词\n\n### 重点\n- derive 的名词形式。"
+              }
+            }
+          ]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", aiFetch);
+
+    const response = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ text: "Derivative" })
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result_markdown: string; phonetic: string | null };
+    expect(aiFetch).toHaveBeenCalledOnce();
+    expect(body.phonetic).toBe("/dɪˈrɪvətɪv/");
+    expect(body.result_markdown).toContain("衍生物");
+    expect(body.result_markdown).not.toContain("bad-cache");
+    const cached = await env.DB.prepare(
+      "SELECT result_markdown FROM translation_dictionary_entries WHERE source_text = ?"
+    )
+      .bind("derivative")
+      .first<{ result_markdown: string }>();
+    expect(cached?.result_markdown).toContain("衍生物");
+    expect(cached?.result_markdown).not.toContain("bad-cache");
   });
 });

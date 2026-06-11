@@ -164,6 +164,58 @@ def test_translation_falls_back_when_ai_service_fails(tmp_path: Path, monkeypatc
     app.dependency_overrides.clear()
 
 
+def test_word_translation_does_not_cache_ai_fallback(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        raise RuntimeError("upstream failed")
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation", json={"text": "zzzzword"})
+
+    assert response.status_code == 200
+    assert "AI 配置不可用" in response.json()["result_markdown"]
+    with session_factory() as db:
+        dictionary_entries = db.scalars(select(TranslationDictionaryEntry)).all()
+    assert dictionary_entries == []
+    app.dependency_overrides.clear()
+
+
+def test_word_translation_ignores_polluted_fallback_cache(tmp_path: Path, monkeypatch):
+    client, session_factory = make_client(tmp_path)
+    login_admin(client)
+    called = False
+    with session_factory() as db:
+        db.add(
+            TranslationDictionaryEntry(
+                source_text="derivative",
+                result_markdown=(
+                    "### 释义\nbad-cache\n\n### 重点\n"
+                    "- AI 配置不可用时暂时返回原词；配置完成后会补充词根词缀、易混词、用法和例句。"
+                ),
+            )
+        )
+        db.commit()
+
+    async def fake_complete_chat(messages, model, fallback, ai_config):
+        nonlocal called
+        called = True
+        return "音标：/dɪˈrɪvətɪv/\n\n### 释义\n衍生物；派生词。"
+
+    monkeypatch.setattr(translation_routes, "complete_chat", fake_complete_chat)
+
+    response = client.post("/api/translation", json={"text": "derivative"})
+
+    assert response.status_code == 200
+    assert called is True
+    assert response.json()["phonetic"] == "/dɪˈrɪvətɪv/"
+    assert "衍生物" in response.json()["result_markdown"]
+    assert "bad-cache" not in response.json()["result_markdown"]
+    app.dependency_overrides.clear()
+
+
 def test_netem_dictionary_word_uses_ai_prompt_instead_of_thin_dictionary_markdown(tmp_path: Path, monkeypatch):
     client, session_factory = make_client(tmp_path)
     login_admin(client)
