@@ -936,11 +936,15 @@ textarea:focus {
   right: 8px;
 }
 
-.copyable-markdown-block:hover .copy-block-button,
+.copyable-markdown-block:not(.copyable-code-block) > .copy-block-button {
+  display: none;
+}
+
+.copyable-code-block:hover > .copy-block-button,
 .message.assistant .message-content:hover .message-copy-button,
-.copy-block-button:focus-visible,
+.copyable-code-block > .copy-block-button:focus-visible,
 .message-copy-button:focus-visible,
-.copy-block-button.copied,
+.copyable-code-block > .copy-block-button.copied,
 .message-copy-button.copied {
   opacity: 1;
 }

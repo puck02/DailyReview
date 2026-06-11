@@ -179,6 +179,10 @@ test("assistant messages have one reply copy control while code blocks keep thei
   assert.match(styles, /\.copyable-markdown-block\s*{[^}]*position:\s*relative;/s);
   assert.match(styles, /\.copy-block-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*4px;[^}]*right:\s*4px;/s);
   assert.match(styles, /\.message-copy-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*8px;[^}]*right:\s*8px;/s);
+  assert.match(styles, /\.copyable-markdown-block:not\(\.copyable-code-block\) > \.copy-block-button\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /\.copyable-code-block:hover > \.copy-block-button/s);
+  assert.match(styles, /\.copyable-code-block > \.copy-block-button:focus-visible/s);
+  assert.doesNotMatch(styles, /\.copyable-markdown-block:hover \.copy-block-button/);
   assert.match(styles, /\.message\.assistant \.message-content:hover \.message-copy-button/s);
   assert.match(styles, /\.copyable-markdown-block \.markdown-code\s*{[^}]*padding-right:\s*42px;/s);
 });
