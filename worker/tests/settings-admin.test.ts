@@ -28,6 +28,31 @@ describe("settings and admin routes", () => {
     });
   });
 
+  it("loads app settings with one settings table query", async () => {
+    const env = createTestEnv();
+    const cookie = await adminCookie(env);
+    const originalDb = env.DB;
+    let appSettingsQueries = 0;
+    env.DB = new Proxy(originalDb, {
+      get(target, prop, receiver) {
+        if (prop !== "prepare") {
+          return Reflect.get(target, prop, receiver);
+        }
+        return (sql: string) => {
+          if (/FROM app_settings/i.test(sql)) {
+            appSettingsQueries += 1;
+          }
+          return target.prepare(sql);
+        };
+      }
+    }) as D1Database;
+
+    const response = await fetchWorker(env, "/api/settings", { headers: { cookie } });
+
+    expect(response.status).toBe(200);
+    expect(appSettingsQueries).toBeLessThanOrEqual(1);
+  });
+
   it("rejects invalid report times", async () => {
     const env = createTestEnv();
     const cookie = await adminCookie(env);

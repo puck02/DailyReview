@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const app = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const apiSource = fs.readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+const markdownRenderer = fs.readFileSync(new URL("../src/MarkdownRenderer.tsx", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const packageJson = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
@@ -120,8 +121,8 @@ test("sent messages render image thumbnails and markdown content", () => {
   assert.ok(app.includes("message-attachments"));
   assert.ok(app.includes("message-attachment-thumb"));
   assert.ok(app.includes("attachment.url"));
-  assert.ok(app.includes("markdown-code"));
-  assert.ok(app.includes("markdown-list"));
+  assert.ok(markdownRenderer.includes("markdown-code"));
+  assert.ok(markdownRenderer.includes("markdown-list"));
   assert.match(styles, /\.message-attachments\s*{/);
   assert.match(styles, /\.message-attachment-thumb\s*{/);
   assert.match(styles, /\.message-markdown\s*{/);
@@ -133,15 +134,15 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.ok(packageJson.includes("remark-math"));
   assert.ok(packageJson.includes("rehype-katex"));
   assert.ok(packageJson.includes("katex"));
-  assert.ok(app.includes("ReactMarkdown"));
-  assert.ok(app.includes("remarkGfm"));
-  assert.ok(app.includes("remarkMath"));
-  assert.ok(app.includes("rehypeKatex"));
-  assert.ok(app.includes("normalizeMarkdownMath"));
-  assert.ok(app.includes("key={normalizedMarkdown}"));
+  assert.ok(markdownRenderer.includes("ReactMarkdown"));
+  assert.ok(markdownRenderer.includes("remarkGfm"));
+  assert.ok(markdownRenderer.includes("remarkMath"));
+  assert.ok(markdownRenderer.includes("rehypeKatex"));
+  assert.ok(markdownRenderer.includes("normalizeMarkdownMath"));
+  assert.ok(markdownRenderer.includes("key={normalizedMarkdown}"));
   assert.ok(app.includes('import "katex/dist/katex.min.css";'));
-  assert.ok(app.includes("markdown-math-block"));
-  assert.ok(app.includes("markdown-math-inline"));
+  assert.ok(markdownRenderer.includes("markdown-math-block"));
+  assert.ok(markdownRenderer.includes("markdown-math-inline"));
   assert.match(styles, /\.message-markdown \.katex-display\s*{/);
   assert.match(styles, /\.message-markdown \.katex\s*{/);
   assert.match(styles, /\.markdown-code\s*{/);
@@ -150,10 +151,10 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
 
 test("message code blocks use syntax highlighting in light and dark themes", () => {
   assert.ok(packageJson.includes("rehype-highlight"));
-  assert.ok(app.includes("import rehypeHighlight from \"rehype-highlight\";"));
-  assert.ok(app.includes("rehypeHighlight"));
-  assert.ok(app.includes("ignoreMissing: true"));
-  assert.ok(app.includes("detect: true"));
+  assert.ok(markdownRenderer.includes("import rehypeHighlight from \"rehype-highlight\";"));
+  assert.ok(markdownRenderer.includes("rehypeHighlight"));
+  assert.ok(markdownRenderer.includes("ignoreMissing: true"));
+  assert.ok(markdownRenderer.includes("detect: true"));
   assert.match(styles, /--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
   assert.match(styles, /\.markdown-code \.hljs-keyword[\s\S]*color:\s*var\(--syntax-keyword\);/);
@@ -162,7 +163,7 @@ test("message code blocks use syntax highlighting in light and dark themes", () 
 });
 
 test("assistant messages have one reply copy control while code blocks keep their own copy control", () => {
-  assert.ok(app.includes("CopyableMarkdownBlock"));
+  assert.ok(markdownRenderer.includes("CopyableMarkdownBlock"));
   assert.ok(app.includes("MessageCopyButton"));
   assert.ok(app.includes("copyMarkdownText"));
   assert.ok(app.includes("navigator.clipboard.writeText"));
@@ -170,12 +171,12 @@ test("assistant messages have one reply copy control while code blocks keep thei
   assert.ok(app.includes('message-copy-button'));
   assert.ok(app.includes('text={message.content}'));
   assert.ok(app.includes('aria-label={copied ? "已复制整条回复" : "复制整条回复"}'));
-  assert.ok(app.includes('aria-label={copied ? "已复制" : "复制此块"}'));
+  assert.ok(markdownRenderer.includes('aria-label={copied ? "已复制" : "复制此块"}'));
   assert.ok(app.includes("Copy size={14}"));
   assert.ok(app.includes("Check size={14}"));
-  assert.doesNotMatch(app, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{heading\}<\/CopyableMarkdownBlock>;/);
-  assert.doesNotMatch(app, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{paragraph\}<\/CopyableMarkdownBlock>;/);
-  assert.doesNotMatch(app, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{list\}<\/CopyableMarkdownBlock>;/);
+  assert.doesNotMatch(markdownRenderer, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{heading\}<\/CopyableMarkdownBlock>;/);
+  assert.doesNotMatch(markdownRenderer, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{paragraph\}<\/CopyableMarkdownBlock>;/);
+  assert.doesNotMatch(markdownRenderer, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{list\}<\/CopyableMarkdownBlock>;/);
   assert.match(styles, /\.copyable-markdown-block\s*{[^}]*position:\s*relative;/s);
   assert.match(styles, /\.copy-block-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*4px;[^}]*right:\s*4px;/s);
   assert.match(styles, /\.message-copy-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*8px;[^}]*right:\s*8px;/s);
@@ -525,6 +526,21 @@ test("reports can be exported as downloaded PDF files without opening print", ()
   assert.match(styles, /@media print\s*{[\s\S]*\.report-content\s*{[\s\S]*overflow:\s*visible;/);
   assert.match(styles, /@media print\s*{[\s\S]*\.markdown-preview\s*{[\s\S]*max-width:\s*none;[\s\S]*box-shadow:\s*none;/);
   assert.match(styles, /@media print\s*{[\s\S]*\.markdown-preview h2,[\s\S]*\.markdown-preview h3,[\s\S]*\.markdown-preview table,[\s\S]*\.markdown-preview pre,[\s\S]*\.markdown-preview blockquote\s*{[\s\S]*break-inside:\s*avoid;/);
+});
+
+test("markdown renderer dependencies are code split from the main app", () => {
+  assert.doesNotMatch(app, /from "react-markdown"/);
+  assert.doesNotMatch(app, /from "rehype-highlight"/);
+  assert.doesNotMatch(app, /from "rehype-katex"/);
+  assert.doesNotMatch(app, /from "remark-gfm"/);
+  assert.doesNotMatch(app, /from "remark-math"/);
+  assert.match(app, /lazy\(\(\) => import\("\.\/MarkdownRenderer"\)\)/);
+  assert.match(markdownRenderer, /from "react-markdown"/);
+});
+
+test("reports list can render before the selected report markdown finishes loading", () => {
+  assert.match(app, /setReportsLoading\(false\);[\s\S]*const content = await api\.report\(reports\[0\]\.id\)/);
+  assert.ok(app.includes('reportContentLoading ? "正在加载报告内容..."'));
 });
 
 test("Workers PDF downgrade displays the API error before any save target is created", () => {

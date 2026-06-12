@@ -4,18 +4,13 @@ import {
   FormEvent,
   KeyboardEvent,
   MouseEvent as ReactMouseEvent,
-  ReactNode,
-  isValidElement,
+  Suspense,
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState
 } from "react";
-import ReactMarkdown, { Components } from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import {
   CalendarDays,
   Check,
@@ -55,7 +50,6 @@ import {
 } from "./api";
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
-import { normalizeMarkdownMath } from "./markdown";
 import appIconUrl from "./assets/app-icon.svg?url";
 import "katex/dist/katex.min.css";
 
@@ -102,6 +96,7 @@ const complexModel = "gpt-5.5";
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const wordCloudLaneCount = 4;
+const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
 const openingLines = [
   "准备好了，随时开始",
   "有什么想学的，直接开始",
@@ -139,24 +134,6 @@ function monthValue() {
   return new Date().toISOString().slice(0, 7);
 }
 
-function safeMarkdownUrl(href: string) {
-  try {
-    const url = new URL(href, window.location.origin);
-    if (["http:", "https:", "mailto:"].includes(url.protocol)) return href;
-  } catch {
-    return "";
-  }
-  return "";
-}
-
-function markdownTextFromNode(node: ReactNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(markdownTextFromNode).join("");
-  if (isValidElement<{ children?: ReactNode }>(node)) return markdownTextFromNode(node.props.children);
-  return "";
-}
-
 async function copyMarkdownText(text: string) {
   const value = text.trim();
   if (!value) return false;
@@ -175,39 +152,6 @@ async function copyMarkdownText(text: string) {
   const copied = document.execCommand("copy");
   textarea.remove();
   return copied;
-}
-
-function CopyableMarkdownBlock({
-  children,
-  text,
-  className = ""
-}: {
-  children: ReactNode;
-  text: string;
-  className?: string;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  async function handleCopy() {
-    if (!(await copyMarkdownText(text))) return;
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  }
-
-  return (
-    <div className={`copyable-markdown-block ${className}`}>
-      {children}
-      <button
-        type="button"
-        className={copied ? "copy-block-button copied" : "copy-block-button"}
-        onClick={handleCopy}
-        aria-label={copied ? "已复制" : "复制此块"}
-        title={copied ? "已复制" : "复制"}
-      >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
-      </button>
-    </div>
-  );
 }
 
 function MessageCopyButton({ text }: { text: string }) {
@@ -232,110 +176,20 @@ function MessageCopyButton({ text }: { text: string }) {
   );
 }
 
-function copyableComponents(copyable: boolean): Components {
-  return {
-    a({ href = "", children }) {
-      const safeHref = safeMarkdownUrl(href);
-      if (!safeHref) return <>{children}</>;
-      return (
-        <a href={safeHref} rel="noreferrer" target="_blank">
-          {children}
-        </a>
-      );
-    },
-    h1({ children }) {
-      return <h1>{children}</h1>;
-    },
-    h2({ children }) {
-      return <h2>{children}</h2>;
-    },
-    h3({ children }) {
-      return <h3>{children}</h3>;
-    },
-    p({ children }) {
-      return <p>{children}</p>;
-    },
-    code({ className, children, node: _node, ...props }) {
-      const isMath = className?.includes("language-math");
-      const isInlineMath = className?.includes("math-inline");
-      return (
-        <code
-          className={
-            isMath
-              ? isInlineMath
-                ? "markdown-math-inline"
-                : "markdown-math-block"
-              : className
-                ? `markdown-inline-code ${className}`
-                : "markdown-inline-code"
-          }
-          {...props}
-        >
-          {children}
-        </code>
-      );
-    },
-    pre({ children }) {
-      const code = <pre className="markdown-code">{children}</pre>;
-      if (!copyable) return code;
-      return (
-        <CopyableMarkdownBlock className="copyable-code-block" text={markdownTextFromNode(children)}>
-          {code}
-        </CopyableMarkdownBlock>
-      );
-    },
-    table({ children }) {
-      return (
-        <div className="markdown-table-wrap">
-          <table className="markdown-table">{children}</table>
-        </div>
-      );
-    },
-    ul({ children }) {
-      return <ul className="markdown-list">{children}</ul>;
-    },
-    ol({ children }) {
-      return <ol className="markdown-list">{children}</ol>;
-    },
-    blockquote({ children }) {
-      return <blockquote>{children}</blockquote>;
-    }
-  };
-}
-
-function MarkdownRenderer({
-  markdown,
-  className,
-  copyable = false
-}: {
-  markdown: string;
-  className: string;
-  copyable?: boolean;
-}) {
-  const normalizedMarkdown = normalizeMarkdownMath(markdown);
-  const components = useMemo(() => copyableComponents(copyable), [copyable]);
+function MarkdownPreview({ markdown }: { markdown: string }) {
   return (
-    <div className={className}>
-      <ReactMarkdown
-        key={normalizedMarkdown}
-        components={components}
-        rehypePlugins={[rehypeKatex, [rehypeHighlight, { ignoreMissing: true, detect: true }]]}
-        remarkPlugins={[remarkGfm, remarkMath]}
-        skipHtml
-        urlTransform={(url) => safeMarkdownUrl(url)}
-      >
-        {normalizedMarkdown}
-      </ReactMarkdown>
-    </div>
+    <Suspense fallback={<div className="empty-state">正在加载报告内容...</div>}>
+      <MarkdownRenderer markdown={markdown} className="markdown-preview" />
+    </Suspense>
   );
 }
 
-function MarkdownPreview({ markdown }: { markdown: string }) {
-  return <MarkdownRenderer markdown={markdown} className="markdown-preview" />;
-}
-
 function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
-  return <MarkdownRenderer markdown={markdown} className="message-markdown" copyable={copyable} />;
+  return (
+    <Suspense fallback={<div className="message-markdown">{markdown}</div>}>
+      <MarkdownRenderer markdown={markdown} className="message-markdown" copyable={copyable} />
+    </Suspense>
+  );
 }
 
 async function pickPdfSaveTarget(filename: string): Promise<PdfSaveTarget> {
@@ -1404,8 +1258,10 @@ function ReportsView() {
         setItems(reports);
         if (!reports[0]) {
           setActive(null);
+          setReportsLoading(false);
           return;
         }
+        setReportsLoading(false);
         const content = await api.report(reports[0].id);
         if (listRequestId !== reportListRequestRef.current || contentRequestId !== reportContentRequestRef.current) return;
         setActive(content);
@@ -1417,7 +1273,6 @@ function ReportsView() {
         setReportError(err instanceof Error ? err.message : "报告加载失败");
       })
       .finally(() => {
-        if (listRequestId === reportListRequestRef.current) setReportsLoading(false);
         if (contentRequestId === reportContentRequestRef.current) setReportContentLoading(false);
       });
   }, [month, type]);
@@ -1507,6 +1362,8 @@ function ReportsView() {
             {exportError && <div className="form-error report-export-error">{exportError}</div>}
             <MarkdownPreview markdown={active.markdown} />
           </>
+        ) : reportContentLoading ? (
+          <div className="empty-state">{reportContentLoading ? "正在加载报告内容..." : ""}</div>
         ) : (
           <div className="empty-state">{reportsLoading ? "正在加载报告..." : "这个月份还没有报告。"}</div>
         )}

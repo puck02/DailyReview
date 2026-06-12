@@ -1,4 +1,4 @@
-import { first, nowIso, type Row } from "../db/d1";
+import { all, first, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError } from "../http";
 
@@ -53,6 +53,17 @@ async function getSetting(env: Env, key: string): Promise<string> {
   return row?.value || "";
 }
 
+async function getSettingsMap(env: Env, keys: string[]): Promise<Map<string, string>> {
+  if (!keys.length) {
+    return new Map();
+  }
+  const placeholders = keys.map(() => "?").join(", ");
+  const rows = await all<Row & { key: string; value: string }>(
+    env.DB.prepare(`SELECT key, value FROM app_settings WHERE key IN (${placeholders})`).bind(...keys)
+  );
+  return new Map(rows.map((row) => [row.key, row.value]));
+}
+
 async function setSetting(env: Env, key: string, value: string): Promise<void> {
   await env.DB.prepare(
     "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
@@ -95,8 +106,25 @@ export async function setGlobalWordCloudEnabled(env: Env, enabled: boolean): Pro
 }
 
 export async function getAppSettings(env: Env, userId: number): Promise<AppSettings> {
+  const userDailyKey = userSettingKey(userId, DAILY_REPORT_TIME_KEY);
+  const userWeeklyTimeKey = userSettingKey(userId, WEEKLY_REPORT_TIME_KEY);
+  const userWeeklyDayKey = userSettingKey(userId, WEEKLY_REPORT_DAY_KEY);
+  const settings = await getSettingsMap(env, [
+    DAILY_REPORT_TIME_KEY,
+    WEEKLY_REPORT_TIME_KEY,
+    WEEKLY_REPORT_DAY_KEY,
+    WORD_CLOUD_ENABLED_KEY,
+    userDailyKey,
+    userWeeklyTimeKey,
+    userWeeklyDayKey
+  ]);
+  const defaultDailyTime = validateReportTime(settings.get(DAILY_REPORT_TIME_KEY) || DEFAULT_REPORT_TIME);
+  const defaultWeeklyTime = validateReportTime(settings.get(WEEKLY_REPORT_TIME_KEY) || DEFAULT_REPORT_TIME);
+  const defaultWeeklyDay = validateWeeklyReportDay(settings.get(WEEKLY_REPORT_DAY_KEY) || DEFAULT_WEEKLY_REPORT_DAY);
   return {
-    ...(await getUserReportSettings(env, userId)),
-    word_cloud_enabled: settingBool(await getSetting(env, WORD_CLOUD_ENABLED_KEY), true)
+    daily_report_time: validateReportTime(settings.get(userDailyKey) || defaultDailyTime),
+    weekly_report_time: validateReportTime(settings.get(userWeeklyTimeKey) || defaultWeeklyTime),
+    weekly_report_day: validateWeeklyReportDay(settings.get(userWeeklyDayKey) || defaultWeeklyDay),
+    word_cloud_enabled: settingBool(settings.get(WORD_CLOUD_ENABLED_KEY) || "", true)
   };
 }
