@@ -78,6 +78,27 @@ describe("reports, cron jobs, and PDF downgrade", () => {
     await expect(list.json()).resolves.toMatchObject([{ period: "2026-06-12" }]);
   });
 
+  it("backfills yesterday's daily report after midnight", async () => {
+    const { env, cookie, userId } = await loginUser();
+    await fetchWorker(env, "/api/settings", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify({
+        daily_report_time: "22:22",
+        weekly_report_time: "22:22",
+        weekly_report_day: "sun",
+        word_cloud_enabled: true
+      })
+    });
+    await createMessage(env, userId, "昨天复习了考研英语阅读理解和定位题", "2026-06-12T10:00:00.000Z");
+
+    await runScheduledJobs(env, new Date("2026-06-12T16:05:00.000Z"));
+
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject([{ period: "2026-06-12" }]);
+  });
+
   it("generates a daily report into R2 and lists its metadata", async () => {
     const { env, cookie, userId } = await loginUser();
     await createMessage(env, userId, "今天复习了极限和 derivative 的定义", "2026-06-09T10:00:00.000Z");

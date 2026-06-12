@@ -93,6 +93,12 @@ function localToday(date: Date, timeZone: string): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+function addDays(day: string, days: number): string {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function localTime(date: Date, timeZone: string): string {
   const parts = localDateTimeParts(date, timeZone);
   return `${parts.hour}:${parts.minute}`;
@@ -109,13 +115,16 @@ async function reportExists(env: Env, userId: number, reportType: string, period
 export async function backfillMissedDailyReports(env: Env, now: Date, limit = 100): Promise<void> {
   const timeZone = env.APP_TIMEZONE || "UTC";
   const today = localToday(now, timeZone);
+  const days = [addDays(today, -1), today];
   const currentTime = localTime(now, timeZone);
   for (const user of await allUsers(env, limit)) {
     const settings = await getUserReportSettings(env, user.id);
-    if (settings.daily_report_time > currentTime || (await reportExists(env, user.id, "daily", today))) {
-      continue;
+    for (const day of days) {
+      if ((day === today && settings.daily_report_time > currentTime) || (await reportExists(env, user.id, "daily", day))) {
+        continue;
+      }
+      await generateDailyReport(env, user.id, day);
     }
-    await generateDailyReport(env, user.id, today);
   }
 }
 
