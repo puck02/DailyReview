@@ -1,4 +1,4 @@
-import { all, type Row } from "../db/d1";
+import { all, first, type Row } from "../db/d1";
 import type { Env } from "../env";
 import {
   allUsers,
@@ -7,6 +7,7 @@ import {
   generateWeeklyReport
 } from "../reports/service";
 import { ensureReportSchedulers } from "../report-scheduler";
+import { getUserReportSettings } from "../settings/report-settings";
 
 type AttachmentCleanupRow = Row & {
   id: number;
@@ -73,7 +74,53 @@ export async function processQueuedWordDetails(env: Env, limit = 10): Promise<vo
     .run();
 }
 
+function localDateTimeParts(date: Date, timeZone: string): Record<string, string> {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+function localToday(date: Date, timeZone: string): string {
+  const parts = localDateTimeParts(date, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function localTime(date: Date, timeZone: string): string {
+  const parts = localDateTimeParts(date, timeZone);
+  return `${parts.hour}:${parts.minute}`;
+}
+
+async function reportExists(env: Env, userId: number, reportType: string, period: string): Promise<boolean> {
+  const row = await first<Row & { id: number }>(
+    env.DB.prepare("SELECT id FROM reports WHERE user_id = ? AND report_type = ? AND period = ?")
+      .bind(userId, reportType, period)
+  );
+  return Boolean(row);
+}
+
+export async function backfillMissedDailyReports(env: Env, now: Date, limit = 100): Promise<void> {
+  const timeZone = env.APP_TIMEZONE || "UTC";
+  const today = localToday(now, timeZone);
+  const currentTime = localTime(now, timeZone);
+  for (const user of await allUsers(env, limit)) {
+    const settings = await getUserReportSettings(env, user.id);
+    if (settings.daily_report_time > currentTime || (await reportExists(env, user.id, "daily", today))) {
+      continue;
+    }
+    await generateDailyReport(env, user.id, today);
+  }
+}
+
 export async function runScheduledJobs(env: Env, now: Date): Promise<void> {
+  await backfillMissedDailyReports(env, now, 100);
   await ensureReportSchedulers(env, 100);
   await processQueuedWordDetails(env, 10);
   await cleanupExpiredData(env, now);
