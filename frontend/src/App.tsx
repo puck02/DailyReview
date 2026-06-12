@@ -97,6 +97,9 @@ const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const wordCloudLaneCount = 4;
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
+function preloadMarkdownRenderer() {
+  void import("./MarkdownRenderer");
+}
 const openingLines = [
   "准备好了，随时开始",
   "有什么想学的，直接开始",
@@ -609,10 +612,12 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
 
 function ChatView({
   currentTheme,
-  onToggleTheme
+  onToggleTheme,
+  isActive
 }: {
   currentTheme: ThemePreference;
   onToggleTheme: () => void;
+  isActive: boolean;
 }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [active, setActive] = useState<ChatSession | null>(null);
@@ -743,12 +748,21 @@ function ChatView({
   }, [messages, messagesLoading]);
 
   useEffect(() => {
+    if (!isActive || !messages.length) return;
+    const frame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isActive, messages.length]);
+
+  useEffect(() => {
     return () => {
       attachmentsRef.current.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
     };
   }, []);
 
   useEffect(() => {
+    if (!isActive) return;
     function handleDocumentPaste(event: globalThis.ClipboardEvent) {
       const file = firstClipboardImage(event.clipboardData);
       if (!file) return;
@@ -759,7 +773,7 @@ function ChatView({
 
     document.addEventListener("paste", handleDocumentPaste);
     return () => document.removeEventListener("paste", handleDocumentPaste);
-  }, []);
+  }, [isActive]);
 
   async function newSession() {
     setDraftSessionActive(true);
@@ -1244,6 +1258,15 @@ function ReportsView() {
   const [reportError, setReportError] = useState("");
   const reportListRequestRef = useRef(0);
   const reportContentRequestRef = useRef(0);
+  const reportContentCacheRef = useRef<Map<number, ReportContent>>(new Map());
+
+  async function loadReportContent(item: ReportItem) {
+    const cached = reportContentCacheRef.current.get(item.id);
+    if (cached) return cached;
+    const content = await api.report(item.id);
+    reportContentCacheRef.current.set(content.id, content);
+    return content;
+  }
 
   useEffect(() => {
     const listRequestId = ++reportListRequestRef.current;
@@ -1262,7 +1285,7 @@ function ReportsView() {
           return;
         }
         setReportsLoading(false);
-        const content = await api.report(reports[0].id);
+        const content = await loadReportContent(reports[0]);
         if (listRequestId !== reportListRequestRef.current || contentRequestId !== reportContentRequestRef.current) return;
         setActive(content);
       })
@@ -1305,8 +1328,15 @@ function ReportsView() {
     setReportContentLoading(true);
     setReportError("");
     try {
+      const cached = reportContentCacheRef.current.get(item.id);
+      if (cached) {
+        setActive(cached);
+        setReportContentLoading(false);
+        return;
+      }
       const content = await api.report(item.id);
       if (requestId !== reportContentRequestRef.current) return;
+      reportContentCacheRef.current.set(content.id, content);
       setActive(content);
     } catch (error) {
       if (requestId !== reportContentRequestRef.current) return;
@@ -1865,6 +1895,7 @@ function AdminView() {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [view, setView] = useState<View>("chat");
+  const [visitedViews, setVisitedViews] = useState<Set<View>>(() => new Set(["chat"]));
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1911,6 +1942,19 @@ export default function App() {
   async function logout() {
     await api.logout();
     setUser(null);
+    setView("chat");
+    setVisitedViews(new Set(["chat"]));
+  }
+
+  function openView(nextView: View) {
+    setView(nextView);
+    setVisitedViews((current) => {
+      if (current.has(nextView)) return current;
+      const next = new Set(current);
+      next.add(nextView);
+      return next;
+    });
+    if (nextView === "reports" || nextView === "translate") preloadMarkdownRenderer();
   }
 
   function toggleThemePreference() {
@@ -1930,7 +1974,7 @@ export default function App() {
         </div>
         <button
           className={view === "chat" ? "active" : ""}
-          onClick={() => setView("chat")}
+          onClick={() => openView("chat")}
           aria-label="问答"
           title="问答"
         >
@@ -1939,7 +1983,8 @@ export default function App() {
         </button>
         <button
           className={view === "translate" ? "active" : ""}
-          onClick={() => setView("translate")}
+          onClick={() => openView("translate")}
+          onPointerEnter={() => preloadMarkdownRenderer()}
           aria-label="翻译"
           title="翻译"
         >
@@ -1948,7 +1993,8 @@ export default function App() {
         </button>
         <button
           className={view === "reports" ? "active" : ""}
-          onClick={() => setView("reports")}
+          onClick={() => openView("reports")}
+          onPointerEnter={() => preloadMarkdownRenderer()}
           aria-label="报告"
           title="报告"
         >
@@ -1958,7 +2004,7 @@ export default function App() {
         {user.role === "admin" && (
           <button
             className={view === "admin" ? "active" : ""}
-            onClick={() => setView("admin")}
+            onClick={() => openView("admin")}
             aria-label="AI 设置"
             title="AI 设置"
           >
@@ -1970,7 +2016,7 @@ export default function App() {
         <div className="user-chip">{user.email}</div>
         <button
           className={view === "settings" ? "active" : ""}
-          onClick={() => setView("settings")}
+          onClick={() => openView("settings")}
           aria-label="设置"
           title="设置"
         >
@@ -1983,18 +2029,28 @@ export default function App() {
         </button>
       </nav>
       <section className="app-content">
-        {view === "chat" && <ChatView currentTheme={currentTheme} onToggleTheme={toggleThemePreference} />}
-        {view === "translate" && <TranslationView wordCloudEnabled={appSettings?.word_cloud_enabled ?? true} />}
-        {view === "reports" && <ReportsView />}
-        {view === "admin" && <AdminView />}
-        {view === "settings" && (
-          <SettingsView
-            settings={appSettings}
-            onSaved={setAppSettings}
-            isAdmin={user.role === "admin"}
-            loading={settingsLoading}
-          />
-        )}
+        <div style={{ display: view === "chat" ? "contents" : "none" }}>
+          <ChatView currentTheme={currentTheme} onToggleTheme={toggleThemePreference} isActive={view === "chat"} />
+        </div>
+        <div style={{ display: view === "translate" ? "contents" : "none" }}>
+          {visitedViews.has("translate") && <TranslationView wordCloudEnabled={appSettings?.word_cloud_enabled ?? true} />}
+        </div>
+        <div style={{ display: view === "reports" ? "contents" : "none" }}>
+          {visitedViews.has("reports") && <ReportsView />}
+        </div>
+        <div style={{ display: view === "admin" ? "contents" : "none" }}>
+          {visitedViews.has("admin") && <AdminView />}
+        </div>
+        <div style={{ display: view === "settings" ? "contents" : "none" }}>
+          {visitedViews.has("settings") && (
+            <SettingsView
+              settings={appSettings}
+              onSaved={setAppSettings}
+              isAdmin={user.role === "admin"}
+              loading={settingsLoading}
+            />
+          )}
+        </div>
       </section>
     </main>
   );

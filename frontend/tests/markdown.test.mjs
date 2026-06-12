@@ -28,3 +28,17 @@ test("normalizes TeX slash delimiters", () => {
   assert.ok(normalized.includes("$$\n\\cos x=1-\\frac{x^2}{2}+o(x^2)\n$$"));
   assert.ok(normalized.includes("$E=mc^2$"));
 });
+
+test("normalizes inline code that is actually math", () => {
+  const markdown = [
+    "`y_n = e^{x_n} - e^{-x_n}`",
+    "`x = ln((y + √(y^2 + 4)) / 2)`",
+    "`npm run build`"
+  ].join("\n");
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.ok(normalized.includes("$y_n = e^{x_n} - e^{-x_n}$"));
+  assert.ok(normalized.includes("$x = ln((y + √(y^2 + 4)) / 2)$"));
+  assert.ok(normalized.includes("`npm run build`"));
+});

@@ -3,6 +3,25 @@ const mathSignals = [
   "=",
   "^",
   "_",
+  ">",
+  "<",
+  "→",
+  "←",
+  "↔",
+  "√",
+  "≤",
+  "≥",
+  "≠",
+  "∈",
+  "∉",
+  "⊂",
+  "⊆",
+  "∑",
+  "∫",
+  "∞",
+  "±",
+  "×",
+  "÷",
   "frac",
   "sqrt",
   "sum",
@@ -26,6 +45,46 @@ function looksLikeMath(value: string) {
   const content = value.trim();
   if (content.length < 3) return false;
   return mathSignals.some((signal) => content.includes(signal));
+}
+
+function looksLikeInlineMath(value: string) {
+  const content = value.trim();
+  if (!looksLikeMath(content)) return false;
+  if (/^(npm|pnpm|yarn|git|curl|node|npx|wrangler|docker|SELECT|INSERT|UPDATE|DELETE)\b/i.test(content)) {
+    return false;
+  }
+  if (/\b(const|let|var|function|return|import|export|await|async|class|if|else)\b/.test(content)) {
+    return false;
+  }
+  if (/[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*/.test(content)) return false;
+  if (/https?:\/\//i.test(content)) return false;
+  return true;
+}
+
+function escapeInlineMath(value: string) {
+  return value.trim().replace(/\$/g, "\\$");
+}
+
+function normalizeInlineCodeMathLine(line: string) {
+  return line.replace(/`([^`\n]+)`/g, (match, content: string) => {
+    if (!looksLikeInlineMath(content)) return match;
+    return `$${escapeInlineMath(content)}$`;
+  });
+}
+
+function normalizeInlineCodeMath(markdown: string) {
+  let inFence = false;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      return normalizeInlineCodeMathLine(line);
+    })
+    .join("\n");
 }
 
 function normalizeBareSquareMath(markdown: string) {
@@ -62,7 +121,7 @@ function normalizeBareSquareMath(markdown: string) {
 }
 
 export function normalizeMarkdownMath(markdown: string) {
-  return normalizeBareSquareMath(markdown)
+  return normalizeBareSquareMath(normalizeInlineCodeMath(markdown))
     .replace(/\\\[((?:.|\n)*?)\\\]/g, (_match, content: string) => `\n\n$$\n${content.trim()}\n$$\n\n`)
     .replace(/\\\(((?:.|\n)*?)\\\)/g, (_match, content: string) => `$${content.trim()}$`);
 }

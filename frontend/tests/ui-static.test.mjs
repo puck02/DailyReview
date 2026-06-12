@@ -8,6 +8,7 @@ const markdownRenderer = fs.readFileSync(new URL("../src/MarkdownRenderer.tsx", 
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const packageJson = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
+const headersFile = fs.readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
 
 const appIcon = fs.readFileSync(new URL("../src/assets/app-icon.svg", import.meta.url), "utf8");
 
@@ -140,6 +141,7 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.ok(markdownRenderer.includes("rehypeKatex"));
   assert.ok(markdownRenderer.includes("normalizeMarkdownMath"));
   assert.ok(markdownRenderer.includes("key={normalizedMarkdown}"));
+  assert.ok(fs.readFileSync(new URL("../src/markdown.ts", import.meta.url), "utf8").includes("normalizeInlineCodeMath"));
   assert.ok(app.includes('import "katex/dist/katex.min.css";'));
   assert.ok(markdownRenderer.includes("markdown-math-block"));
   assert.ok(markdownRenderer.includes("markdown-math-inline"));
@@ -147,6 +149,23 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.match(styles, /\.message-markdown \.katex\s*{/);
   assert.match(styles, /\.markdown-code\s*{/);
   assert.match(styles, /\.markdown-table-wrap\s*{/);
+});
+
+test("visited app views stay mounted and heavy markdown renderer is prefetched from navigation", () => {
+  assert.ok(app.includes("visitedViews"));
+  assert.ok(app.includes("openView"));
+  assert.ok(app.includes("preloadMarkdownRenderer"));
+  assert.match(app, /onPointerEnter=\{\(\) => preloadMarkdownRenderer\(\)\}/);
+  assert.match(app, /style=\{\{ display: view === "reports" \? "contents" : "none" \}\}/);
+  assert.match(app, /visitedViews\.has\("reports"\) && <ReportsView \/>/);
+  assert.match(app, /style=\{\{ display: view === "translate" \? "contents" : "none" \}\}/);
+  assert.match(app, /visitedViews\.has\("translate"\) &&/);
+  assert.match(styles, /\.app-content\s*{[^}]*min-width:\s*0;[^}]*min-height:\s*100vh;/s);
+});
+
+test("fingerprinted static assets use immutable browser cache headers", () => {
+  assert.match(headersFile, /\/assets\/\*/);
+  assert.match(headersFile, /Cache-Control:\s*public,\s*max-age=31556952,\s*immutable/);
 });
 
 test("message code blocks use syntax highlighting in light and dark themes", () => {
@@ -539,8 +558,11 @@ test("markdown renderer dependencies are code split from the main app", () => {
 });
 
 test("reports list can render before the selected report markdown finishes loading", () => {
-  assert.match(app, /setReportsLoading\(false\);[\s\S]*const content = await api\.report\(reports\[0\]\.id\)/);
+  assert.match(app, /setReportsLoading\(false\);[\s\S]*const content = await loadReportContent\(reports\[0\]\)/);
   assert.ok(app.includes('reportContentLoading ? "正在加载报告内容..."'));
+  assert.ok(app.includes("reportContentCacheRef"));
+  assert.ok(app.includes("reportContentCacheRef.current.get(item.id)"));
+  assert.ok(app.includes("reportContentCacheRef.current.set(content.id, content)"));
 });
 
 test("Workers PDF downgrade displays the API error before any save target is created", () => {
