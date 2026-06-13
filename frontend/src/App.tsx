@@ -51,6 +51,7 @@ import {
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
 import appIconUrl from "./assets/app-icon.svg?url";
+import { prepareImageForUpload } from "./imageCompression";
 import "katex/dist/katex.min.css";
 
 type View = "chat" | "translate" | "reports" | "admin" | "settings";
@@ -58,6 +59,7 @@ type AuthMode = "login" | "register";
 type ThemePreference = "light" | "dark";
 type PendingAttachment = Attachment & {
   previewUrl: string;
+  dataUrl: string;
   name: string;
   status: "uploading" | "ready" | "failed";
   error?: string;
@@ -851,13 +853,15 @@ function ChatView({
       expires_at: "",
       url: "",
       previewUrl,
+      dataUrl: "",
       name: file.name || "图片",
       status: "uploading"
     };
     setAttachments((current) => [...current, pending]);
     setUploadingCount((current) => current + 1);
     try {
-      const uploaded = await api.upload(file);
+      const prepared = await prepareImageForUpload(file);
+      const uploaded = await api.upload(prepared.file);
       setError("");
       setAttachments((current) =>
         current.map((attachment) =>
@@ -865,6 +869,7 @@ function ChatView({
             ? {
                 ...uploaded,
                 previewUrl,
+                dataUrl: prepared.dataUrl,
                 name: pending.name,
                 status: "ready"
               }
@@ -961,7 +966,8 @@ function ChatView({
           session_id: session.id,
           content,
           model,
-          attachment_ids: readyAttachments.map((item) => item.id)
+          attachment_ids: readyAttachments.map((item) => item.id),
+          image_data_urls: readyAttachments.map((item) => item.dataUrl).filter(Boolean)
         },
         (token) => {
           setMessages((current) =>

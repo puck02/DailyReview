@@ -205,7 +205,7 @@ export const api = {
 };
 
 export async function streamChat(
-  payload: { session_id: number; content: string; model: string; attachment_ids: number[] },
+  payload: { session_id: number; content: string; model: string; attachment_ids: number[]; image_data_urls?: string[] },
   onToken: (token: string) => void
 ): Promise<void> {
   const response = await fetch("/api/chat/stream", {

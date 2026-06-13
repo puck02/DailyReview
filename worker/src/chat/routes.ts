@@ -40,7 +40,8 @@ const chatStreamSchema = z.object({
   session_id: z.number().int(),
   content: z.string().min(1),
   model: z.string().default("gpt-5.4-mini"),
-  attachment_ids: z.array(z.number().int()).default([])
+  attachment_ids: z.array(z.number().int()).default([]),
+  image_data_urls: z.array(z.string().startsWith("data:image/")).default([])
 });
 
 type ChatContentPart =
@@ -180,10 +181,16 @@ async function dataUrlForAttachment(env: Env, attachment: AttachmentRow): Promis
   return `data:${attachment.mime_type};base64,${bytesToBase64(bytes)}`;
 }
 
-async function contentWithAttachments(env: Env, content: string, attachments: AttachmentRow[]): Promise<ChatContentPart[]> {
+async function contentWithAttachments(
+  env: Env,
+  content: string,
+  attachments: AttachmentRow[],
+  imageDataUrls: string[]
+): Promise<ChatContentPart[]> {
   const parts: ChatContentPart[] = [{ type: "text", text: content }];
-  for (const attachment of attachments) {
-    parts.push({ type: "image_url", image_url: { url: await dataUrlForAttachment(env, attachment) } });
+  for (const [index, attachment] of attachments.entries()) {
+    const url = imageDataUrls[index] || (await dataUrlForAttachment(env, attachment));
+    parts.push({ type: "image_url", image_url: { url } });
   }
   return parts;
 }
@@ -192,7 +199,8 @@ async function historyForSession(
   env: Env,
   sessionId: number,
   aiConfig: AiConfig,
-  imageMessageId: number | null
+  imageMessageId: number | null,
+  imageDataUrls: string[] = []
 ): Promise<ChatMessage[]> {
   const messages = await all<MessageRow>(
     env.DB.prepare("SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC").bind(sessionId)
@@ -206,7 +214,7 @@ async function historyForSession(
   const history: ChatMessage[] = [];
   for (const message of messages) {
     if (message.id === imageMessageId && attachments.length > 0) {
-      history.push({ role: message.role, content: await contentWithAttachments(env, message.content, attachments) });
+      history.push({ role: message.role, content: await contentWithAttachments(env, message.content, attachments, imageDataUrls) });
     } else {
       history.push({ role: message.role, content: message.content });
     }
@@ -238,7 +246,7 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
   }
 
   const aiConfig = await getAiConfig(env);
-  const history = await historyForSession(env, session.id, aiConfig, userMessageId);
+  const history = await historyForSession(env, session.id, aiConfig, userMessageId, payload.image_data_urls);
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

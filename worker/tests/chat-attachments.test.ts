@@ -133,6 +133,116 @@ describe("chat sessions and attachments", () => {
     });
   });
 
+  it("uses client-prepared image data urls without reading R2 during send", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    let requestBody: { messages?: Array<{ role: string; content: unknown }> } | null = null;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body || "{}")) as typeof requestBody;
+      return new Response('data: {"choices":[{"delta":{"content":"直传图片"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "图片会话", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])], { type: "image/png" }), "chart.png");
+    const upload = await fetchWorker(env, "/api/attachments", { method: "POST", headers: { cookie }, body: form });
+    const attachment = (await upload.json()) as { id: number };
+    const originalBucket = env.BUCKET;
+    env.BUCKET = new Proxy(originalBucket, {
+      get(target, prop, receiver) {
+        if (prop === "get") {
+          return async () => {
+            throw new Error("R2 should not be read when image_data_urls are supplied");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      }
+    }) as R2Bucket;
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "请描述这张图",
+        model: "gpt-5.4-mini",
+        attachment_ids: [attachment.id],
+        image_data_urls: ["data:image/png;base64,client-prepared"]
+      })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([JSON.stringify("直传图片"), "[DONE]"]);
+    expect(requestBody?.messages?.at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "请描述这张图" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,client-prepared" } }
+      ]
+    });
+  });
+
+  it("falls back to R2 only for attachments without client-prepared data urls", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    let requestBody: { messages?: Array<{ role: string; content: unknown }> } | null = null;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body || "{}")) as typeof requestBody;
+      return new Response('data: {"choices":[{"delta":{"content":"两张图片"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "图片会话", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const firstForm = new FormData();
+    firstForm.append("file", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])], { type: "image/png" }), "first.png");
+    const secondForm = new FormData();
+    secondForm.append("file", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 2])], { type: "image/png" }), "second.png");
+    const firstUpload = await fetchWorker(env, "/api/attachments", { method: "POST", headers: { cookie }, body: firstForm });
+    const secondUpload = await fetchWorker(env, "/api/attachments", { method: "POST", headers: { cookie }, body: secondForm });
+    const firstAttachment = (await firstUpload.json()) as { id: number };
+    const secondAttachment = (await secondUpload.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "请比较这两张图",
+        model: "gpt-5.4-mini",
+        attachment_ids: [firstAttachment.id, secondAttachment.id],
+        image_data_urls: ["data:image/png;base64,client-prepared-first"]
+      })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([JSON.stringify("两张图片"), "[DONE]"]);
+    expect(requestBody?.messages?.at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "请比较这两张图" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,client-prepared-first" } },
+        { type: "image_url", image_url: { url: expect.stringMatching(/^data:image\/png;base64,/) } }
+      ]
+    });
+  });
+
   it("rejects invalid uploads and hides attachments from other users", async () => {
     const { env, cookie } = await loginUser();
     const invalid = new FormData();

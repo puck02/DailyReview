@@ -2,7 +2,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "test": "tsc --ignoreConfig --target ES2020 --module NodeNext --moduleResolution NodeNext --lib DOM,DOM.Iterable,ES2020 --outDir /tmp/dailyreview-frontend-tests src/clipboard.ts src/attachmentPreviews.ts src/markdown.ts src/api.ts && node --test tests/*.test.mjs",
+    "test": "tsc --ignoreConfig --target ES2020 --module NodeNext --moduleResolution NodeNext --lib DOM,DOM.Iterable,ES2020 --outDir /tmp/dailyreview-frontend-tests src/clipboard.ts src/attachmentPreviews.ts src/imageCompression.ts src/markdown.ts src/api.ts && node --test tests/*.test.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
