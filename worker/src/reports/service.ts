@@ -2,7 +2,7 @@ import { all, first, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError } from "../http";
 import { getAiConfig } from "../admin/routes";
-import { completeChat } from "../ai/client";
+import { completeChat, isAiConfigured } from "../ai/client";
 
 export const PDF_DOWNGRADE_MESSAGE = "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。";
 
@@ -12,6 +12,7 @@ type UserRow = Row & {
 
 type MessageRow = Row & {
   id: number;
+  session_id: number;
   role: string;
   content: string;
   created_at: string;
@@ -196,9 +197,26 @@ function renderConversation(messages: MessageRow[]): string {
     .join("\n");
 }
 
+type LearningSegment = {
+  user: string;
+  assistant: string;
+};
+
+type LearningEvent = {
+  subject: string;
+  topic: string;
+  question: string;
+  insight: string;
+  misconception: string;
+  memory: string;
+  value_score: number;
+  evidence: string;
+};
+
 const STUDY_INCLUDE_PATTERNS = [
   /考研|英语一|英语二|长难句|阅读理解|完形|翻译|作文|词汇|单词|语法|真题|复习|背诵|例句|音标|词根|词缀|派生|近义|反义/,
   /数学|高数|线代|概率|极限|导数|微分|积分|矩阵|特征值|函数|级数|方程|证明|定理|公式|错题|题型|解题/,
+  /可积|有界|无界|连续|间断|收敛|发散|单调|必要条件|充分条件|反例|洛必达|换元|根号/,
   /\b(?:word|vocabulary|grammar|sentence|translation|reading|writing|essay|derivative|limit|integral|matrix|probability)\b/i
 ];
 
@@ -221,6 +239,39 @@ function isStudyMessage(message: MessageRow): boolean {
 
 function studyMessages(messages: MessageRow[]): MessageRow[] {
   return messages.filter(isStudyMessage);
+}
+
+function learningSegments(messages: MessageRow[]): LearningSegment[] {
+  const segments: LearningSegment[] = [];
+  const sorted = [...messages].sort((left, right) =>
+    left.session_id === right.session_id
+      ? left.created_at.localeCompare(right.created_at) || left.id - right.id
+      : left.session_id - right.session_id
+  );
+  for (let index = 0; index < sorted.length; index += 1) {
+    const message = sorted[index];
+    if (!message || message.role !== "user" || !message.content.trim()) {
+      continue;
+    }
+    const assistant = sorted
+      .slice(index + 1)
+      .find((candidate) => candidate.session_id === message.session_id && candidate.role === "assistant" && candidate.content.trim());
+    segments.push({ user: message.content.trim(), assistant: assistant?.content.trim() || "" });
+  }
+  return segments;
+}
+
+function studySegments(segments: LearningSegment[]): LearningSegment[] {
+  return segments.filter((segment) => {
+    const combined = `${segment.user}\n${segment.assistant}`;
+    return isStudyMessage({ id: 0, session_id: 0, role: "user", content: combined, created_at: "" });
+  });
+}
+
+function renderSegments(segments: LearningSegment[]): string {
+  return segments
+    .map((segment, index) => [`片段 ${index + 1}`, `用户问题：${segment.user}`, `AI回答：${segment.assistant || "无"}`].join("\n"))
+    .join("\n\n");
 }
 
 export function extractKeywords(text: string, limit = 8): string[] {
@@ -264,6 +315,7 @@ export function extractKeywords(text: string, limit = 8): string[] {
 
 const DAILY_REPORT_MAX_CHARS = 1800;
 const DAILY_REPORT_SECTION_ITEM_LIMIT = 4;
+const LEARNING_EVENT_LIMIT = 12;
 
 function compactDailyMarkdown(markdown: string): string {
   if (markdown.length <= DAILY_REPORT_MAX_CHARS) {
@@ -322,10 +374,139 @@ ${highlights}
 `;
 }
 
-async function aiDailyMarkdown(env: Env, day: string, conversation: string, keywords: string[]): Promise<string> {
+function safeJsonArray(text: string): unknown[] {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+  try {
+    const parsed = JSON.parse(candidate) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    const start = candidate.indexOf("[");
+    const end = candidate.lastIndexOf("]");
+    if (start === -1 || end <= start) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(candidate.slice(start, end + 1)) as unknown;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+function normalizeLearningEvent(value: unknown): LearningEvent | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const insight = String(source.insight || "").trim();
+  const topic = String(source.topic || "").trim();
+  const memory = String(source.memory || "").trim();
+  const evidence = String(source.evidence || "").trim();
+  const score = Number(source.value_score || 0);
+  if (!insight || !topic || !memory || !evidence || score < 3) {
+    return null;
+  }
+  const combined = [source.subject, source.topic, source.question, source.insight, source.misconception, source.memory, source.evidence]
+    .map((item) => String(item || ""))
+    .join("\n");
+  if (!isStudyMessage({ id: 0, session_id: 0, role: "assistant", content: combined, created_at: "" })) {
+    return null;
+  }
+  return {
+    subject: String(source.subject || "学习").trim().slice(0, 20),
+    topic: topic.slice(0, 80),
+    question: String(source.question || "").trim().slice(0, 160),
+    insight: insight.slice(0, 220),
+    misconception: String(source.misconception || "").trim().slice(0, 220),
+    memory: memory.slice(0, 120),
+    value_score: Math.min(5, Math.max(1, Math.round(score))),
+    evidence: evidence.slice(0, 220)
+  };
+}
+
+function fallbackLearningEvents(segments: LearningSegment[], keywords: string[]): LearningEvent[] {
+  return segments.slice(0, Math.min(LEARNING_EVENT_LIMIT, Math.max(1, segments.length))).map((segment, index) => {
+    const topic = keywords[index] || keywords[0] || "今日学习重点";
+    const evidence = segment.assistant || segment.user;
+    return {
+      subject: "学习",
+      topic,
+      question: segment.user.slice(0, 160),
+      insight: evidence.slice(0, 220),
+      misconception: "",
+      memory: topic,
+      value_score: 3,
+      evidence: evidence.slice(0, 220)
+    };
+  });
+}
+
+function renderLearningEvents(events: LearningEvent[]): string {
+  return events
+    .map((event, index) =>
+      [
+        `事件 ${index + 1}`,
+        `学科：${event.subject}`,
+        `主题：${event.topic}`,
+        `问题：${event.question}`,
+        `认知增量：${event.insight}`,
+        `修正误解：${event.misconception || "无明确误解"}`,
+        `一句话记忆：${event.memory}`,
+        `证据：${event.evidence}`,
+        `价值评分：${event.value_score}`
+      ].join("\n")
+    )
+    .join("\n\n");
+}
+
+async function extractLearningEvents(
+  env: Env,
+  segments: LearningSegment[],
+  fallbackSegments: LearningSegment[],
+  keywords: string[],
+  aiConfig: Awaited<ReturnType<typeof getAiConfig>>
+): Promise<LearningEvent[]> {
+  if (!segments.length) {
+    return [];
+  }
+  const prompt = `你是一名学习复盘信息抽取器。请从下面的问答片段中抽取高价值学习事件。
+
+抽取原则：
+- 只保留考研数学、考研英语或明确学习相关的内容。
+- 忽略工具配置、部署、产品讨论、情绪表达和闲聊。
+- 不要总结聊天过程，只抽取最终形成的认知增量。
+- 同一知识点重复出现时只保留价值最高的一条。
+- value_score 只允许 1-5，低于 3 的内容不要输出。
+- 最多输出 ${LEARNING_EVENT_LIMIT} 条。
+
+只输出 JSON 数组，不要输出 Markdown，不要输出代码块。每项字段必须是：
+subject, topic, question, insight, misconception, memory, value_score, evidence
+
+关键词：${keywords.join(", ")}
+
+问答片段：
+${renderSegments(segments)}`;
+  const fallback = JSON.stringify(fallbackLearningEvents(fallbackSegments, keywords));
+  const response = await completeChat([{ role: "user", content: prompt }], aiConfig.report_model, fallback, env, aiConfig);
+  const events = safeJsonArray(response).map(normalizeLearningEvent).filter((event): event is LearningEvent => Boolean(event));
+  return events.length ? events.slice(0, LEARNING_EVENT_LIMIT) : fallbackLearningEvents(fallbackSegments, keywords);
+}
+
+async function aiDailyMarkdown(
+  env: Env,
+  day: string,
+  events: LearningEvent[],
+  keywords: string[],
+  aiConfig: Awaited<ReturnType<typeof getAiConfig>>,
+  rewriteInstruction = ""
+): Promise<string> {
+  const eventSummary = renderLearningEvents(events);
   const prompt = `你是一名学习复盘助手。
 
-下面我会提供一天内与 AI 的有效学习对话记录。
+下面我会提供一天内从有效学习对话中抽取出的高价值学习事件。
 
 你的任务不是总结聊天内容，而是帮助我进行一次高质量的学习复盘。
 
@@ -362,12 +543,13 @@ async function aiDailyMarkdown(env: Env, day: string, conversation: string, keyw
 - “一句话记忆”提炼 3-10 条短句，尽可能短且准确。
 - “明日建议”给出 1-3 条建议，优先针对尚未完全掌握、反复易错或值得深入的内容。
 
+${rewriteInstruction}
+
 关键词：${keywords.join(", ")}
 
-有效学习对话记录：
-${conversation}`;
-  const fallback = fallbackDailyMarkdown(day, conversation, keywords);
-  const aiConfig = await getAiConfig(env);
+高价值学习事件：
+${eventSummary}`;
+  const fallback = fallbackDailyMarkdown(day, eventSummary, keywords);
   const markdown = await completeChat(
     [{ role: "user", content: prompt }],
     aiConfig.report_model,
@@ -378,19 +560,82 @@ ${conversation}`;
   return compactDailyMarkdown(markdown);
 }
 
+type QualityReview = {
+  status: "pass" | "rewrite";
+  feedback: string;
+};
+
+async function reviewDailyMarkdown(
+  env: Env,
+  day: string,
+  markdown: string,
+  events: LearningEvent[],
+  aiConfig: Awaited<ReturnType<typeof getAiConfig>>
+): Promise<QualityReview> {
+  const prompt = `请审查这份学习日报是否合格。
+
+审查标准：
+- 必须围绕高价值学习事件，而不是总结聊天过程。
+- 不得出现“用户问了”“讨论了”“聊天中提到”等过程描述。
+- 必须有具体知识点、误解修正或一句话记忆。
+- 必须忽略部署、工具、产品、情绪和闲聊内容。
+- 语言要精炼，适合 3 分钟复盘。
+
+如果合格，只回复 PASS。
+如果不合格，回复 FAIL：后面接 1-3 条具体修改意见。
+
+日期：${day}
+
+高价值学习事件：
+${renderLearningEvents(events)}
+
+待审查日报：
+${markdown}`;
+  const fallback = "PASS";
+  const response = await completeChat([{ role: "user", content: prompt }], aiConfig.report_model, fallback, env, aiConfig);
+  const normalized = response.trim();
+  if (/^PASS\b/i.test(normalized)) {
+    return { status: "pass", feedback: "" };
+  }
+  return { status: "rewrite", feedback: normalized.slice(0, 500) || "日报质量不合格，请重写。" };
+}
+
 export async function generateDailyReport(env: Env, userId: number, day: string): Promise<ReportRow | null> {
   const messages = await messagesForDay(env, userId, day);
-  const filteredMessages = studyMessages(messages);
-  if (!filteredMessages.length) {
+  const segments = learningSegments(messages);
+  const filteredSegments = studySegments(segments);
+  const aiConfig = await getAiConfig(env);
+  if (!segments.length || (!filteredSegments.length && !isAiConfigured(aiConfig))) {
     return null;
   }
-  const conversation = renderConversation(filteredMessages);
+  const filteredMessages = studyMessages(messages);
+  const conversation = renderConversation(filteredMessages.length ? filteredMessages : messages);
   const keywords = extractKeywords(conversation);
-  const markdown = await aiDailyMarkdown(env, day, conversation, keywords);
+  const events = await extractLearningEvents(env, isAiConfigured(aiConfig) ? segments : filteredSegments, filteredSegments, keywords, aiConfig);
+  if (!events.length) {
+    return null;
+  }
+  let markdown = await aiDailyMarkdown(env, day, events, keywords, aiConfig);
+  let rewriteCount = 0;
+  const review = await reviewDailyMarkdown(env, day, markdown, events, aiConfig);
+  if (review.status === "rewrite") {
+    rewriteCount = 1;
+    markdown = await aiDailyMarkdown(
+      env,
+      day,
+      events,
+      keywords,
+      aiConfig,
+      `根据以下审查意见重写日报，必须修正所有问题：${review.feedback}`
+    );
+  }
   return await writeReport(env, userId, "daily", day, markdown, {
-    message_count: filteredMessages.length,
+    message_count: filteredSegments.length || events.length,
     raw_message_count: messages.length,
     keywords,
+    event_count: events.length,
+    quality_review: rewriteCount ? "rewrite" : "pass",
+    rewrite_count: rewriteCount,
     related_count: 0
   });
 }

@@ -42,6 +42,25 @@ async function createMessage(env: ReturnType<typeof createTestEnv>, userId: numb
     .run();
 }
 
+async function createConversation(
+  env: ReturnType<typeof createTestEnv>,
+  userId: number,
+  messages: Array<{ role: "user" | "assistant"; content: string; createdAt: string }>
+) {
+  const firstCreatedAt = messages[0]?.createdAt || "2026-06-09T10:00:00.000Z";
+  const session = await env.DB.prepare(
+    "INSERT INTO chat_sessions (user_id, title, default_model, is_archived, created_at, updated_at) VALUES (?, '日报测试', 'gpt-5.4-mini', 0, ?, ?)"
+  )
+    .bind(userId, firstCreatedAt, messages[messages.length - 1]?.createdAt || firstCreatedAt)
+    .run();
+  const sessionId = Number((session.meta as { last_row_id: number }).last_row_id);
+  for (const message of messages) {
+    await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, ?, ?, ?, ?)")
+      .bind(sessionId, message.role, message.content, "gpt-5.4-mini", message.createdAt)
+      .run();
+  }
+}
+
 describe("reports, cron jobs, and PDF downgrade", () => {
   it("cron maintenance reschedules report alarms without generating reports directly", async () => {
     const { env, cookie, userId } = await loginUser();
@@ -168,6 +187,188 @@ describe("reports, cron jobs, and PDF downgrade", () => {
     const body = (await content.json()) as { markdown: string };
     expect(body.markdown).toContain("## 今天最大的收获");
     expect(body.markdown).toContain("## 一句话记忆");
+  });
+
+  it("extracts high-value learning events before writing the daily report", async () => {
+    const { env, cookie, userId } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    await createConversation(env, userId, [
+      {
+        role: "user",
+        content: "这道极限题为什么看到三次根号要换元？",
+        createdAt: "2026-06-09T10:00:00.000Z"
+      },
+      {
+        role: "assistant",
+        content: "令 u=∛x 后，∛(x^2)-2∛x+1 会变成 u^2-2u+1，也就是 (u-1)^2。",
+        createdAt: "2026-06-09T10:00:01.000Z"
+      },
+      {
+        role: "user",
+        content: "Cloudflare 部署日志怎么看？",
+        createdAt: "2026-06-09T11:00:00.000Z"
+      },
+      {
+        role: "assistant",
+        content: "可以使用 wrangler tail 查看日志。",
+        createdAt: "2026-06-09T11:00:01.000Z"
+      }
+    ]);
+
+    const requestPrompts: string[] = [];
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }> };
+      const prompt = body.messages?.[0]?.content || "";
+      requestPrompts.push(prompt);
+      if (prompt.includes("抽取高价值学习事件")) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify([
+                    {
+                      subject: "数学",
+                      topic: "三次根号极限换元",
+                      question: "为什么三次根号极限适合换元",
+                      insight: "理解了三次根号结构可令 u=∛x，把复杂根式化成二次因式。",
+                      misconception: "之前容易只从 x-1 入手，忽略根式本身的二次结构。",
+                      memory: "看到 ∛x 的二次组合，优先令 u=∛x。",
+                      value_score: 5,
+                      evidence: "∛(x^2)-2∛x+1 = (∛x-1)^2"
+                    }
+                  ])
+                }
+              }
+            ]
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+      if (prompt.includes("审查这份学习日报")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "PASS" } }] }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "# 2026-06-09 学习日报\n\n## 今天最大的收获\n- 理解了三次根号极限可以通过 u=∛x 暴露二次因式结构。\n\n## 今天修正的误解\n### 误解\n之前以为：\n> 这类题优先令 u=x-1。\n\n现在理解：\n> 变量替换应优先服务于表达式的核心结构。\n\n## 核心知识\n- 三次根号换元：令 u=∛x 后，根式组合可转化为普通多项式。\n\n## 一句话记忆\n- 看到 ∛x 的二次组合，先令 u=∛x。\n\n## 明日建议\n- 继续整理根式极限的换元触发条件。"
+              }
+            }
+          ]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+
+    try {
+      await generateDailyReports(env, "2026-06-09");
+    } finally {
+      fetchMock.mockRestore();
+    }
+
+    expect(requestPrompts[0]).toContain("抽取高价值学习事件");
+    expect(requestPrompts[0]).toContain("用户问题");
+    expect(requestPrompts[0]).toContain("AI回答");
+    expect(requestPrompts[0]).toContain("Cloudflare 部署日志怎么看？");
+    expect(requestPrompts[1]).toContain("高价值学习事件");
+    expect(requestPrompts[1]).toContain("三次根号极限换元");
+    expect(requestPrompts[1]).not.toContain("wrangler tail");
+    expect(requestPrompts[2]).toContain("审查这份学习日报");
+
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    const [report] = (await list.json()) as Array<{ id: number; stats: { event_count?: number; quality_review?: string } }>;
+    expect(report.stats).toMatchObject({ event_count: 1, quality_review: "pass" });
+    const content = await fetchWorker(env, `/api/reports/${report.id}`, { headers: { cookie } });
+    const body = (await content.json()) as { markdown: string };
+    expect(body.markdown).toContain("三次根号极限");
+    expect(body.markdown).not.toContain("Cloudflare");
+  });
+
+  it("rewrites the daily report once when the quality review fails", async () => {
+    const { env, cookie, userId } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    await createConversation(env, userId, [
+      {
+        role: "user",
+        content: "为什么可积一定有界，但有界不一定可积？",
+        createdAt: "2026-06-09T10:00:00.000Z"
+      },
+      {
+        role: "assistant",
+        content: "可积要求间断点集合受限，所以有界只是必要条件，不是充分条件。",
+        createdAt: "2026-06-09T10:00:01.000Z"
+      }
+    ]);
+
+    const requestPrompts: string[] = [];
+    let reportDraftCount = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }> };
+      const prompt = body.messages?.[0]?.content || "";
+      requestPrompts.push(prompt);
+      if (prompt.includes("抽取高价值学习事件")) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify([
+                    {
+                      subject: "数学",
+                      topic: "可积与有界",
+                      question: "可积和有界的关系",
+                      insight: "理解了有界是可积的必要条件，但不是充分条件。",
+                      misconception: "之前容易把必要条件误当充分条件。",
+                      memory: "可积必有界，有界未必可积。",
+                      value_score: 5,
+                      evidence: "可积 ⇒ 有界"
+                    }
+                  ])
+                }
+              }
+            ]
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+      if (prompt.includes("审查这份学习日报")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "FAIL：包含过程描述，缺少一句话记忆。" } }] }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
+      reportDraftCount += 1;
+      const content =
+        reportDraftCount === 1
+          ? "# 2026-06-09 学习日报\n\n## 今天最大的收获\n- 用户问了可积和有界的关系。"
+          : "# 2026-06-09 学习日报\n\n## 今天最大的收获\n- 理解了有界只是可积的必要条件，而不是充分条件。\n\n## 今天修正的误解\n### 误解\n之前以为：\n> 有界可以推出可积。\n\n现在理解：\n> 可积能推出有界，但有界本身不能保证可积。\n\n## 核心知识\n- 可积与有界：可积 ⇒ 有界；有界 ⇏ 可积。\n\n## 一句话记忆\n- 可积必有界，有界未必可积。\n\n## 明日建议\n- 用反例巩固必要条件和充分条件。";
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    try {
+      await generateDailyReports(env, "2026-06-09");
+    } finally {
+      fetchMock.mockRestore();
+    }
+
+    expect(requestPrompts.filter((prompt) => prompt.includes("审查这份学习日报"))).toHaveLength(1);
+    expect(requestPrompts.some((prompt) => prompt.includes("根据以下审查意见重写日报"))).toBe(true);
+    expect(reportDraftCount).toBe(2);
+
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    const [report] = (await list.json()) as Array<{ id: number; stats: { quality_review?: string; rewrite_count?: number } }>;
+    expect(report.stats).toMatchObject({ quality_review: "rewrite", rewrite_count: 1 });
+    const content = await fetchWorker(env, `/api/reports/${report.id}`, { headers: { cookie } });
+    const body = (await content.json()) as { markdown: string };
+    expect(body.markdown).toContain("可积必有界，有界未必可积");
+    expect(body.markdown).not.toContain("用户问了");
   });
 
   it("refreshes daily report metadata when regenerating the same day", async () => {
