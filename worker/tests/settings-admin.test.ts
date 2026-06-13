@@ -189,7 +189,8 @@ describe("settings and admin routes", () => {
     await expect(saved.json()).resolves.toEqual({
       base_url: "https://example.com/v1",
       has_api_key: true,
-      api_key_preview: "abcdef****7890"
+      api_key_preview: "abcdef****7890",
+      report_model: "gpt-5.5"
     });
 
     const test = await fetchWorker(env, "/api/admin/ai-config/test", {
@@ -199,5 +200,37 @@ describe("settings and admin routes", () => {
     });
     expect(test.status).toBe(200);
     await expect(test.json()).resolves.toEqual({ ok: false, message: "AI 配置不完整" });
+  });
+
+  it("lets admins choose the model used for daily reports", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+
+    const before = await fetchWorker(env, "/api/admin/ai-config", { headers: { cookie } });
+    expect(before.status).toBe(200);
+    await expect(before.json()).resolves.toMatchObject({ report_model: "gpt-5.5" });
+
+    const saved = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify({ base_url: "https://example.com/v1", api_key: "", report_model: "gpt-5.4-mini" })
+    });
+
+    expect(saved.status).toBe(200);
+    await expect(saved.json()).resolves.toMatchObject({ report_model: "gpt-5.4-mini" });
+  });
+
+  it("rejects unsupported daily report models in admin AI config", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+
+    const response = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify({ base_url: "https://example.com/v1", api_key: "", report_model: "unknown-model" })
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ detail: "日报模型无效" });
   });
 });

@@ -2,16 +2,20 @@ import { z } from "zod";
 
 import type { Env } from "../env";
 import { first, nowIso, type Row } from "../db/d1";
-import { json, parseJson, route, type Route } from "../http";
+import { HttpError, json, parseJson, route, type Route } from "../http";
 import { requireAdmin } from "../auth/routes";
 import { safeAiErrorMessage, testAiConnection, type AiConfig } from "../ai/client";
 
 const AI_BASE_URL_KEY = "ai_base_url";
 const AI_API_KEY_KEY = "ai_api_key";
+const REPORT_MODEL_KEY = "report_model";
+const DEFAULT_REPORT_MODEL = "gpt-5.5";
+const REPORT_MODELS = new Set(["gpt-5.4-mini", "gpt-5.5"]);
 
 const aiConfigSchema = z.object({
   base_url: z.string().max(2048).default(""),
-  api_key: z.string().max(4096).nullable().optional()
+  api_key: z.string().max(4096).nullable().optional(),
+  report_model: z.string().optional()
 });
 
 async function getSetting(env: Env, key: string): Promise<string> {
@@ -27,10 +31,23 @@ async function setSetting(env: Env, key: string, value: string): Promise<void> {
     .run();
 }
 
+function validateReportModel(value: string): string {
+  const normalized = value.trim();
+  if (!REPORT_MODELS.has(normalized)) {
+    throw new HttpError(400, "日报模型无效");
+  }
+  return normalized;
+}
+
+export async function getReportModel(env: Env): Promise<string> {
+  return validateReportModel((await getSetting(env, REPORT_MODEL_KEY)) || DEFAULT_REPORT_MODEL);
+}
+
 export async function getAiConfig(env: Env): Promise<AiConfig> {
   return {
     base_url: (await getSetting(env, AI_BASE_URL_KEY)) || env.AI_BASE_URL || "",
-    api_key: (await getSetting(env, AI_API_KEY_KEY)) || env.AI_API_KEY || ""
+    api_key: (await getSetting(env, AI_API_KEY_KEY)) || env.AI_API_KEY || "",
+    report_model: await getReportModel(env)
   };
 }
 
@@ -44,7 +61,8 @@ function aiConfigResponse(config: AiConfig): Record<string, unknown> {
   return {
     base_url: config.base_url,
     has_api_key: Boolean(config.api_key),
-    api_key_preview: maskApiKey(config.api_key)
+    api_key_preview: maskApiKey(config.api_key),
+    report_model: config.report_model
   };
 }
 
@@ -60,6 +78,7 @@ async function updateAiConfig(request: Request, env: Env): Promise<Response> {
   if (payload.api_key) {
     await setSetting(env, AI_API_KEY_KEY, payload.api_key.trim());
   }
+  await setSetting(env, REPORT_MODEL_KEY, payload.report_model ? validateReportModel(payload.report_model) : await getReportModel(env));
   return json(aiConfigResponse(await getAiConfig(env)));
 }
 
@@ -69,7 +88,8 @@ async function testConfig(request: Request, env: Env): Promise<Response> {
   const payload = aiConfigSchema.parse(await parseJson<unknown>(request));
   const config = {
     base_url: payload.base_url.trim(),
-    api_key: (payload.api_key || current.api_key).trim()
+    api_key: (payload.api_key || current.api_key).trim(),
+    report_model: current.report_model
   };
   if (!config.base_url || !config.api_key) {
     return json({ ok: false, message: "AI 配置不完整" });

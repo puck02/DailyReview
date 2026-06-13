@@ -53,6 +53,7 @@ export type AiConfig = {
   base_url: string;
   has_api_key: boolean;
   api_key_preview: string | null;
+  report_model: string;
 };
 
 export type AiConfigTest = {
@@ -168,10 +169,10 @@ export const api = {
     return response.blob();
   },
   aiConfig: () => request<AiConfig>("/api/admin/ai-config"),
-  updateAiConfig: (baseUrl: string, apiKey: string) =>
+  updateAiConfig: (baseUrl: string, apiKey: string, reportModel: string) =>
     request<AiConfig>("/api/admin/ai-config", {
       method: "PUT",
-      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey })
+      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, report_model: reportModel })
     }),
   testAiConfig: (baseUrl: string, apiKey: string) =>
     request<AiConfigTest>("/api/admin/ai-config/test", {

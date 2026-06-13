@@ -93,6 +93,7 @@ type PdfSaveTarget = { kind: "handle"; handle: PdfFileHandle } | { kind: "downlo
 
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "gpt-5.5";
+const reportModels = [defaultModel, complexModel];
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const wordCloudLaneCount = 4;
@@ -1754,6 +1755,7 @@ function AdminView() {
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [reportModel, setReportModel] = useState(complexModel);
   const [loadingAdmin, setLoadingAdmin] = useState(true);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -1765,6 +1767,7 @@ function AdminView() {
     setInvites(inviteItems);
     setAiConfig(config);
     setBaseUrl(config.base_url);
+    setReportModel(config.report_model);
   }
 
   useEffect(() => {
@@ -1789,9 +1792,10 @@ function AdminView() {
       setError("");
       setSaved("");
       setTestResult("");
-      const config = await api.updateAiConfig(baseUrl, apiKey);
+      const config = await api.updateAiConfig(baseUrl, apiKey, reportModel);
       setAiConfig(config);
       setBaseUrl(config.base_url);
+      setReportModel(config.report_model);
       setApiKey("");
       setSaved("AI 配置已保存");
     } catch (err) {
@@ -1840,6 +1844,16 @@ function AdminView() {
               type="password"
               placeholder={aiConfig?.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
             />
+          </label>
+          <label>
+            日报模型
+            <select value={reportModel} onChange={(event) => setReportModel(event.target.value)}>
+              {reportModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
           </label>
           <div className="admin-actions">
             <span>{aiConfig?.api_key_preview ? `当前密钥 ${aiConfig.api_key_preview}` : "密钥未配置"}</span>

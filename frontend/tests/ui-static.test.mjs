@@ -375,9 +375,15 @@ test("admin page can update AI config without echoing the key", () => {
   assert.match(app, /AI 设置/);
   assert.ok(!app.includes(">邀请码</button>"));
   assert.ok(app.includes("api.aiConfig()"));
-  assert.ok(app.includes("api.updateAiConfig(baseUrl, apiKey)"));
+  assert.ok(app.includes("api.updateAiConfig(baseUrl, apiKey, reportModel)"));
   assert.ok(app.includes("api.testAiConfig(baseUrl, apiKey)"));
   assert.ok(app.includes("api_key_preview"));
+  assert.ok(apiSource.includes("report_model: string;"));
+  assert.ok(apiSource.includes("report_model: reportModel"));
+  assert.ok(app.includes("const [reportModel, setReportModel]"));
+  assert.ok(app.includes("setReportModel(config.report_model)"));
+  assert.ok(app.includes("日报模型"));
+  assert.ok(app.includes("gpt-5.5"));
   assert.ok(app.includes("当前密钥"));
   assert.ok(app.includes("留空则保持当前密钥"));
   assert.ok(app.includes("测试连接"));

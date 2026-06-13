@@ -301,67 +301,79 @@ function compactDailyMarkdown(markdown: string): string {
 }
 
 function fallbackDailyMarkdown(day: string, conversation: string, keywords: string[]): string {
-  const highlights = keywords.slice(0, 6).map((keyword) => `- ${keyword}`).join("\n") || "- 今日内容较少";
-  const firstLines = conversation
-    .split("\n")
-    .slice(0, 6)
-    .map((line) => `- ${line.slice(0, 120)}`)
-    .join("\n") || "- 暂无";
+  const highlights = keywords.slice(0, 6).map((keyword) => `- ${keyword}`).join("\n") || "- 今日有效学习内容较少";
+  const evidence = conversation.split("\n").find((line) => line.trim())?.slice(0, 120) || "今日有效学习材料不足";
   return `# ${day} 学习日报
 
-## 1. 今日学习概览
-${firstLines}
+## 今天最大的收获
+- ${evidence}
 
-## 2. 核心知识点
+## 今天修正的误解
+- 今日没有足够明确的误解修正记录。
+
+## 核心知识
 ${highlights}
 
-## 3. 典型问题与解法
-- 只保留今日最典型的 1-2 个问题，并整理成可复述的解题步骤。
+## 一句话记忆
+- 只记住今天真正形成的新理解。
 
-## 4. 易错点 / 未解决问题
-- 标记仍然含糊的概念，下一次用例题验证。
-
-## 5. 与历史内容的关联
-- 今日未发现足够明确的历史关联，后续以错题和高频概念做追踪。
-
-## 6. 下一步建议
-- 明天先用 10 分钟复述今日核心知识点。
-- 针对最不确定的问题补 1-2 道练习题。
-
-## 7. 简短复盘
-- 控制篇幅，适合后续 PDF 服务生成打印材料。
+## 明日建议
+- 明天先复述今天最重要的一条认知，再用题目验证。
 `;
 }
 
 async function aiDailyMarkdown(env: Env, day: string, conversation: string, keywords: string[]): Promise<string> {
-  const prompt = `请根据以下“考研学习相关”的问答生成一份高质量 Markdown 学习日报。
+  const prompt = `你是一名学习复盘助手。
 
-硬性要求：
-- 只讨论考研英语、数学、复习方法、错题和知识点；忽略编程、部署、闲聊、辱骂、系统排错等无关内容。
-- 不要复制完整聊天流水，不要输出代码块，不要把变量名或技术词当知识点。
-- 内容必须具体，可复习，可执行；不要写空泛套话。
-- 每节 2-4 条，整篇不超过 1400 个中文字符。
-- 必须使用这些标题：
+下面我会提供一天内与 AI 的有效学习对话记录。
+
+你的任务不是总结聊天内容，而是帮助我进行一次高质量的学习复盘。
+
+核心目标：
+- 不要关注“今天聊了什么”。
+- 要关注今天真正理解了什么、建立了哪些新认知、修正了哪些错误理解、哪些知识值得长期记忆。
+- 输出应该让我在 3 分钟内回顾完今天最有价值的学习收获。
+
+内容筛选：
+- 保留学习相关内容、知识理解过程、概念辨析、思维方式变化、问题解决过程中的关键认知。
+- 忽略闲聊、情绪表达、产品讨论、工具使用、环境配置、与学习无关的话题。
+
+输出原则：
+- 不要按照聊天顺序总结。
+- 不要出现“用户问了”“讨论了”“聊天中提到”等过程描述。
+- 必须从对话中提炼最终形成的知识和认知。
+- 合并重复问题，删除推导过程中已经被否定或修正的内容。
+- 优先保留一个月后仍然值得回顾的内容。
+- 语言简洁、信息密度高，整篇不超过 1400 个中文字符。
+- 只输出 Markdown，不要输出代码块。
+
+必须使用这些标题：
 # ${day} 学习日报
-## 1. 今日学习概览
-## 2. 核心知识点
-## 3. 典型问题与解法
-## 4. 易错点 / 未解决问题
-## 5. 与历史内容的关联
-## 6. 下一步建议
-## 7. 简短复盘
+## 今天最大的收获
+## 今天修正的误解
+## 核心知识
+## 一句话记忆
+## 明日建议
+
+格式要求：
+- “今天最大的收获”提炼 1-3 条最重要的认知增量，用完整句子表达“理解了什么”。
+- “今天修正的误解”只列重要误解；没有明确误解时写“今日没有足够明确的误解修正记录。”。
+- “核心知识”按知识点整理，每个知识点只保留核心结论、易混点、高频考点。
+- “一句话记忆”提炼 3-10 条短句，尽可能短且准确。
+- “明日建议”给出 1-3 条建议，优先针对尚未完全掌握、反复易错或值得深入的内容。
 
 关键词：${keywords.join(", ")}
 
-今日有效学习问答：
+有效学习对话记录：
 ${conversation}`;
   const fallback = fallbackDailyMarkdown(day, conversation, keywords);
+  const aiConfig = await getAiConfig(env);
   const markdown = await completeChat(
     [{ role: "user", content: prompt }],
-    env.AI_DEFAULT_MODEL,
+    aiConfig.report_model,
     fallback,
     env,
-    await getAiConfig(env)
+    aiConfig
   );
   return compactDailyMarkdown(markdown);
 }

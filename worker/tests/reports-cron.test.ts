@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { generateDailyReports, generateMonthlyReports, generateWeeklyReports, runScheduledJobs } from "../src/cron/jobs";
 import { cookieFrom, createTestEnv, fetchWorker, MemoryReportScheduler } from "./helpers";
@@ -118,6 +118,56 @@ describe("reports, cron jobs, and PDF downgrade", () => {
       period: "2026-06-09",
       markdown: expect.stringContaining("# 2026-06-09 学习日报")
     });
+  });
+
+  it("uses the configured high-quality model and cognition-review prompt for daily reports", async () => {
+    const { env, cookie, adminCookie, userId } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({ base_url: "https://ai.example.test/v1", api_key: "", report_model: "gpt-5.4-mini" })
+    });
+    await createMessage(env, userId, "今天理解了极限存在必须左右极限相等，并修正了只看代入值的误解", "2026-06-09T10:00:00.000Z");
+
+    let requestBody: { model?: string; messages?: Array<{ content?: string }> } | null = null;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "# 2026-06-09 学习日报\n\n## 今天最大的收获\n- 理解了极限存在要求左右极限相等。\n\n## 今天修正的误解\n### 误解\n之前以为：\n> 只要能代入就能判断极限。\n\n现在理解：\n> 极限关注趋近过程。\n\n## 核心知识\n- 极限存在：左右极限相等。\n\n## 一句话记忆\n- 极限看趋近，不只看代入。\n\n## 明日建议\n- 做 3 道左右极限题。"
+              }
+            }
+          ]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+
+    try {
+      await generateDailyReports(env, "2026-06-09");
+    } finally {
+      fetchMock.mockRestore();
+    }
+
+    expect(requestBody?.model).toBe("gpt-5.4-mini");
+    const prompt = requestBody?.messages?.[0]?.content || "";
+    expect(prompt).toContain("你的任务不是总结聊天内容，而是帮助我进行一次高质量的学习复盘");
+    expect(prompt).toContain("今天最大的收获");
+    expect(prompt).toContain("今天修正的误解");
+    expect(prompt).toContain("一句话记忆");
+    expect(prompt).not.toContain("今日学习概览");
+
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    const [report] = (await list.json()) as Array<{ id: number }>;
+    const content = await fetchWorker(env, `/api/reports/${report.id}`, { headers: { cookie } });
+    const body = (await content.json()) as { markdown: string };
+    expect(body.markdown).toContain("## 今天最大的收获");
+    expect(body.markdown).toContain("## 一句话记忆");
   });
 
   it("refreshes daily report metadata when regenerating the same day", async () => {

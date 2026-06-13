@@ -3,6 +3,7 @@ import type { Env } from "../env";
 export type AiConfig = {
   base_url: string;
   api_key: string;
+  report_model: string;
 };
 
 export type ChatMessage = {
