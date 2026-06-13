@@ -5,13 +5,14 @@ import { requireUser } from "../auth/routes";
 import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
-import { completeChat, isAiConfigured } from "../ai/client";
+import { completeChat } from "../ai/client";
 import {
   DEFAULT_TRANSLATION_PROMPT,
   TRANSLATION_INPUT_LIMIT,
   TRANSLATION_LIMIT_MESSAGE,
   TRANSLATION_PROMPT_PREFIX,
   buildTranslationUserPrompt,
+  correctedWordFromMarkdown,
   detectSourceKind,
   extractCanonicalWordAndMarkdown,
   extractPhoneticAndMarkdown,
@@ -96,10 +97,15 @@ async function findCachedWordDetail(env: Env, sourceText: string): Promise<Dicti
     env.DB.prepare("SELECT * FROM translation_dictionary_entries WHERE source_text = ?").bind(normalized)
   );
   if (
-    !entry?.result_markdown.trim() ||
+    !entry?.phonetic?.trim() ||
+    !entry.result_markdown.trim() ||
     isThinDictionaryMarkdown(entry.result_markdown) ||
     isFallbackTranslationMarkdown(entry.result_markdown)
   ) {
+    return null;
+  }
+  const correctedWord = correctedWordFromMarkdown(entry.result_markdown);
+  if (correctedWord && correctedWord !== normalized) {
     return null;
   }
   return entry;
@@ -230,7 +236,7 @@ async function translate(request: Request, env: Env): Promise<Response> {
 
   const fallback = fallbackTranslation(text, sourceKind);
   const aiConfig = await getAiConfig(env);
-  if (sourceKind === "word" && !isAiConfigured(aiConfig)) {
+  if (sourceKind === "word") {
     const cached = await findCachedWordDetail(env, text);
     if (cached) {
       const entry = await insertEntry(env, {

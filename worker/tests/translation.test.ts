@@ -269,6 +269,65 @@ describe("translation routes", () => {
     expect(cached?.result_markdown).not.toContain("bad-cache");
   });
 
+  it("uses the shared dictionary cache before calling AI for repeated word lookups", async () => {
+    const env = createTestEnv({
+      AI_BASE_URL: "https://ai.example/v1",
+      AI_API_KEY: "test-key"
+    });
+    const first = await loginUser({ DB: env.DB, BUCKET: env.BUCKET, REPORT_SCHEDULER: env.REPORT_SCHEDULER, AI_BASE_URL: env.AI_BASE_URL, AI_API_KEY: env.AI_API_KEY });
+    const adminLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    const invite = await fetchWorker(env, "/api/invites", {
+      method: "POST",
+      headers: { cookie: cookieFrom(adminLogin) },
+      body: JSON.stringify({ expires_days: 7 })
+    });
+    const { code } = (await invite.json()) as { code: string };
+    const secondRegister = await fetchWorker(env, "/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "cache-user@example.com", password: "user-password", invite_code: code })
+    });
+    const secondCookie = cookieFrom(secondRegister);
+    const aiFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "词条：access\n音标：/ˈakses/\n### 释义\n进入；使用权\n\n### 重点\n- 常见搭配：have access to。"
+              }
+            }
+          ]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", aiFetch);
+
+    const firstLookup = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie: first.cookie },
+      body: JSON.stringify({ text: "access" })
+    });
+    const secondLookup = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie: secondCookie },
+      body: JSON.stringify({ text: "access" })
+    });
+
+    expect(firstLookup.status).toBe(200);
+    expect(secondLookup.status).toBe(200);
+    expect(aiFetch).toHaveBeenCalledTimes(1);
+    await expect(secondLookup.json()).resolves.toMatchObject({
+      source_text: "access",
+      source_kind: "word",
+      phonetic: "/ˈakses/",
+      result_markdown: expect.stringContaining("have access to")
+    });
+  });
+
   it("stores the corrected canonical word when AI fixes a misspelled lookup", async () => {
     const { env, cookie } = await loginUser({
       AI_BASE_URL: "https://ai.example/v1",

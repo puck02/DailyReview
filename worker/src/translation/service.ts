@@ -119,6 +119,15 @@ export function isThinDictionaryMarkdown(markdown: string): boolean {
   return markdown.includes("### 考纲释义") && markdown.includes("词频：");
 }
 
+export function correctedWordFromMarkdown(markdown: string): string | null {
+  const match = markdown.match(/正确拼写是\s*[`"“]?([A-Za-z][A-Za-z'-]*)[`"”]?/);
+  if (!match) {
+    return null;
+  }
+  const normalized = normalizeWord(match[1] || "");
+  return isNormalizedWord(normalized) ? normalized : null;
+}
+
 export function buildTranslationUserPrompt(text: string, sourceKind: SourceKind): string {
   const typeLabel = { chinese: "中文", word: "英文单词", english: "英文短语或句子" }[sourceKind];
   return `输入类型：${typeLabel}
