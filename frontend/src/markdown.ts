@@ -61,6 +61,150 @@ function looksLikeInlineMath(value: string) {
   return true;
 }
 
+function matchingCloseIndex(value: string, openIndex: number): number {
+  const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+  const open = value[openIndex];
+  const close = pairs[open || ""];
+  if (!close) return -1;
+  let depth = 0;
+  for (let index = openIndex; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === open) depth += 1;
+    if (char === close) depth -= 1;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+function findTopLevelOperator(value: string, operator: string): number {
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    if (char === ")" || char === "]" || char === "}") depth = Math.max(0, depth - 1);
+    if (char === operator && depth === 0) return index;
+  }
+  return -1;
+}
+
+function stripOuterDelimiters(value: string): string {
+  let content = value.trim();
+  let changed = true;
+  while (changed && content.length > 1) {
+    changed = false;
+    const first = content[0];
+    if ((first === "(" || first === "[" || first === "{") && matchingCloseIndex(content, 0) === content.length - 1) {
+      content = content.slice(1, -1).trim();
+      changed = true;
+    }
+  }
+  return content;
+}
+
+function readRootOperand(value: string, start: number): { operand: string; end: number } | null {
+  let index = start;
+  while (value[index] === " ") index += 1;
+  if (value[index] === "(") {
+    const close = matchingCloseIndex(value, index);
+    if (close > index) {
+      return { operand: value.slice(index + 1, close), end: close + 1 };
+    }
+  }
+  const token = value.slice(index).match(/^[A-Za-z](?:_\{[^{}]+\}|_[A-Za-z0-9]+)?(?:\^\{[^{}]+\}|\^[A-Za-z0-9]+)?/);
+  if (!token) return null;
+  return { operand: token[0], end: index + token[0].length };
+}
+
+function normalizeRoots(value: string): string {
+  let result = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char !== "∛" && char !== "√") {
+      result += char;
+      continue;
+    }
+    const operand = readRootOperand(value, index + 1);
+    if (!operand) {
+      result += char;
+      continue;
+    }
+    const content = normalizeRoots(operand.operand.trim());
+    result += char === "∛" ? `\\sqrt[3]{${content}}` : `\\sqrt{${content}}`;
+    index = operand.end - 1;
+  }
+  return result;
+}
+
+function normalizeLimit(value: string): string {
+  return value.replace(/\blim_\{([^{}]+)\}/g, (_match, content: string) => {
+    const normalized = content
+      .replace(/→/g, " \\to ")
+      .replace(/->/g, " \\to ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return `\\lim_{${normalized}}`;
+  });
+}
+
+function splitLimitPrefix(value: string): { prefix: string; rest: string } {
+  const match = value.trim().match(/^(\\lim_\{[^{}]+\})\s+(.+)$/);
+  if (!match) return { prefix: "", rest: value };
+  return { prefix: match[1] || "", rest: match[2] || "" };
+}
+
+function normalizeFraction(value: string): string {
+  const parts: string[] = [];
+  let cursor = 0;
+  while (cursor < value.length) {
+    const nextEquals = findTopLevelOperator(value.slice(cursor), "=");
+    if (nextEquals === -1) {
+      parts.push(value.slice(cursor));
+      break;
+    }
+    parts.push(value.slice(cursor, cursor + nextEquals));
+    cursor += nextEquals + 1;
+  }
+  if (parts.length > 1) {
+    return parts.map((part) => normalizeFraction(part)).join(" = ");
+  }
+
+  const { prefix, rest } = splitLimitPrefix(value);
+  const target = rest.trim();
+  const slash = findTopLevelOperator(target, "/");
+  if (slash === -1) return value.trim();
+  const numerator = stripOuterDelimiters(target.slice(0, slash));
+  const denominator = stripOuterDelimiters(target.slice(slash + 1));
+  const fraction = `\\frac{${normalizeFraction(numerator)}}{${normalizeFraction(denominator)}}`;
+  return prefix ? `${prefix} ${fraction}` : fraction;
+}
+
+function hasTopLevelSlash(value: string): boolean {
+  const { rest } = splitLimitPrefix(normalizeLimit(value.trim()));
+  return findTopLevelOperator(rest, "/") !== -1;
+}
+
+function shouldUseDisplayMath(value: string): boolean {
+  const content = value.trim();
+  return /\blim_\{/.test(content) || hasTopLevelSlash(content);
+}
+
+function normalizeAssistantMath(value: string): string {
+  const normalized = normalizeLimit(normalizeRoots(value.trim()))
+    .replace(/→/g, " \\to ")
+    .replace(/->/g, " \\to ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalizeFraction(normalized);
+}
+
+function normalizeAssistantInlineMath(value: string): string {
+  return normalizeLimit(normalizeRoots(value.trim()))
+    .replace(/→/g, " \\to ")
+    .replace(/->/g, " \\to ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function escapeInlineMath(value: string) {
   return value.trim().replace(/\$/g, "\\$");
 }
@@ -68,7 +212,10 @@ function escapeInlineMath(value: string) {
 function normalizeInlineCodeMathLine(line: string) {
   return line.replace(/`([^`\n]+)`/g, (match, content: string) => {
     if (!looksLikeInlineMath(content)) return match;
-    return `$${escapeInlineMath(content)}$`;
+    if (shouldUseDisplayMath(content)) {
+      return `\n\n$$\n${normalizeAssistantMath(content)}\n$$\n\n`;
+    }
+    return `$${escapeInlineMath(normalizeAssistantInlineMath(content))}$`;
   });
 }
 

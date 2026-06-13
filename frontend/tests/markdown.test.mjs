@@ -39,6 +39,42 @@ test("normalizes inline code that is actually math", () => {
   const normalized = normalizeMarkdownMath(markdown);
 
   assert.ok(normalized.includes("$y_n = e^{x_n} - e^{-x_n}$"));
-  assert.ok(normalized.includes("$x = ln((y + √(y^2 + 4)) / 2)$"));
+  assert.ok(normalized.includes("$x = ln((y + \\sqrt{y^2 + 4}) / 2)$"));
   assert.ok(normalized.includes("`npm run build`"));
+});
+
+test("normalizes assistant-style roots in inline code math", () => {
+  const markdown = [
+    "`u = ∛x`",
+    "`∛(x^2) = ∛((u^3)^2) = ∛(u^6) = u^2`",
+    "`x = ln((y + √(y^2 + 4)) / 2)`"
+  ].join("\n");
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.ok(normalized.includes("$u = \\sqrt[3]{x}$"));
+  assert.ok(
+    normalized.includes(
+      "$\\sqrt[3]{x^2} = \\sqrt[3]{(u^3)^2} = \\sqrt[3]{u^6} = u^2$"
+    )
+  );
+  assert.ok(normalized.includes("$x = ln((y + \\sqrt{y^2 + 4}) / 2)$"));
+});
+
+test("normalizes assistant-style limit fractions and roots in code math", () => {
+  const markdown = [
+    "`lim_{x→1} (∛(x^2) - 2∛x + 1) / (x-1)^2`",
+    "`lim_{u→1} (u-1)^2 / [(u-1)^2(u^2+u+1)^2]`",
+    "`1 / (1+1+1)^2 = 1/9`"
+  ].join("\n");
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.ok(
+    normalized.includes("$$\n\\lim_{x \\to 1} \\frac{\\sqrt[3]{x^2} - 2\\sqrt[3]{x} + 1}{(x-1)^2}\n$$")
+  );
+  assert.ok(
+    normalized.includes("$$\n\\lim_{u \\to 1} \\frac{(u-1)^2}{(u-1)^2(u^2+u+1)^2}\n$$")
+  );
+  assert.ok(normalized.includes("$$\n\\frac{1}{(1+1+1)^2} = \\frac{1}{9}\n$$"));
 });
