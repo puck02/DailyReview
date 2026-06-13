@@ -51,6 +51,10 @@ export function normalizeWord(text: string): string {
   return text.trim().toLowerCase();
 }
 
+export function isNormalizedWord(text: string): boolean {
+  return /^[a-z][a-z'-]*$/.test(text);
+}
+
 export function fallbackTranslation(text: string, sourceKind: SourceKind): string {
   if (sourceKind === "chinese") {
     return `### 译文
@@ -78,15 +82,37 @@ export function isFallbackTranslationMarkdown(markdown: string): boolean {
 }
 
 export function extractPhoneticAndMarkdown(markdown: string): { phonetic: string | null; markdown: string } {
-  const match = markdown.match(/^\s*(?:音标|IPA|Phonetic)\s*[:：]\s*(.+?)\s*$/im);
-  if (!match || match.index === undefined) {
-    return { phonetic: null, markdown: markdown.trim() };
+  const lines = markdown.trim().split(/\r?\n/);
+  let phonetic: string | null = null;
+  const kept: string[] = [];
+  for (const line of lines) {
+    const match = line.match(/^\s*(?:音标|IPA|Phonetic)\s*[:：]\s*(.+?)\s*$/i);
+    if (match && !phonetic) {
+      phonetic = (match[1] || "").trim() || null;
+      continue;
+    }
+    kept.push(line);
   }
-  const phonetic = (match[1] || "").trim() || null;
-  const cleaned = `${markdown.slice(0, match.index)}${markdown.slice(match.index + match[0].length)}`
-    .trim()
-    .replace(/\n{3,}/g, "\n\n");
+  const cleaned = kept.join("\n").trim().replace(/\n{3,}/g, "\n\n");
   return { phonetic, markdown: cleaned };
+}
+
+export function extractCanonicalWordAndMarkdown(markdown: string): { canonicalWord: string | null; markdown: string } {
+  const lines = markdown.trim().split(/\r?\n/);
+  let canonicalWord: string | null = null;
+  const kept: string[] = [];
+  for (const line of lines) {
+    const match = line.match(/^\s*(?:词条|单词|Canonical Word)\s*[:：]\s*([A-Za-z][A-Za-z'-]*)\s*$/i);
+    if (match && !canonicalWord) {
+      const normalized = normalizeWord(match[1] || "");
+      if (isNormalizedWord(normalized)) {
+        canonicalWord = normalized;
+      }
+      continue;
+    }
+    kept.push(line);
+  }
+  return { canonicalWord, markdown: kept.join("\n").trim().replace(/\n{3,}/g, "\n\n") };
 }
 
 export function isThinDictionaryMarkdown(markdown: string): boolean {
@@ -100,6 +126,7 @@ export function buildTranslationUserPrompt(text: string, sourceKind: SourceKind)
 ${text.trim()}
 
 固定要求：如果输入或译文包含英文，请在第一行输出 \`音标：/.../\`，给出最核心英文单词或表达的音标。
+如果输入类型是英文单词，请在音标行前额外输出一行 \`词条：correct-word\`，其中 correct-word 必须是纠正拼写后的标准小写英文单词；如果用户输入拼写错误，不要把错误拼写作为词条。
 请按系统要求输出简洁 Markdown。`;
 }
 
@@ -108,7 +135,7 @@ export function buildWordDetailUserPrompt(word: string): string {
 输入内容：
 ${word.trim()}
 
-请在第一行输出 \`音标：/.../\`，然后用简洁 Markdown 给出释义、词根词缀、易混词、常见搭配和 1-2 句例句。`;
+请在第一行输出 \`词条：correct-word\`，第二行输出 \`音标：/.../\`，然后用简洁 Markdown 给出释义、词根词缀、易混词、常见搭配和 1-2 句例句。correct-word 必须是纠正拼写后的标准小写英文单词。`;
 }
 
 export function labelsForAutoWordDetails(text: string): string[] {

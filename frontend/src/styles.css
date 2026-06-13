@@ -1791,11 +1791,6 @@ textarea:focus {
   transform: translateY(-1px);
 }
 
-.word-cloud-chip small {
-  color: rgba(17, 17, 17, 0.62);
-  font-size: 11px;
-}
-
 .translation-cloud-empty {
   min-height: 128px;
   display: grid;

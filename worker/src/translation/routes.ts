@@ -5,7 +5,7 @@ import { requireUser } from "../auth/routes";
 import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
-import { completeChat } from "../ai/client";
+import { completeChat, isAiConfigured } from "../ai/client";
 import {
   DEFAULT_TRANSLATION_PROMPT,
   TRANSLATION_INPUT_LIMIT,
@@ -13,8 +13,10 @@ import {
   TRANSLATION_PROMPT_PREFIX,
   buildTranslationUserPrompt,
   detectSourceKind,
+  extractCanonicalWordAndMarkdown,
   extractPhoneticAndMarkdown,
   fallbackTranslation,
+  isNormalizedWord,
   isFallbackTranslationMarkdown,
   isThinDictionaryMarkdown,
   labelsForAutoWordDetails,
@@ -121,6 +123,14 @@ async function saveCachedWordDetail(env: Env, sourceText: string, phonetic: stri
     .run();
 }
 
+async function deleteCachedWordDetail(env: Env, sourceText: string): Promise<void> {
+  const normalized = normalizeWord(sourceText);
+  if (!normalized) {
+    return;
+  }
+  await env.DB.prepare("DELETE FROM translation_dictionary_entries WHERE source_text = ?").bind(normalized).run();
+}
+
 async function insertEntry(
   env: Env,
   values: {
@@ -210,6 +220,11 @@ async function translate(request: Request, env: Env): Promise<Response> {
   const sourceKind = detectSourceKind(text);
   if (sourceKind === "word") {
     text = normalizeWord(text);
+  }
+
+  const fallback = fallbackTranslation(text, sourceKind);
+  const aiConfig = await getAiConfig(env);
+  if (sourceKind === "word" && !isAiConfigured(aiConfig)) {
     const cached = await findCachedWordDetail(env, text);
     if (cached) {
       const entry = await insertEntry(env, {
@@ -224,9 +239,6 @@ async function translate(request: Request, env: Env): Promise<Response> {
       return json(entryResponse(entry));
     }
   }
-
-  const fallback = fallbackTranslation(text, sourceKind);
-  const aiConfig = await getAiConfig(env);
   let result: string;
   try {
     result = await completeChat(
@@ -242,13 +254,18 @@ async function translate(request: Request, env: Env): Promise<Response> {
   } catch {
     result = fallback;
   }
-  const extracted = extractPhoneticAndMarkdown(result);
+  const canonical = sourceKind === "word" ? extractCanonicalWordAndMarkdown(result) : { canonicalWord: null, markdown: result };
+  const correctedText = canonical.canonicalWord && isNormalizedWord(canonical.canonicalWord) ? canonical.canonicalWord : text;
+  const extracted = extractPhoneticAndMarkdown(canonical.markdown);
   if (sourceKind === "word") {
-    await saveCachedWordDetail(env, text, extracted.phonetic, extracted.markdown);
+    await saveCachedWordDetail(env, correctedText, extracted.phonetic, extracted.markdown);
+    if (correctedText !== text) {
+      await deleteCachedWordDetail(env, text);
+    }
   }
   const entry = await insertEntry(env, {
     userId: user.id,
-    sourceText: text,
+    sourceText: correctedText,
     sourceKind,
     phonetic: extracted.phonetic,
     resultMarkdown: extracted.markdown,

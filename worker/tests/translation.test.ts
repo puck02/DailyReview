@@ -214,4 +214,60 @@ describe("translation routes", () => {
     expect(cached?.result_markdown).toContain("衍生物");
     expect(cached?.result_markdown).not.toContain("bad-cache");
   });
+
+  it("stores the corrected canonical word when AI fixes a misspelled lookup", async () => {
+    const { env, cookie } = await loginUser({
+      AI_BASE_URL: "https://ai.example/v1",
+      AI_API_KEY: "test-key"
+    });
+    await env.DB.prepare(
+      `INSERT INTO translation_dictionary_entries (source_text, phonetic, result_markdown, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+      .bind("enviroment", null, "### 释义\n旧缓存，错误 key。", new Date().toISOString(), new Date().toISOString())
+      .run();
+    const aiFetch = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  "词条：environment\n音标：/ɪnˈvaɪrənmənt/\n### 释义\n环境\n\n### 拼写提醒\n- `enviroment` 是常见误拼，正确拼写是 `environment`。"
+              }
+            }
+          ]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", aiFetch);
+
+    const response = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ text: "enviroment" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(aiFetch).toHaveBeenCalledOnce();
+    await expect(response.json()).resolves.toMatchObject({
+      source_text: "environment",
+      source_kind: "word",
+      phonetic: "/ɪnˈvaɪrənmənt/",
+      result_markdown: expect.not.stringContaining("词条：")
+    });
+    const correct = await env.DB.prepare(
+      "SELECT source_text, result_markdown FROM translation_dictionary_entries WHERE source_text = ?"
+    )
+      .bind("environment")
+      .first<{ source_text: string; result_markdown: string }>();
+    expect(correct?.result_markdown).toContain("正确拼写是 `environment`");
+    const misspelled = await env.DB.prepare(
+      "SELECT source_text FROM translation_dictionary_entries WHERE source_text = ?"
+    )
+      .bind("enviroment")
+      .first<{ source_text: string }>();
+    expect(misspelled).toBeNull();
+  });
 });

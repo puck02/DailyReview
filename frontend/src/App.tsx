@@ -456,7 +456,6 @@ function TranslationWordCloud({
                         onClick={() => openCloudDetail(item)}
                       >
                         <span>{item.label}</span>
-                        {item.count > 1 && <small>{item.count}</small>}
                       </button>
                     ))}
                   </div>

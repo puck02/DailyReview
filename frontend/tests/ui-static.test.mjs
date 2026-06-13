@@ -469,6 +469,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("data-size={item.weight}"));
   assert.ok(app.includes("data-tone={cloudTone(item.key)}"));
   assert.ok(app.includes("data-label={item.label}"));
+  assert.doesNotMatch(app, /<small>\{item\.count\}<\/small>/);
   assert.ok(app.includes("word-cloud-stage"));
   assert.ok(app.includes("word-cloud-lane"));
   assert.ok(app.includes("word-cloud-run"));
