@@ -192,6 +192,7 @@ export const api = {
       body: JSON.stringify({ system_prompt: systemPrompt })
     }),
   translationEntries: () => request<TranslationEntry[]>("/api/translation/entries"),
+  clearTranslationEntries: () => request<{ status: string }>("/api/translation/entries", { method: "DELETE" }),
   translationDictionaryEntry: (text: string) =>
     request<TranslationEntry>("/api/translation/dictionary-entry", {
       method: "POST",

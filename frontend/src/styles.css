@@ -312,6 +312,11 @@ textarea:focus {
   transform: translateY(-1px);
 }
 
+.secondary-button.danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
 .primary-button.compact,
 .secondary-button.compact {
   width: auto;

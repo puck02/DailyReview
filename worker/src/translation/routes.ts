@@ -203,6 +203,12 @@ async function listEntries(request: Request, env: Env): Promise<Response> {
   return json(entries.map(entryResponse));
 }
 
+async function clearEntries(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  await env.DB.prepare("DELETE FROM translation_entries WHERE user_id = ?").bind(user.id).run();
+  return json({ status: "ok" });
+}
+
 async function dictionaryEntry(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = translationSchema.parse(await parseJson<unknown>(request));
@@ -295,6 +301,7 @@ export function translationRoutes(env: Env): Route[] {
     route("GET", "/api/translation/prompt", (request) => readPrompt(request, env)),
     route("PUT", "/api/translation/prompt", (request) => updatePrompt(request, env)),
     route("GET", "/api/translation/entries", (request) => listEntries(request, env)),
+    route("DELETE", "/api/translation/entries", (request) => clearEntries(request, env)),
     route("POST", "/api/translation/dictionary-entry", (request) => dictionaryEntry(request, env)),
     route("POST", "/api/translation", (request) => translate(request, env))
   ];

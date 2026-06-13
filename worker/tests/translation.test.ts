@@ -139,6 +139,60 @@ describe("translation routes", () => {
     expect(body).toHaveLength(30);
   });
 
+  it("clears only the current user's translation entries without deleting shared dictionary cache", async () => {
+    const env = createTestEnv();
+    const first = await loginUser({ DB: env.DB, BUCKET: env.BUCKET, REPORT_SCHEDULER: env.REPORT_SCHEDULER });
+    const adminLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    const invite = await fetchWorker(env, "/api/invites", {
+      method: "POST",
+      headers: { cookie: cookieFrom(adminLogin) },
+      body: JSON.stringify({ expires_days: 7 })
+    });
+    const { code } = (await invite.json()) as { code: string };
+    const secondRegister = await fetchWorker(env, "/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "other@example.com", password: "user-password", invite_code: code })
+    });
+    const secondCookie = cookieFrom(secondRegister);
+    await fetchWorker(env, "/api/translation/dictionary-entry", {
+      method: "POST",
+      headers: { cookie: first.cookie },
+      body: JSON.stringify({ text: "derivative" })
+    });
+    await fetchWorker(env, "/api/translation/dictionary-entry", {
+      method: "POST",
+      headers: { cookie: secondCookie },
+      body: JSON.stringify({ text: "matrix" })
+    });
+    await env.DB.prepare(
+      `INSERT INTO translation_dictionary_entries (source_text, phonetic, result_markdown, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+      .bind("derivative", "/dɪˈrɪvətɪv/", "### 释义\n导数", new Date().toISOString(), new Date().toISOString())
+      .run();
+
+    const cleared = await fetchWorker(env, "/api/translation/entries", {
+      method: "DELETE",
+      headers: { cookie: first.cookie }
+    });
+
+    expect(cleared.status).toBe(200);
+    await expect(cleared.json()).resolves.toEqual({ status: "ok" });
+    const firstEntries = await fetchWorker(env, "/api/translation/entries", { headers: { cookie: first.cookie } });
+    await expect(firstEntries.json()).resolves.toEqual([]);
+    const secondEntries = await fetchWorker(env, "/api/translation/entries", { headers: { cookie: secondCookie } });
+    await expect(secondEntries.json()).resolves.toMatchObject([{ source_text: "matrix" }]);
+    const sharedCache = await env.DB.prepare(
+      "SELECT source_text FROM translation_dictionary_entries WHERE source_text = ?"
+    )
+      .bind("derivative")
+      .first<{ source_text: string }>();
+    expect(sharedCache?.source_text).toBe("derivative");
+  });
+
   it("does not cache AI fallback word translations in the global dictionary", async () => {
     const { env, cookie } = await loginUser();
 

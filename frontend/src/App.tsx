@@ -98,6 +98,7 @@ const complexModel = "gpt-5.5";
 const reportModels = [defaultModel, complexModel];
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
+const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared";
 const wordCloudLaneCount = 4;
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
 function preloadMarkdownRenderer() {
@@ -1421,6 +1422,16 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   }, []);
 
   useEffect(() => {
+    function handleEntriesCleared() {
+      setEntries([]);
+      setResult(null);
+    }
+
+    window.addEventListener(translationEntriesClearedEvent, handleEntriesCleared);
+    return () => window.removeEventListener(translationEntriesClearedEvent, handleEntriesCleared);
+  }, []);
+
+  useEffect(() => {
     if (!entries.some((entry) => entry.is_auto_detail && isTranslationDetailPending(entry))) return;
     const timer = window.setInterval(() => {
       api
@@ -1640,6 +1651,7 @@ function SettingsView({
   const [weeklyDay, setWeeklyDay] = useState(currentSettings.weekly_report_day);
   const [wordCloudEnabled, setWordCloudEnabled] = useState(currentSettings.word_cloud_enabled);
   const [busy, setBusy] = useState(false);
+  const [clearingEntries, setClearingEntries] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const settingsAutoSave = useRef<number | null>(null);
@@ -1698,6 +1710,22 @@ function SettingsView({
     };
   }, [dailyTime, weeklyTime, weeklyDay, wordCloudEnabled, settings, onSaved]);
 
+  async function clearTranslationEntries() {
+    if (clearingEntries || !window.confirm("确定清空当前账号的词条和词云记录吗？")) return;
+    setClearingEntries(true);
+    setError("");
+    setSaved("");
+    try {
+      await api.clearTranslationEntries();
+      window.dispatchEvent(new Event(translationEntriesClearedEvent));
+      setSaved("词条记录已清空");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "清空失败");
+    } finally {
+      setClearingEntries(false);
+    }
+  }
+
   return (
     <section className="settings-panel">
       <div className="settings-content">
@@ -1744,6 +1772,16 @@ function SettingsView({
               type="button"
             >
               <span />
+            </button>
+          </div>
+          <div className="settings-row">
+            <div>
+              <span>词条记录</span>
+              <p>清空当前账号的翻译历史和词云内容。</p>
+            </div>
+            <button className="secondary-button compact danger" type="button" onClick={clearTranslationEntries} disabled={clearingEntries}>
+              <Trash2 size={16} />
+              {clearingEntries ? "清空中..." : "清空词条"}
             </button>
           </div>
         </section>

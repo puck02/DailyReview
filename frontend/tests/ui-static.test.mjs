@@ -458,6 +458,8 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("function isTranslationDetailPending"));
   assert.ok(app.includes("translation-phonetic"));
   assert.ok(app.includes("api.translationEntries()"));
+  assert.ok(app.includes("dailyreview:translation-entries-cleared"));
+  assert.ok(apiSource.includes("clearTranslationEntries"));
   assert.ok(app.includes("entry.detail_status === \"queued\" || entry.detail_status === \"processing\""));
   assert.ok(app.includes("正在查询词条并生成详解"));
   assert.ok(app.includes("正在按学习 Prompt 生成详解"));
@@ -492,6 +494,8 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("考研英语一"));
   assert.ok(app.includes("词根词缀"));
   assert.ok(app.includes("翻译 / 讲解"));
+  assert.ok(app.includes("清空词条"));
+  assert.ok(app.includes("api.clearTranslationEntries()"));
   assert.match(styles, /\.translation-panel\s*{[^}]*display:\s*grid;/s);
   assert.match(styles, /\.translation-workbench\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) 64px minmax\(0,\s*1fr\);/s);
   assert.match(styles, /\.translation-card\s*{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px solid var\(--stroke\);/s);
