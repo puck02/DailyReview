@@ -23,7 +23,7 @@ test("uses black and white surfaces with a pale purple global sidebar", () => {
   assert.match(styles, /\.app-nav\s*{[^}]*background:\s*var\(--sidebar-tint\);/s);
   assert.match(styles, /\.app-nav button\s*{[^}]*color:\s*var\(--headline\);/s);
   assert.match(styles, /\.send-button[^,{]*,[\s\S]*?\.new-session\s*{[^}]*background:\s*var\(--primary-bg\);/s);
-  assert.match(styles, /\.message-content\s*{[^}]*background:\s*var\(--message-surface\);/s);
+  assert.match(styles, /\.message\.user \.message-content\s*{[^}]*background:\s*var\(--message-surface\);/s);
 
   for (const color of ["#00473e", "#475d5b", "#faae2b", "#ffa8ba", "#fa5246", "0, 71, 62"]) {
     assert.ok(!styles.includes(color), `${color} should not remain in styles`);
@@ -78,13 +78,19 @@ test("desktop global sidebar is a narrow icon rail", () => {
   assert.ok(app.includes('className="nav-label"'));
 });
 
-test("chat messages keep assistant left and user right", () => {
+test("chat messages render flat assistant replies and compact user messages", () => {
+  assert.doesNotMatch(app, /function ChatGptAvatar/);
+  assert.doesNotMatch(app, /<ChatGptAvatar \/>/);
+  assert.doesNotMatch(styles, /\.message-avatar\s*{/);
+  assert.doesNotMatch(styles, /\.ai-avatar\s*{/);
   assert.match(styles, /\.message\.assistant\s*{[^}]*justify-content:\s*start;/s);
   assert.match(styles, /\.message\.user\s*{[^}]*justify-content:\s*end;/s);
-  assert.ok(app.includes("ChatGptAvatar"));
-  assert.ok(app.includes('<img src={appIconUrl} alt="" />'));
   assert.ok(app.includes("message ${message.role}"));
   assert.ok(!app.includes("user-avatar"));
+  assert.match(styles, /\.messages\s*{[^}]*--chat-content-width:\s*860px;/s);
+  assert.match(styles, /\.message\s*{[^}]*max-width:\s*var\(--chat-content-width\);/s);
+  assert.match(styles, /\.message\.assistant \.message-content\s*{[^}]*width:\s*100%;[^}]*max-width:\s*100%;[^}]*border:\s*0;[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.message\.user \.message-content\s*{[^}]*max-width:\s*min\(680px,\s*100%\);/s);
 });
 
 test("assistant reply shows a pulsing black dot while waiting for the first token", () => {
@@ -226,7 +232,7 @@ test("app icon is used for favicon and brand", () => {
   assert.doesNotMatch(appIcon, /<path d="M1 578\.4C1 259\.5/);
   assert.match(appIcon, /fill="#111111"/);
   assert.match(styles, /\.app-icon\s*{[^}]*border-radius:\s*50%;/s);
-  assert.match(styles, /\.ai-avatar img\s*{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*border-radius:\s*50%;/s);
+  assert.doesNotMatch(styles, /\.ai-avatar\s*{/);
   assert.ok(!appIcon.includes("#faae2b"));
 });
 
@@ -249,10 +255,11 @@ test("chat sidebar can collapse from the top-left control", () => {
   assert.match(styles, /\.session-retention-note\s*{/);
 });
 
-test("sidebar and chat bubbles follow ChatGPT-style light surfaces", () => {
+test("sidebar and user messages keep quiet light surfaces", () => {
   assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*var\(--panel-bg\);/s);
   assert.match(styles, /\.new-session\s*{[^}]*background:\s*var\(--button-surface\);/s);
-  assert.match(styles, /\.message-content\s*{[^}]*background:\s*var\(--message-surface\);/s);
+  assert.match(styles, /\.message\.user \.message-content\s*{[^}]*background:\s*var\(--message-surface\);/s);
+  assert.match(styles, /\.message\.assistant \.message-content\s*{[^}]*background:\s*transparent;/s);
 });
 
 test("composer textarea starts as one centered line and grows to four lines", () => {
@@ -269,6 +276,7 @@ test("composer textarea starts as one centered line and grows to four lines", ()
   assert.match(styles, /\.composer textarea\s*{[^}]*overflow-y:\s*auto;/s);
   assert.match(styles, /\.composer textarea\s*{[^}]*padding:\s*0 2px;/s);
   assert.match(styles, /\.composer-row\s*{[^}]*align-items:\s*center;/s);
+  assert.match(styles, /\.composer-row\s*{[^}]*border-radius:\s*30px;/s);
 });
 
 test("empty chat shows a centered greeting with the composer below it", () => {
@@ -579,5 +587,6 @@ test("mobile chat uses a slide-over session drawer", () => {
   assert.ok(app.includes("if (isMobileViewport()) setSidebarOpen(false);"));
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane\s*{[\s\S]*position:\s*fixed;[\s\S]*transform:\s*translateX\(0\);/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.workspace\.sidebar-collapsed \.sessions-pane\s*{[\s\S]*transform:\s*translateX\(-100%\);/);
-  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message-content\s*{[\s\S]*max-width:\s*calc\(100vw - 64px\);/);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message\.user \.message-content\s*{[\s\S]*max-width:\s*100%;/);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message\.assistant \.message-content\s*{[\s\S]*padding:\s*4px 44px 4px 0;/);
 });

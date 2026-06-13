@@ -542,14 +542,6 @@ function AppIcon({ size = 22 }: { size?: number }) {
   return <img className="app-icon" src={appIconUrl} width={size} height={size} alt="" />;
 }
 
-function ChatGptAvatar() {
-  return (
-    <div className="message-avatar ai-avatar" aria-label="AI">
-      <img src={appIconUrl} alt="" />
-    </div>
-  );
-}
-
 function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -1208,7 +1200,6 @@ function ChatView({
                 const isAssistantThinking = message.role === "assistant" && busy && !message.content.trim();
                 return (
                   <div key={message.id} className={`message ${message.role}`}>
-                    {message.role === "assistant" && <ChatGptAvatar />}
                     <div className="message-content">
                       {isAssistantThinking && <TypingIndicator />}
                       {message.attachments.length > 0 && (
