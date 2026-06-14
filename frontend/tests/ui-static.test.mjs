@@ -40,7 +40,7 @@ test("theme follows system dark mode with readable chat surfaces", () => {
   assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--message-surface:\s*#242424;/);
   assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*var\(--panel-bg\);/s);
   assert.match(styles, /\.new-session\s*{[^}]*background:\s*var\(--button-surface\);/s);
-  assert.match(styles, /\.composer-row\s*{[^}]*background:\s*var\(--surface\);/s);
+  assert.match(styles, /\.composer-shell\s*{[^}]*background:\s*var\(--surface\);/s);
   assert.match(styles, /\.auth-panel\s*{[^}]*border:\s*1px solid var\(--stroke\);/s);
   assert.match(styles, /\.markdown-code\s*{[^}]*background:\s*var\(--code-bg\);/s);
   assert.match(styles, /\.markdown-table\s*{[^}]*background:\s*var\(--table-bg\);/s);
@@ -194,13 +194,17 @@ test("message code blocks use syntax highlighting in light and dark themes", () 
 
 test("assistant messages have one reply copy control while code blocks keep their own copy control", () => {
   assert.ok(markdownRenderer.includes("CopyableMarkdownBlock"));
-  assert.ok(app.includes("MessageCopyButton"));
+  assert.ok(app.includes("MessageActions"));
   assert.ok(app.includes("copyMarkdownText"));
   assert.ok(app.includes("navigator.clipboard.writeText"));
   assert.ok(app.includes('copyable={message.role === "assistant"}'));
+  assert.ok(app.includes("message-actions"));
   assert.ok(app.includes('message-copy-button'));
-  assert.ok(app.includes('text={message.content}'));
   assert.ok(app.includes('aria-label={copied ? "已复制整条回复" : "复制整条回复"}'));
+  assert.ok(app.includes('aria-label="重新生成回复"'));
+  assert.ok(app.includes("RefreshCw"));
+  assert.ok(app.includes("regenerateAssistantMessage(message)"));
+  assert.ok(app.includes('text={message.content}'));
   assert.ok(markdownRenderer.includes('aria-label={copied ? "已复制" : "复制此块"}'));
   assert.ok(app.includes("Copy size={14}"));
   assert.ok(app.includes("Check size={14}"));
@@ -209,13 +213,48 @@ test("assistant messages have one reply copy control while code blocks keep thei
   assert.doesNotMatch(markdownRenderer, /return <CopyableMarkdownBlock text=\{markdownTextFromNode\(children\)\}>\{list\}<\/CopyableMarkdownBlock>;/);
   assert.match(styles, /\.copyable-markdown-block\s*{[^}]*position:\s*relative;/s);
   assert.match(styles, /\.copy-block-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*4px;[^}]*right:\s*4px;/s);
-  assert.match(styles, /\.message-copy-button\s*{[^}]*position:\s*absolute;[^}]*top:\s*8px;[^}]*right:\s*8px;/s);
+  assert.match(styles, /\.message-actions\s*{[^}]*display:\s*flex;[^}]*justify-content:\s*flex-start;/s);
+  assert.match(styles, /\.message-action-button\s*{[^}]*width:\s*30px;[^}]*height:\s*30px;/s);
   assert.match(styles, /\.copyable-markdown-block:not\(\.copyable-code-block\) > \.copy-block-button\s*{[^}]*display:\s*none;/s);
   assert.match(styles, /\.copyable-code-block:hover > \.copy-block-button/s);
   assert.match(styles, /\.copyable-code-block > \.copy-block-button:focus-visible/s);
   assert.doesNotMatch(styles, /\.copyable-markdown-block:hover \.copy-block-button/);
-  assert.match(styles, /\.message\.assistant \.message-content:hover \.message-copy-button/s);
+  assert.doesNotMatch(styles, /\.message\.assistant \.message-content:hover \.message-copy-button/s);
   assert.match(styles, /\.copyable-markdown-block \.markdown-code\s*{[^}]*padding-right:\s*42px;/s);
+});
+
+test("assistant regenerate uses the previous user message and replaces the assistant reply", () => {
+  assert.ok(apiSource.includes("regenerateChat"));
+  assert.ok(apiSource.includes('"/api/chat/regenerate"'));
+  assert.ok(app.includes("async function regenerateAssistantMessage"));
+  assert.ok(app.includes("lastUserMessage"));
+  assert.ok(app.includes("setMessages((current) => current.filter((message) => message.id !== assistantMessage.id))"));
+  assert.ok(app.includes("content: lastUserMessage.content"));
+  assert.ok(app.includes("attachment_ids: lastUserMessage.attachments.map((attachment) => attachment.id)"));
+  assert.ok(app.includes("regenerateAssistantMessage(message)"));
+  assert.match(styles, /\.message-action-button:disabled\s*{/);
+});
+
+test("pending image previews share one visual surface with the composer", () => {
+  assert.ok(app.includes("composer-shell"));
+  assert.match(styles, /\.composer-shell\s*{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px solid var\(--stroke\);[^}]*border-radius:\s*32px;/s);
+  assert.match(styles, /\.attachment-grid\s*{[^}]*background:\s*transparent;[^}]*border:\s*0;/s);
+  assert.match(styles, /\.composer-row\s*{[^}]*background:\s*transparent;[^}]*border:\s*0;[^}]*box-shadow:\s*none;/s);
+  assert.doesNotMatch(styles, /\.attachment-grid \+ \.form-error \+ \.composer-row/);
+  assert.doesNotMatch(styles, /\.attachment-grid \+ \.composer-row/);
+});
+
+test("admin provider settings expand by clicking each provider row", () => {
+  assert.ok(app.includes('const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>'));
+  assert.ok(app.includes("toggleProvider"));
+  assert.ok(app.includes("provider-row-button"));
+  assert.ok(app.includes("provider-card-body"));
+  assert.ok(app.includes('aria-expanded={expandedProvider === "gpt"}'));
+  assert.ok(app.includes('aria-expanded={expandedProvider === "zhipu"}'));
+  assert.ok(app.includes("ChevronDown"));
+  assert.match(styles, /\.provider-grid\s*{[^}]*grid-template-columns:\s*1fr;/s);
+  assert.match(styles, /\.provider-row-button\s*{[^}]*display:\s*grid;/s);
+  assert.match(styles, /\.provider-card-body\s*{[^}]*display:\s*grid;/s);
 });
 
 test("composer blocks sending while image upload is still running", () => {

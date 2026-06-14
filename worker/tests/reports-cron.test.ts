@@ -201,6 +201,64 @@ describe("reports, cron jobs, and PDF downgrade", () => {
     expect(body.markdown).toContain("## 一句话记忆");
   });
 
+  it("switches to a healthy provider during the ten-minute channel check when the active provider fails", async () => {
+    const { env, adminCookie } = await loginUser();
+    await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({
+        active_provider: "gpt",
+        providers: {
+          gpt: {
+            base_url: "https://broken.example.test/v1",
+            api_key: "broken-key",
+            text_model: "gpt-5.5",
+            vision_model: "gpt-5.5",
+            translation_model: "gpt-5.5",
+            report_model: "gpt-5.5"
+          },
+          zhipu: {
+            base_url: "https://healthy.example.test/v1",
+            api_key: "healthy-key",
+            text_model: "glm-5",
+            vision_model: "glm-4.6v",
+            translation_model: "glm-5",
+            report_model: "glm-5"
+          }
+        }
+      })
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const body = JSON.parse(String(init?.body || "{}")) as { model?: string };
+      if (String(input).includes("broken.example.test")) {
+        return new Response("fail", { status: 500 });
+      }
+      if (String(input).includes("healthy.example.test")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: body.model || "OK" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    try {
+      await runScheduledJobs(env, new Date("2026-06-11T00:10:00.000Z"), "*/10 * * * *");
+    } finally {
+      fetchMock.mockRestore();
+    }
+
+    const config = await fetchWorker(env, "/api/admin/ai-config", {
+      headers: { cookie: adminCookie }
+    });
+    expect(config.status).toBe(200);
+    await expect(config.json()).resolves.toMatchObject({ active_provider: "zhipu" });
+  });
+
   it("extracts high-value learning events before writing the daily report", async () => {
     const { env, cookie, userId } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";

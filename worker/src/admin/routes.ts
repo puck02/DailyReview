@@ -14,7 +14,7 @@ import {
   type AiProviderName
 } from "../ai/providers";
 
-const ACTIVE_PROVIDER_KEY = "ai_active_provider";
+export const ACTIVE_PROVIDER_KEY = "ai_active_provider";
 const GPT_BASE_URL_KEY = "ai_provider_gpt_base_url";
 const GPT_API_KEY_KEY = "ai_provider_gpt_api_key";
 const GPT_TEXT_MODEL_KEY = "ai_provider_gpt_text_model";
@@ -67,7 +67,7 @@ async function getSettingsMap(env: Env, keys: string[]): Promise<Map<string, str
   return new Map(rows.map((row) => [row.key, row.value]));
 }
 
-async function setSetting(env: Env, key: string, value: string): Promise<void> {
+export async function setAiSetting(env: Env, key: string, value: string): Promise<void> {
   await env.DB.prepare(
     "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
   )
@@ -275,19 +275,19 @@ function buildLegacyPatch(payload: z.infer<typeof adminAiConfigSchema>): {
 }
 
 async function saveProviderConfig(env: Env, config: AiConfig): Promise<void> {
-  await setSetting(env, ACTIVE_PROVIDER_KEY, config.active_provider);
-  await setSetting(env, GPT_BASE_URL_KEY, config.providers.gpt.base_url);
-  await setSetting(env, GPT_API_KEY_KEY, config.providers.gpt.api_key);
-  await setSetting(env, GPT_TEXT_MODEL_KEY, config.providers.gpt.text_model);
-  await setSetting(env, GPT_VISION_MODEL_KEY, config.providers.gpt.vision_model);
-  await setSetting(env, GPT_TRANSLATION_MODEL_KEY, config.providers.gpt.translation_model);
-  await setSetting(env, GPT_REPORT_MODEL_KEY, config.providers.gpt.report_model);
-  await setSetting(env, ZHIPU_BASE_URL_KEY, config.providers.zhipu.base_url);
-  await setSetting(env, ZHIPU_API_KEY_KEY, config.providers.zhipu.api_key);
-  await setSetting(env, ZHIPU_TEXT_MODEL_KEY, config.providers.zhipu.text_model);
-  await setSetting(env, ZHIPU_VISION_MODEL_KEY, config.providers.zhipu.vision_model);
-  await setSetting(env, ZHIPU_TRANSLATION_MODEL_KEY, config.providers.zhipu.translation_model);
-  await setSetting(env, ZHIPU_REPORT_MODEL_KEY, config.providers.zhipu.report_model);
+  await setAiSetting(env, ACTIVE_PROVIDER_KEY, config.active_provider);
+  await setAiSetting(env, GPT_BASE_URL_KEY, config.providers.gpt.base_url);
+  await setAiSetting(env, GPT_API_KEY_KEY, config.providers.gpt.api_key);
+  await setAiSetting(env, GPT_TEXT_MODEL_KEY, config.providers.gpt.text_model);
+  await setAiSetting(env, GPT_VISION_MODEL_KEY, config.providers.gpt.vision_model);
+  await setAiSetting(env, GPT_TRANSLATION_MODEL_KEY, config.providers.gpt.translation_model);
+  await setAiSetting(env, GPT_REPORT_MODEL_KEY, config.providers.gpt.report_model);
+  await setAiSetting(env, ZHIPU_BASE_URL_KEY, config.providers.zhipu.base_url);
+  await setAiSetting(env, ZHIPU_API_KEY_KEY, config.providers.zhipu.api_key);
+  await setAiSetting(env, ZHIPU_TEXT_MODEL_KEY, config.providers.zhipu.text_model);
+  await setAiSetting(env, ZHIPU_VISION_MODEL_KEY, config.providers.zhipu.vision_model);
+  await setAiSetting(env, ZHIPU_TRANSLATION_MODEL_KEY, config.providers.zhipu.translation_model);
+  await setAiSetting(env, ZHIPU_REPORT_MODEL_KEY, config.providers.zhipu.report_model);
 }
 
 function aiConfigResponse(config: AiConfig): ReturnType<typeof configResponse> {

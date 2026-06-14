@@ -6,6 +6,7 @@ import {
   generateMonthlyReport,
   generateWeeklyReport
 } from "../reports/service";
+import { checkAndSwitchAiProvider } from "../ai/health";
 import { ensureReportSchedulers } from "../report-scheduler";
 import { getUserReportSettings } from "../settings/report-settings";
 
@@ -128,7 +129,11 @@ export async function backfillMissedDailyReports(env: Env, now: Date, limit = 10
   }
 }
 
-export async function runScheduledJobs(env: Env, now: Date): Promise<void> {
+export async function runScheduledJobs(env: Env, now: Date, cron = "0 * * * *"): Promise<void> {
+  if (cron === "*/10 * * * *") {
+    await checkAndSwitchAiProvider(env);
+    return;
+  }
   await backfillMissedDailyReports(env, now, 100);
   await ensureReportSchedulers(env, 100);
   await processQueuedWordDetails(env, 10);

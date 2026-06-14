@@ -366,4 +366,22 @@ describe("settings and admin routes", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ detail: "AI 模型无效" });
   });
+
+  it("returns provider configuration for collapsing each provider row independently", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+    const response = await fetchWorker(env, "/api/admin/ai-config", { headers: { cookie } });
+
+    expect(response.status).toBe(200);
+    const config = (await response.json()) as {
+      active_provider: "gpt" | "zhipu";
+      providers: {
+        gpt: { api_key_preview: string | null; text_model: string; vision_model: string; translation_model: string; report_model: string };
+        zhipu: { api_key_preview: string | null; text_model: string; vision_model: string; translation_model: string; report_model: string };
+      };
+    };
+    expect(config.active_provider).toBe("gpt");
+    expect(config.providers.gpt.text_model).toBe("gpt-5.5");
+    expect(config.providers.zhipu.text_model).toBe("glm-5");
+  });
 });

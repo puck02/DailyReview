@@ -47,7 +47,7 @@ export default {
       return errorResponse(error);
     }
   },
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
-    await runScheduledJobs(env, new Date());
+  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+    await runScheduledJobs(env, new Date(event.scheduledTime), event.cron);
   }
 };

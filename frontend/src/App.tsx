@@ -16,6 +16,7 @@ import {
   Check,
   Archive,
   ArchiveRestore,
+  ChevronDown,
   Copy,
   Download,
   ImagePlus,
@@ -27,6 +28,7 @@ import {
   LogOut,
   MessageSquareText,
   Plus,
+  RefreshCw,
   Send,
   FileText,
   Settings,
@@ -45,6 +47,7 @@ import {
   ReportContent,
   ReportItem,
   TranslationEntry,
+  regenerateChat,
   streamChat,
   User
 } from "./api";
@@ -163,7 +166,15 @@ async function copyMarkdownText(text: string) {
   return copied;
 }
 
-function MessageCopyButton({ text }: { text: string }) {
+function MessageActions({
+  text,
+  onRegenerate,
+  disabled
+}: {
+  text: string;
+  onRegenerate: () => void;
+  disabled: boolean;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -173,15 +184,27 @@ function MessageCopyButton({ text }: { text: string }) {
   }
 
   return (
-    <button
-      type="button"
-      className={copied ? "message-copy-button copied" : "message-copy-button"}
-      onClick={handleCopy}
-      aria-label={copied ? "已复制整条回复" : "复制整条回复"}
-      title={copied ? "已复制" : "复制整条回复"}
-    >
-      {copied ? <Check size={14} /> : <Copy size={14} />}
-    </button>
+    <div className="message-actions">
+      <button
+        type="button"
+        className="message-action-button"
+        onClick={onRegenerate}
+        disabled={disabled}
+        aria-label="重新生成回复"
+        title="重新生成"
+      >
+        <RefreshCw size={14} />
+      </button>
+      <button
+        type="button"
+        className={copied ? "message-action-button message-copy-button copied" : "message-action-button message-copy-button"}
+        onClick={handleCopy}
+        aria-label={copied ? "已复制整条回复" : "复制整条回复"}
+        title={copied ? "已复制" : "复制整条回复"}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </button>
+    </div>
   );
 }
 
@@ -1000,6 +1023,58 @@ function ChatView({
     }
   }
 
+  async function regenerateAssistantMessage(assistantMessage: Message) {
+    if (!active || busy) return;
+    const assistantIndex = messages.findIndex((message) => message.id === assistantMessage.id);
+    const lastUserMessage = messages
+      .slice(0, assistantIndex)
+      .reverse()
+      .find((message) => message.role === "user");
+    if (!lastUserMessage) {
+      setError("没有可重新生成的用户消息");
+      return;
+    }
+    const replacement: Message = {
+      id: Date.now(),
+      role: "assistant",
+      content: "",
+      model,
+      created_at: new Date().toISOString(),
+      attachments: []
+    };
+    setMessages((current) => current.filter((message) => message.id !== assistantMessage.id));
+    setMessages((current) => {
+      const userIndex = current.findIndex((message) => message.id === lastUserMessage.id);
+      if (userIndex < 0) return [...current, replacement];
+      return [...current.slice(0, userIndex + 1), replacement, ...current.slice(userIndex + 1)];
+    });
+    setBusy(true);
+    setError("");
+    try {
+      await regenerateChat(
+        {
+          session_id: active.id,
+          assistant_message_id: assistantMessage.id,
+          model: lastUserMessage.model || model,
+          content: lastUserMessage.content,
+          attachment_ids: lastUserMessage.attachments.map((attachment) => attachment.id)
+        },
+        (token) => {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === replacement.id ? { ...message, content: message.content + token } : message
+            )
+          );
+        }
+      );
+      await refreshSessions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重新生成失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing) return;
     if (event.key !== "Enter" || event.shiftKey) return;
@@ -1012,64 +1087,66 @@ function ChatView({
   const hasFailedAttachments = attachments.some((attachment) => attachment.status === "failed");
   const composer = (
     <footer className={`composer ${isEmptyChat ? "composer-floating" : ""}`}>
-      {attachments.length > 0 && (
-        <div className="attachment-grid" aria-label="已附加图片">
-          {attachments.map((attachment) => (
-            <div
-              key={attachment.id}
-              className={`attachment-preview ${
-                attachment.status === "uploading"
-                  ? "is-uploading"
-                  : attachment.status === "failed"
-                    ? "is-failed"
-                    : "is-ready"
-              }`}
-            >
-              <img src={attachment.previewUrl} alt={attachment.name} />
-              {attachment.status === "uploading" && (
-                <div className="attachment-upload-overlay" aria-label="图片上传中">
-                  <span className="attachment-upload-spinner" />
-                  <span className="attachment-upload-label">上传中</span>
-                </div>
-              )}
-              {attachment.status === "failed" && (
-                <div className="attachment-upload-overlay attachment-upload-error" aria-label={attachment.error || "图片上传失败"}>
-                  <span className="attachment-upload-label">失败</span>
-                </div>
-              )}
-              <button
-                type="button"
-                className="attachment-remove"
-                onClick={() => removeAttachment(attachment.id)}
-                aria-label="删除图片"
-              >
-                <X size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
       {error && <div className="form-error">{error}</div>}
-      <div className="composer-row">
-        <label
-          className={`icon-button ${isUploading || busy ? "disabled" : ""}`}
-          title="上传图片"
-          aria-disabled={isUploading || busy}
-        >
-          <ImagePlus size={18} />
-          <input type="file" accept="image/*" hidden onChange={handleFileSelect} disabled={isUploading || busy} />
-        </label>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={handleComposerKeyDown}
-          placeholder="输入问题，或直接粘贴图片..."
-          rows={1}
-        />
-        <button className="send-button" onClick={sendMessage} disabled={busy || isUploading || hasFailedAttachments}>
-          <Send size={18} />
-        </button>
+      <div className="composer-shell">
+        {attachments.length > 0 && (
+          <div className="attachment-grid" aria-label="已附加图片">
+            {attachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                className={`attachment-preview ${
+                  attachment.status === "uploading"
+                    ? "is-uploading"
+                    : attachment.status === "failed"
+                      ? "is-failed"
+                      : "is-ready"
+                }`}
+              >
+                <img src={attachment.previewUrl} alt={attachment.name} />
+                {attachment.status === "uploading" && (
+                  <div className="attachment-upload-overlay" aria-label="图片上传中">
+                    <span className="attachment-upload-spinner" />
+                    <span className="attachment-upload-label">上传中</span>
+                  </div>
+                )}
+                {attachment.status === "failed" && (
+                  <div className="attachment-upload-overlay attachment-upload-error" aria-label={attachment.error || "图片上传失败"}>
+                    <span className="attachment-upload-label">失败</span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="attachment-remove"
+                  onClick={() => removeAttachment(attachment.id)}
+                  aria-label="删除图片"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="composer-row">
+          <label
+            className={`icon-button ${isUploading || busy ? "disabled" : ""}`}
+            title="上传图片"
+            aria-disabled={isUploading || busy}
+          >
+            <ImagePlus size={18} />
+            <input type="file" accept="image/*" hidden onChange={handleFileSelect} disabled={isUploading || busy} />
+          </label>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={handleComposerKeyDown}
+            placeholder="输入问题，或直接粘贴图片..."
+            rows={1}
+          />
+          <button className="send-button" onClick={sendMessage} disabled={busy || isUploading || hasFailedAttachments}>
+            <Send size={18} />
+          </button>
+        </div>
       </div>
     </footer>
   );
@@ -1245,7 +1322,13 @@ function ChatView({
                       {message.content.trim() && (
                         <>
                           <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
-                          {message.role === "assistant" && <MessageCopyButton text={message.content} />}
+                          {message.role === "assistant" && (
+                            <MessageActions
+                              text={message.content}
+                              onRegenerate={() => regenerateAssistantMessage(message)}
+                              disabled={busy}
+                            />
+                          )}
                         </>
                       )}
                     </div>
@@ -1815,6 +1898,7 @@ function AdminView() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
   const [activeProvider, setActiveProvider] = useState<"gpt" | "zhipu">("gpt");
+  const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>("gpt");
   const [gptBaseUrl, setGptBaseUrl] = useState("");
   const [gptApiKey, setGptApiKey] = useState("");
   const [gptTextModel, setGptTextModel] = useState(complexModel);
@@ -1850,6 +1934,7 @@ function AdminView() {
     setZhipuVisionModel(config.providers.zhipu.vision_model);
     setZhipuTranslationModel(config.providers.zhipu.translation_model);
     setZhipuReportModel(config.providers.zhipu.report_model);
+    setExpandedProvider((current) => current || config.active_provider);
   }
 
   useEffect(() => {
@@ -1950,6 +2035,10 @@ function AdminView() {
     }
   }
 
+  function toggleProvider(provider: "gpt" | "zhipu") {
+    setExpandedProvider((current) => (current === provider ? null : provider));
+  }
+
   return (
     <section className="admin-panel">
       {error && <div className="form-error admin-error">{error}</div>}
@@ -1973,122 +2062,152 @@ function AdminView() {
           </label>
           <div className="provider-grid">
             <section className="provider-card">
-              <div className="provider-card-head">
-                <strong>GPT</strong>
-                <span>{aiConfig?.providers.gpt.api_key_preview ? `当前密钥 ${aiConfig.providers.gpt.api_key_preview}` : "密钥未配置"}</span>
-              </div>
-              <label>
-                Base URL
-                <input value={gptBaseUrl} onChange={(event) => setGptBaseUrl(event.target.value)} required />
-              </label>
-              <label>
-                API Key
-                <input
-                  value={gptApiKey}
-                  onChange={(event) => setGptApiKey(event.target.value)}
-                  type="password"
-                  placeholder={aiConfig?.providers.gpt.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
-                />
-              </label>
-              <label>
-                文本模型
-                <select value={gptTextModel} onChange={(event) => setGptTextModel(event.target.value)}>
-                  {reportModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                视觉模型
-                <select value={gptVisionModel} onChange={(event) => setGptVisionModel(event.target.value)}>
-                  {reportModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                翻译模型
-                <select value={gptTranslationModel} onChange={(event) => setGptTranslationModel(event.target.value)}>
-                  {reportModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                日报模型
-                <select value={gptReportModel} onChange={(event) => setGptReportModel(event.target.value)}>
-                  {reportModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <button
+                type="button"
+                className="provider-row-button"
+                onClick={() => toggleProvider("gpt")}
+                aria-expanded={expandedProvider === "gpt"}
+              >
+                <span className="provider-row-title">
+                  <strong>GPT</strong>
+                  {activeProvider === "gpt" && <span className="provider-active-badge">当前启用</span>}
+                </span>
+                <span className="provider-row-meta">
+                  {aiConfig?.providers.gpt.api_key_preview ? `当前密钥 ${aiConfig.providers.gpt.api_key_preview}` : "密钥未配置"}
+                </span>
+                <ChevronDown size={16} />
+              </button>
+              {expandedProvider === "gpt" && (
+                <div className="provider-card-body">
+                  <label>
+                    Base URL
+                    <input value={gptBaseUrl} onChange={(event) => setGptBaseUrl(event.target.value)} required />
+                  </label>
+                  <label>
+                    API Key
+                    <input
+                      value={gptApiKey}
+                      onChange={(event) => setGptApiKey(event.target.value)}
+                      type="password"
+                      placeholder={aiConfig?.providers.gpt.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
+                    />
+                  </label>
+                  <label>
+                    文本模型
+                    <select value={gptTextModel} onChange={(event) => setGptTextModel(event.target.value)}>
+                      {reportModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    视觉模型
+                    <select value={gptVisionModel} onChange={(event) => setGptVisionModel(event.target.value)}>
+                      {reportModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    翻译模型
+                    <select value={gptTranslationModel} onChange={(event) => setGptTranslationModel(event.target.value)}>
+                      {reportModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    日报模型
+                    <select value={gptReportModel} onChange={(event) => setGptReportModel(event.target.value)}>
+                      {reportModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
             </section>
             <section className="provider-card">
-              <div className="provider-card-head">
-                <strong>ZHIPU</strong>
-                <span>{aiConfig?.providers.zhipu.api_key_preview ? `当前密钥 ${aiConfig.providers.zhipu.api_key_preview}` : "密钥未配置"}</span>
-              </div>
-              <label>
-                Base URL
-                <input value={zhipuBaseUrl} onChange={(event) => setZhipuBaseUrl(event.target.value)} required />
-              </label>
-              <label>
-                API Key
-                <input
-                  value={zhipuApiKey}
-                  onChange={(event) => setZhipuApiKey(event.target.value)}
-                  type="password"
-                  placeholder={aiConfig?.providers.zhipu.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
-                />
-              </label>
-              <label>
-                文本模型
-                <select value={zhipuTextModel} onChange={(event) => setZhipuTextModel(event.target.value)}>
-                  {zhipuTextModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                视觉模型
-                <select value={zhipuVisionModel} onChange={(event) => setZhipuVisionModel(event.target.value)}>
-                  {zhipuVisionModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                翻译模型
-                <select value={zhipuTranslationModel} onChange={(event) => setZhipuTranslationModel(event.target.value)}>
-                  {zhipuTextModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                日报模型
-                <select value={zhipuReportModel} onChange={(event) => setZhipuReportModel(event.target.value)}>
-                  {zhipuTextModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <button
+                type="button"
+                className="provider-row-button"
+                onClick={() => toggleProvider("zhipu")}
+                aria-expanded={expandedProvider === "zhipu"}
+              >
+                <span className="provider-row-title">
+                  <strong>ZHIPU</strong>
+                  {activeProvider === "zhipu" && <span className="provider-active-badge">当前启用</span>}
+                </span>
+                <span className="provider-row-meta">
+                  {aiConfig?.providers.zhipu.api_key_preview ? `当前密钥 ${aiConfig.providers.zhipu.api_key_preview}` : "密钥未配置"}
+                </span>
+                <ChevronDown size={16} />
+              </button>
+              {expandedProvider === "zhipu" && (
+                <div className="provider-card-body">
+                  <label>
+                    Base URL
+                    <input value={zhipuBaseUrl} onChange={(event) => setZhipuBaseUrl(event.target.value)} required />
+                  </label>
+                  <label>
+                    API Key
+                    <input
+                      value={zhipuApiKey}
+                      onChange={(event) => setZhipuApiKey(event.target.value)}
+                      type="password"
+                      placeholder={aiConfig?.providers.zhipu.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
+                    />
+                  </label>
+                  <label>
+                    文本模型
+                    <select value={zhipuTextModel} onChange={(event) => setZhipuTextModel(event.target.value)}>
+                      {zhipuTextModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    视觉模型
+                    <select value={zhipuVisionModel} onChange={(event) => setZhipuVisionModel(event.target.value)}>
+                      {zhipuVisionModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    翻译模型
+                    <select value={zhipuTranslationModel} onChange={(event) => setZhipuTranslationModel(event.target.value)}>
+                      {zhipuTextModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    日报模型
+                    <select value={zhipuReportModel} onChange={(event) => setZhipuReportModel(event.target.value)}>
+                      {zhipuTextModels.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              )}
             </section>
           </div>
           <div className="admin-actions">

@@ -67,6 +67,50 @@ describe("chat sessions and attachments", () => {
     ]);
   });
 
+  it("regenerates the latest assistant reply without duplicating the user message", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    const replies = ["第一次回答", "重新回答"];
+    vi.stubGlobal("fetch", async () => {
+      const content = replies.shift() || "兜底回答";
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "重生成会话", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const first = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "解释洛必达", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+    expect(first.status).toBe(200);
+    await expect(readSse(first)).resolves.toEqual([JSON.stringify("第一次回答"), "[DONE]"]);
+    const initialMessages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    const [, assistant] = (await initialMessages.json()) as Array<{ id: number; role: string; content: string }>;
+
+    const regenerated = await fetchWorker(env, "/api/chat/regenerate", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, assistant_message_id: assistant?.id, model: "gpt-5.4-mini" })
+    });
+
+    expect(regenerated.status).toBe(200);
+    await expect(readSse(regenerated)).resolves.toEqual([JSON.stringify("重新回答"), "[DONE]"]);
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    await expect(messages.json()).resolves.toMatchObject([
+      { role: "user", content: "解释洛必达" },
+      { role: "assistant", content: "重新回答" }
+    ]);
+  });
+
   it("uploads and downloads a PNG attachment for its owner", async () => {
     const { env, cookie } = await loginUser();
     const form = new FormData();

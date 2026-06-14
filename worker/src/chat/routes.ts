@@ -46,6 +46,12 @@ const chatStreamSchema = z.object({
   image_data_urls: z.array(z.string().startsWith("data:image/")).default([])
 });
 
+const chatRegenerateSchema = z.object({
+  session_id: z.number().int(),
+  assistant_message_id: z.number().int(),
+  model: z.string().default("gpt-5.4-mini")
+});
+
 type ChatContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
@@ -226,6 +232,51 @@ async function historyForSession(
   return history;
 }
 
+async function streamAssistantResponse(
+  env: Env,
+  sessionId: number,
+  aiConfig: AiConfig,
+  aiModel: string,
+  history: ChatMessage[],
+  replaceAssistantMessageId: number | null = null
+): Promise<Response> {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const parts: string[] = [];
+      try {
+        for await (const token of streamChatCompletion(history, aiModel, env, aiConfig)) {
+          parts.push(token);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
+        }
+      } catch {
+        const token = "AI 服务连接失败，请稍后重试。";
+        parts.push(token);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
+      }
+      const assistantContent = parts.join("");
+      if (replaceAssistantMessageId !== null) {
+        await env.DB.prepare("UPDATE messages SET content = ?, model = ?, created_at = ? WHERE id = ?")
+          .bind(assistantContent, aiModel, nowIso(), replaceAssistantMessageId)
+          .run();
+      } else {
+        await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
+          .bind(sessionId, assistantContent, aiModel, nowIso())
+          .run();
+      }
+      await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    }
+  });
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache"
+    }
+  });
+}
+
 async function streamChat(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = chatStreamSchema.parse(await parseJson<unknown>(request));
@@ -254,35 +305,42 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
   const history = await historyForSession(env, session.id, aiConfig, userMessageId, payload.image_data_urls);
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const parts: string[] = [];
-      try {
-        for await (const token of streamChatCompletion(history, aiModel, env, aiConfig)) {
-          parts.push(token);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
-        }
-      } catch {
-        const token = "AI 服务连接失败，请稍后重试。";
-        parts.push(token);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
-      }
-      const assistantContent = parts.join("");
-      await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
-        .bind(session.id, assistantContent, aiModel, nowIso())
-        .run();
-      await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), session.id).run();
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
-    }
-  });
-  return new Response(stream, {
-    headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache"
-    }
-  });
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history);
+}
+
+async function regenerateChat(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const payload = chatRegenerateSchema.parse(await parseJson<unknown>(request));
+  const session = await getSession(env, payload.session_id);
+  if (!session || session.user_id !== user.id) {
+    throw new HttpError(404, "会话不存在");
+  }
+  const assistantMessage = await first<MessageRow>(
+    env.DB.prepare("SELECT * FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'")
+      .bind(payload.assistant_message_id, session.id)
+  );
+  if (!assistantMessage) {
+    throw new HttpError(404, "回复不存在");
+  }
+  const lastUserMessage = await first<MessageRow>(
+    env.DB.prepare(
+      `SELECT * FROM messages
+       WHERE session_id = ? AND role = 'user' AND (created_at < ? OR (created_at = ? AND id < ?))
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`
+    ).bind(session.id, assistantMessage.created_at, assistantMessage.created_at, assistantMessage.id)
+  );
+  if (!lastUserMessage) {
+    throw new HttpError(400, "没有可重新生成的用户消息");
+  }
+  const aiConfig = await getAiConfig(env);
+  const attachments = await all<AttachmentRow>(
+    env.DB.prepare("SELECT * FROM attachments WHERE message_id = ? ORDER BY id ASC").bind(lastUserMessage.id)
+  );
+  const aiModel = resolveChatModel(aiConfig, payload.model, attachments.length > 0);
+  await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, lastUserMessage.id).run();
+  const history = await historyForSession(env, session.id, aiConfig, lastUserMessage.id);
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history, assistantMessage.id);
 }
 
 export function chatRoutes(env: Env): Route[] {
@@ -292,6 +350,7 @@ export function chatRoutes(env: Env): Route[] {
     route("PATCH", "/api/sessions/:session_id/archive", (request, params) => archiveSession(request, env, params)),
     route("GET", "/api/sessions/:session_id/messages", (request, params) => listMessages(request, env, params)),
     route("DELETE", "/api/sessions/:session_id", (request, params) => deleteSession(request, env, params)),
-    route("POST", "/api/chat/stream", (request) => streamChat(request, env))
+    route("POST", "/api/chat/stream", (request) => streamChat(request, env)),
+    route("POST", "/api/chat/regenerate", (request) => regenerateChat(request, env))
   ];
 }

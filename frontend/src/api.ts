@@ -290,7 +290,22 @@ export async function streamChat(
   payload: { session_id: number; content: string; model: string; attachment_ids: number[]; image_data_urls?: string[] },
   onToken: (token: string) => void
 ): Promise<void> {
-  const response = await fetch("/api/chat/stream", {
+  await streamChatEndpoint("/api/chat/stream", payload, onToken);
+}
+
+export async function regenerateChat(
+  payload: { session_id: number; assistant_message_id: number; model: string; content?: string; attachment_ids?: number[] },
+  onToken: (token: string) => void
+): Promise<void> {
+  await streamChatEndpoint("/api/chat/regenerate", payload, onToken);
+}
+
+async function streamChatEndpoint(
+  path: string,
+  payload: { session_id: number; content?: string; model: string; attachment_ids?: number[]; image_data_urls?: string[]; assistant_message_id?: number },
+  onToken: (token: string) => void
+): Promise<void> {
+  const response = await fetch(path, {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
