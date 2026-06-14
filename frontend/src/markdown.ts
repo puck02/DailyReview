@@ -234,7 +234,7 @@ function normalizeInlineCodeMath(markdown: string) {
     .join("\n");
 }
 
-function normalizeBareSquareMath(markdown: string) {
+function normalizeBareSquareMathSegment(markdown: string) {
   let result = "";
   let index = 0;
 
@@ -264,6 +264,81 @@ function normalizeBareSquareMath(markdown: string) {
     index = close + 1;
   }
 
+  return result;
+}
+
+function fencedCodeEnd(markdown: string, start: number): number {
+  const lineEnd = markdown.indexOf("\n", start);
+  const marker = markdown.slice(start, lineEnd === -1 ? undefined : lineEnd).trimStart().startsWith("~~~") ? "~~~" : "```";
+  let cursor = lineEnd === -1 ? markdown.length : lineEnd + 1;
+  while (cursor < markdown.length) {
+    const nextLineEnd = markdown.indexOf("\n", cursor);
+    const line = markdown.slice(cursor, nextLineEnd === -1 ? undefined : nextLineEnd);
+    if (line.trimStart().startsWith(marker)) {
+      return nextLineEnd === -1 ? markdown.length : nextLineEnd + 1;
+    }
+    cursor = nextLineEnd === -1 ? markdown.length : nextLineEnd + 1;
+  }
+  return markdown.length;
+}
+
+function mathEnd(markdown: string, start: number, delimiter: "$" | "$$"): number {
+  const close = markdown.indexOf(delimiter, start + delimiter.length);
+  return close === -1 ? markdown.length : close + delimiter.length;
+}
+
+function inlineCodeEnd(markdown: string, start: number): number {
+  const close = markdown.indexOf("`", start + 1);
+  return close === -1 ? markdown.length : close + 1;
+}
+
+function normalizeBareSquareMath(markdown: string) {
+  let result = "";
+  let buffer = "";
+  let index = 0;
+
+  function flushBuffer() {
+    if (!buffer) return;
+    result += normalizeBareSquareMathSegment(buffer);
+    buffer = "";
+  }
+
+  while (index < markdown.length) {
+    const lineStart = index === 0 || markdown[index - 1] === "\n";
+    const rest = markdown.slice(index);
+    if (lineStart && /^\s*(```|~~~)/.test(rest)) {
+      flushBuffer();
+      const end = fencedCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown.startsWith("$$", index)) {
+      flushBuffer();
+      const end = mathEnd(markdown, index, "$$");
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown[index] === "$") {
+      flushBuffer();
+      const end = mathEnd(markdown, index, "$");
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown[index] === "`") {
+      flushBuffer();
+      const end = inlineCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    buffer += markdown[index];
+    index += 1;
+  }
+
+  flushBuffer();
   return result;
 }
 

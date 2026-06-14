@@ -78,3 +78,24 @@ test("normalizes assistant-style limit fractions and roots in code math", () => 
   );
   assert.ok(normalized.includes("$$\n\\frac{1}{(1+1+1)^2} = \\frac{1}{9}\n$$"));
 });
+
+test("keeps brackets inside existing display math blocks stable", () => {
+  const markdown = [
+    "4. **应用洛必达法则**：",
+    "   对分子分母分别求导：",
+    "   $$",
+    "   \\ln L = \\lim_{x \\to 0} \\frac{\\frac{d}{dx} \\left[ \\ln \\left( \\frac{e^x + e^{2x} + \\cdots + e^{nx}}{n} \\right) \\right]}{\\frac{d}{dx}(x)}",
+    "   $$",
+    "",
+    "5. **计算导数**：",
+    "   $$",
+    "   \\frac{d}{dx} \\left[ \\ln(S(x)) \\right] = \\frac{1}{S(x)} \\cdot S'(x)",
+    "   $$"
+  ].join("\n");
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.equal((normalized.match(/\$\$/g) || []).length, 4);
+  assert.ok(normalized.includes("\\left[ \\ln \\left"));
+  assert.ok(normalized.includes("\\left[ \\ln(S(x)) \\right]"));
+});
