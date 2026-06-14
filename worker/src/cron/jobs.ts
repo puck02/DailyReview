@@ -124,7 +124,15 @@ export async function backfillMissedDailyReports(env: Env, now: Date, limit = 10
       if ((day === today && settings.daily_report_time > currentTime) || (await reportExists(env, user.id, "daily", day))) {
         continue;
       }
-      await generateDailyReport(env, user.id, day);
+      try {
+        await generateDailyReport(env, user.id, day);
+      } catch (error) {
+        console.error("Daily report backfill failed", {
+          userId: user.id,
+          day,
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
   }
 }

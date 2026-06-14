@@ -61,6 +61,21 @@ async function createConversation(
   }
 }
 
+async function registerUser(env: ReturnType<typeof createTestEnv>, adminCookie: string, email: string) {
+  const invite = await fetchWorker(env, "/api/invites", {
+    method: "POST",
+    headers: { cookie: adminCookie },
+    body: JSON.stringify({ expires_days: 7 })
+  });
+  const { code } = (await invite.json()) as { code: string };
+  const register = await fetchWorker(env, "/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password: "user-password", invite_code: code })
+  });
+  const user = (await register.json()) as { id: number };
+  return { cookie: cookieFrom(register), userId: user.id };
+}
+
 describe("reports, cron jobs, and PDF downgrade", () => {
   it("cron maintenance reschedules report alarms without generating reports directly", async () => {
     const { env, cookie, userId } = await loginUser();
@@ -116,6 +131,37 @@ describe("reports, cron jobs, and PDF downgrade", () => {
     const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
     expect(list.status).toBe(200);
     await expect(list.json()).resolves.toMatchObject([{ period: "2026-06-12" }]);
+  });
+
+  it("continues hourly daily report backfill when one user fails", async () => {
+    const { env, cookie: failingCookie, adminCookie, userId: failingUserId } = await loginUser("failing@example.com");
+    const healthyUser = await registerUser(env, adminCookie, "healthy@example.com");
+    await createMessage(env, failingUserId, "今天复习了考研英语长难句和 derivative 的用法", "2026-06-12T10:00:00.000Z");
+    await createMessage(env, healthyUser.userId, "今天理解了极限存在要求左右极限相等", "2026-06-12T11:00:00.000Z");
+
+    const originalBucket = env.BUCKET;
+    const originalPut = originalBucket.put.bind(originalBucket);
+    env.BUCKET = {
+      ...originalBucket,
+      put: async (key, value, options) => {
+        if (key.includes(`user-${failingUserId}/`)) {
+          throw new Error("simulated report write failure");
+        }
+        return await originalPut(key, value, options);
+      }
+    } as R2Bucket;
+
+    await expect(runScheduledJobs(env, new Date("2026-06-12T15:00:00.000Z"))).resolves.toBeUndefined();
+
+    const failingList = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", {
+      headers: { cookie: failingCookie }
+    });
+    await expect(failingList.json()).resolves.toEqual([]);
+
+    const healthyList = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", {
+      headers: { cookie: healthyUser.cookie }
+    });
+    await expect(healthyList.json()).resolves.toMatchObject([{ period: "2026-06-12" }]);
   });
 
   it("generates a daily report into R2 and lists its metadata", async () => {
