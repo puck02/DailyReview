@@ -8,6 +8,7 @@ export type Env = {
   AI_API_KEY?: string;
   AI_DEFAULT_MODEL: string;
   AI_COMPLEX_MODEL: string;
+  AI_VISION_MODEL?: string;
   ADMIN_EMAIL?: string;
   ADMIN_INITIAL_PASSWORD?: string;
   APP_TIMEZONE: string;

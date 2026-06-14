@@ -7,6 +7,8 @@ import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row }
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
 import { isAiConfigured, streamChatCompletion, type AiConfig, type ChatMessage } from "../ai/client";
+import { aiTextModel } from "../ai/client";
+import { resolveChatModel } from "../ai/providers";
 
 type SessionRow = Row & {
   id: number;
@@ -66,11 +68,13 @@ async function getSession(env: Env, id: number): Promise<SessionRow | null> {
 async function createSession(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = sessionCreateSchema.parse(await parseJson<unknown>(request));
+  const aiConfig = await getAiConfig(env);
+  const defaultModel = aiTextModel(aiConfig);
   const now = nowIso();
   const result = await env.DB.prepare(
     "INSERT INTO chat_sessions (user_id, title, default_model, is_archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
   )
-    .bind(user.id, payload.title || "新会话", payload.model, boolToDb(false), now, now)
+    .bind(user.id, payload.title || "新会话", defaultModel, boolToDb(false), now, now)
     .run();
   const session = await getSession(env, await insertAndReturnId(result));
   if (!session) {
@@ -246,13 +250,16 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
   }
 
   const aiConfig = await getAiConfig(env);
+  const hasImages = payload.attachment_ids.length > 0 || payload.image_data_urls.length > 0;
+  const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
+  await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
   const history = await historyForSession(env, session.id, aiConfig, userMessageId, payload.image_data_urls);
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const parts: string[] = [];
       try {
-        for await (const token of streamChatCompletion(history, payload.model, env, aiConfig)) {
+        for await (const token of streamChatCompletion(history, aiModel, env, aiConfig)) {
           parts.push(token);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
         }
@@ -263,7 +270,7 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
       }
       const assistantContent = parts.join("");
       await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
-        .bind(session.id, assistantContent, payload.model, nowIso())
+        .bind(session.id, assistantContent, aiModel, nowIso())
         .run();
       await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), session.id).run();
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));

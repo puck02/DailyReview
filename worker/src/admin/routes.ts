@@ -1,26 +1,63 @@
 import { z } from "zod";
 
 import type { Env } from "../env";
-import { first, nowIso, type Row } from "../db/d1";
+import { all, first, nowIso, type Row } from "../db/d1";
 import { HttpError, json, parseJson, route, type Route } from "../http";
 import { requireAdmin } from "../auth/routes";
 import { safeAiErrorMessage, testAiConnection, type AiConfig } from "../ai/client";
+import {
+  AI_PROVIDER_NAMES,
+  configResponse,
+  normalizeProviderName,
+  type AiProviderConfig,
+  type AiProviderName
+} from "../ai/providers";
 
-const AI_BASE_URL_KEY = "ai_base_url";
-const AI_API_KEY_KEY = "ai_api_key";
-const REPORT_MODEL_KEY = "report_model";
-const DEFAULT_REPORT_MODEL = "gpt-5.5";
-const REPORT_MODELS = new Set(["gpt-5.4-mini", "gpt-5.5"]);
+const ACTIVE_PROVIDER_KEY = "ai_active_provider";
+const GPT_BASE_URL_KEY = "ai_provider_gpt_base_url";
+const GPT_API_KEY_KEY = "ai_provider_gpt_api_key";
+const GPT_TEXT_MODEL_KEY = "ai_provider_gpt_text_model";
+const GPT_VISION_MODEL_KEY = "ai_provider_gpt_vision_model";
+const ZHIPU_BASE_URL_KEY = "ai_provider_zhipu_base_url";
+const ZHIPU_API_KEY_KEY = "ai_provider_zhipu_api_key";
+const ZHIPU_TEXT_MODEL_KEY = "ai_provider_zhipu_text_model";
+const ZHIPU_VISION_MODEL_KEY = "ai_provider_zhipu_vision_model";
+const LEGACY_AI_BASE_URL_KEY = "ai_base_url";
+const LEGACY_AI_API_KEY_KEY = "ai_api_key";
+const LEGACY_REPORT_MODEL_KEY = "report_model";
+const DEFAULT_GPT_TEXT_MODEL = "gpt-5.5";
+const DEFAULT_GPT_VISION_MODEL = DEFAULT_GPT_TEXT_MODEL;
+const DEFAULT_ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+const DEFAULT_ZHIPU_TEXT_MODEL = "glm-5";
+const DEFAULT_ZHIPU_VISION_MODEL = "glm-4.6v-flash";
 
-const aiConfigSchema = z.object({
-  base_url: z.string().max(2048).default(""),
+const providerPatchSchema = z.object({
+  base_url: z.string().max(2048).optional(),
+  api_key: z.string().max(4096).nullable().optional(),
+  text_model: z.string().max(64).optional(),
+  vision_model: z.string().max(64).optional()
+});
+
+const adminAiConfigSchema = z.object({
+  active_provider: z.enum(AI_PROVIDER_NAMES).optional(),
+  providers: z
+    .object({
+      gpt: providerPatchSchema.optional(),
+      zhipu: providerPatchSchema.optional()
+    })
+    .optional(),
+  base_url: z.string().max(2048).optional(),
   api_key: z.string().max(4096).nullable().optional(),
   report_model: z.string().optional()
 });
 
-async function getSetting(env: Env, key: string): Promise<string> {
-  const row = await first<Row & { value: string }>(env.DB.prepare("SELECT value FROM app_settings WHERE key = ?").bind(key));
-  return row?.value || "";
+async function getSettingsMap(env: Env, keys: string[]): Promise<Map<string, string>> {
+  if (!keys.length) return new Map();
+  const placeholders = keys.map(() => "?").join(", ");
+  const rows = await all<Row & { key: string; value: string }>(
+    env.DB.prepare(`SELECT key, value FROM app_settings WHERE key IN (${placeholders})`).bind(...keys)
+  );
+  return new Map(rows.map((row) => [row.key, row.value]));
 }
 
 async function setSetting(env: Env, key: string, value: string): Promise<void> {
@@ -31,39 +68,183 @@ async function setSetting(env: Env, key: string, value: string): Promise<void> {
     .run();
 }
 
-function validateReportModel(value: string): string {
-  const normalized = value.trim();
-  if (!REPORT_MODELS.has(normalized)) {
-    throw new HttpError(400, "日报模型无效");
-  }
-  return normalized;
-}
-
-export async function getReportModel(env: Env): Promise<string> {
-  return validateReportModel((await getSetting(env, REPORT_MODEL_KEY)) || DEFAULT_REPORT_MODEL);
-}
-
-export async function getAiConfig(env: Env): Promise<AiConfig> {
-  return {
-    base_url: (await getSetting(env, AI_BASE_URL_KEY)) || env.AI_BASE_URL || "",
-    api_key: (await getSetting(env, AI_API_KEY_KEY)) || env.AI_API_KEY || "",
-    report_model: await getReportModel(env)
-  };
-}
-
 function maskApiKey(apiKey: string): string | null {
   if (!apiKey) return null;
   if (apiKey.length <= 8) return `${apiKey.slice(0, 2)}****${apiKey.slice(-2)}`;
   return `${apiKey.slice(0, 6)}****${apiKey.slice(-4)}`;
 }
 
-function aiConfigResponse(config: AiConfig): Record<string, unknown> {
+function allowedModels(provider: AiProviderName, kind: "text" | "vision"): readonly string[] {
+  if (provider === "zhipu") {
+    return kind === "text" ? ["glm-5"] : ["glm-4.6v-flash", "glm-4.6v"];
+  }
+  return kind === "text" ? ["gpt-5.4-mini", "gpt-5.5"] : ["gpt-5.4-mini", "gpt-5.5"];
+}
+
+function normalizeAllowedModel(provider: AiProviderName, kind: "text" | "vision", value: string, fallback: string): string {
+  const normalized = value.trim();
+  if (allowedModels(provider, kind).includes(normalized)) {
+    return normalized;
+  }
+  if (allowedModels(provider, kind).includes(fallback)) {
+    return fallback;
+  }
+  return allowedModels(provider, kind)[0] || normalized;
+}
+
+function validateAllowedModel(provider: AiProviderName, kind: "text" | "vision", value: string): string {
+  const normalized = value.trim();
+  if (!allowedModels(provider, kind).includes(normalized)) {
+    throw new HttpError(400, "AI 模型无效");
+  }
+  return normalized;
+}
+
+function providerDefaults(provider: AiProviderName, env: Env): AiProviderConfig {
+  if (provider === "zhipu") {
+    return {
+      base_url: DEFAULT_ZHIPU_BASE_URL,
+      api_key: "",
+      text_model: DEFAULT_ZHIPU_TEXT_MODEL,
+      vision_model: DEFAULT_ZHIPU_VISION_MODEL
+    };
+  }
+  const gptText = normalizeAllowedModel(
+    "gpt",
+    "text",
+    env.AI_COMPLEX_MODEL || DEFAULT_GPT_TEXT_MODEL,
+    DEFAULT_GPT_TEXT_MODEL
+  );
   return {
-    base_url: config.base_url,
-    has_api_key: Boolean(config.api_key),
-    api_key_preview: maskApiKey(config.api_key),
-    report_model: config.report_model
+    base_url: env.AI_BASE_URL || "",
+    api_key: env.AI_API_KEY || "",
+    text_model: gptText,
+    vision_model: env.AI_VISION_MODEL || gptText || DEFAULT_GPT_VISION_MODEL
   };
+}
+
+function pickProviderConfig(
+  provider: AiProviderName,
+  env: Env,
+  settings: Map<string, string>,
+  defaults: AiProviderConfig
+): AiProviderConfig {
+  if (provider === "zhipu") {
+    const baseUrl = settings.get(ZHIPU_BASE_URL_KEY) || DEFAULT_ZHIPU_BASE_URL;
+    const apiKey = settings.get(ZHIPU_API_KEY_KEY) || defaults.api_key;
+    const textModel = normalizeAllowedModel(
+      provider,
+      "text",
+      settings.get(ZHIPU_TEXT_MODEL_KEY) || DEFAULT_ZHIPU_TEXT_MODEL,
+      DEFAULT_ZHIPU_TEXT_MODEL
+    );
+    const visionModel = normalizeAllowedModel(
+      provider,
+      "vision",
+      settings.get(ZHIPU_VISION_MODEL_KEY) || DEFAULT_ZHIPU_VISION_MODEL,
+      DEFAULT_ZHIPU_VISION_MODEL
+    );
+    return { base_url: baseUrl, api_key: apiKey, text_model: textModel, vision_model: visionModel };
+  }
+
+  const legacyTextModel = normalizeAllowedModel(
+    provider,
+    "text",
+    settings.get(LEGACY_REPORT_MODEL_KEY) || defaults.text_model,
+    defaults.text_model
+  );
+  const baseUrl = settings.get(GPT_BASE_URL_KEY) || settings.get(LEGACY_AI_BASE_URL_KEY) || defaults.base_url;
+  const apiKey = settings.get(GPT_API_KEY_KEY) || settings.get(LEGACY_AI_API_KEY_KEY) || defaults.api_key;
+  const textModel = normalizeAllowedModel(provider, "text", settings.get(GPT_TEXT_MODEL_KEY) || legacyTextModel, legacyTextModel);
+  const visionModel = normalizeAllowedModel(provider, "vision", settings.get(GPT_VISION_MODEL_KEY) || textModel, textModel);
+  return { base_url: baseUrl, api_key: apiKey, text_model: textModel, vision_model: visionModel };
+}
+
+export async function getAiConfig(env: Env): Promise<AiConfig> {
+  const settings = await getSettingsMap(env, [
+    ACTIVE_PROVIDER_KEY,
+    GPT_BASE_URL_KEY,
+    GPT_API_KEY_KEY,
+    GPT_TEXT_MODEL_KEY,
+    GPT_VISION_MODEL_KEY,
+    ZHIPU_BASE_URL_KEY,
+    ZHIPU_API_KEY_KEY,
+    ZHIPU_TEXT_MODEL_KEY,
+    ZHIPU_VISION_MODEL_KEY,
+    LEGACY_AI_BASE_URL_KEY,
+    LEGACY_AI_API_KEY_KEY,
+    LEGACY_REPORT_MODEL_KEY
+  ]);
+  const activeProvider = normalizeProviderName(settings.get(ACTIVE_PROVIDER_KEY), "gpt");
+  const gptDefaults = providerDefaults("gpt", env);
+  const zhipuDefaults = providerDefaults("zhipu", env);
+  return {
+    active_provider: activeProvider,
+    providers: {
+      gpt: pickProviderConfig("gpt", env, settings, gptDefaults),
+      zhipu: pickProviderConfig("zhipu", env, settings, zhipuDefaults)
+    }
+  };
+}
+
+function mergeProviderConfig(
+  provider: AiProviderName,
+  current: AiProviderConfig,
+  patch: z.infer<typeof providerPatchSchema>,
+  legacy: { base_url?: string; api_key?: string | null; text_model?: string; vision_model?: string } = {}
+): AiProviderConfig {
+  const legacyBaseUrl = legacy.base_url ? legacy.base_url.trim() : "";
+  const baseUrl = patch.base_url !== undefined ? patch.base_url.trim() : legacyBaseUrl || current.base_url;
+  const apiKey =
+    patch.api_key === undefined
+      ? legacy.api_key === undefined || legacy.api_key === null
+        ? current.api_key
+        : legacy.api_key.trim() || current.api_key
+      : patch.api_key === null
+        ? ""
+        : patch.api_key.trim() || current.api_key;
+  const textSource = patch.text_model ?? legacy.text_model ?? current.text_model;
+  const visionSource = patch.vision_model ?? legacy.vision_model ?? current.vision_model;
+  const text_model = validateAllowedModel(provider, "text", textSource);
+  const vision_model = validateAllowedModel(provider, "vision", visionSource);
+  return { base_url: baseUrl, api_key: apiKey, text_model, vision_model };
+}
+
+function buildLegacyPatch(payload: z.infer<typeof adminAiConfigSchema>): {
+  base_url?: string;
+  api_key?: string | null;
+  text_model?: string;
+  vision_model?: string;
+} {
+  const patch: {
+    base_url?: string;
+    api_key?: string | null;
+    text_model?: string;
+    vision_model?: string;
+  } = {};
+  if (payload.base_url !== undefined) patch.base_url = payload.base_url;
+  if (payload.api_key !== undefined) patch.api_key = payload.api_key;
+  if (payload.report_model !== undefined) {
+    patch.text_model = payload.report_model;
+    patch.vision_model = payload.report_model;
+  }
+  return patch;
+}
+
+async function saveProviderConfig(env: Env, config: AiConfig): Promise<void> {
+  await setSetting(env, ACTIVE_PROVIDER_KEY, config.active_provider);
+  await setSetting(env, GPT_BASE_URL_KEY, config.providers.gpt.base_url);
+  await setSetting(env, GPT_API_KEY_KEY, config.providers.gpt.api_key);
+  await setSetting(env, GPT_TEXT_MODEL_KEY, config.providers.gpt.text_model);
+  await setSetting(env, GPT_VISION_MODEL_KEY, config.providers.gpt.vision_model);
+  await setSetting(env, ZHIPU_BASE_URL_KEY, config.providers.zhipu.base_url);
+  await setSetting(env, ZHIPU_API_KEY_KEY, config.providers.zhipu.api_key);
+  await setSetting(env, ZHIPU_TEXT_MODEL_KEY, config.providers.zhipu.text_model);
+  await setSetting(env, ZHIPU_VISION_MODEL_KEY, config.providers.zhipu.vision_model);
+}
+
+function aiConfigResponse(config: AiConfig): ReturnType<typeof configResponse> {
+  return configResponse(config);
 }
 
 async function readAiConfig(request: Request, env: Env): Promise<Response> {
@@ -71,31 +252,42 @@ async function readAiConfig(request: Request, env: Env): Promise<Response> {
   return json(aiConfigResponse(await getAiConfig(env)));
 }
 
+function withLegacyPatch(config: AiConfig, payload: z.infer<typeof adminAiConfigSchema>): AiConfig {
+  const next: AiConfig = {
+    active_provider: payload.active_provider ? normalizeProviderName(payload.active_provider, config.active_provider) : config.active_provider,
+    providers: {
+      gpt: config.providers.gpt,
+      zhipu: config.providers.zhipu
+    }
+  };
+  const gptPatch = payload.providers?.gpt || {};
+  const zhipuPatch = payload.providers?.zhipu || {};
+  const legacyPatch = buildLegacyPatch(payload);
+  next.providers.gpt = mergeProviderConfig("gpt", config.providers.gpt, gptPatch, legacyPatch);
+  next.providers.zhipu = mergeProviderConfig("zhipu", config.providers.zhipu, zhipuPatch);
+  return next;
+}
+
 async function updateAiConfig(request: Request, env: Env): Promise<Response> {
   await requireAdmin(request, env);
-  const payload = aiConfigSchema.parse(await parseJson<unknown>(request));
-  await setSetting(env, AI_BASE_URL_KEY, payload.base_url.trim());
-  if (payload.api_key) {
-    await setSetting(env, AI_API_KEY_KEY, payload.api_key.trim());
-  }
-  await setSetting(env, REPORT_MODEL_KEY, payload.report_model ? validateReportModel(payload.report_model) : await getReportModel(env));
-  return json(aiConfigResponse(await getAiConfig(env)));
+  const payload = adminAiConfigSchema.parse(await parseJson<unknown>(request));
+  const current = await getAiConfig(env);
+  const next = withLegacyPatch(current, payload);
+  await saveProviderConfig(env, next);
+  return json(aiConfigResponse(next));
 }
 
 async function testConfig(request: Request, env: Env): Promise<Response> {
   await requireAdmin(request, env);
+  const payload = adminAiConfigSchema.parse(await parseJson<unknown>(request));
   const current = await getAiConfig(env);
-  const payload = aiConfigSchema.parse(await parseJson<unknown>(request));
-  const config = {
-    base_url: payload.base_url.trim(),
-    api_key: (payload.api_key || current.api_key).trim(),
-    report_model: current.report_model
-  };
-  if (!config.base_url || !config.api_key) {
+  const config = withLegacyPatch(current, payload);
+  const active = config.providers[config.active_provider];
+  if (!active.base_url || !active.api_key) {
     return json({ ok: false, message: "AI 配置不完整" });
   }
   try {
-    return json({ ok: true, message: await testAiConnection(config, env.AI_DEFAULT_MODEL) });
+    return json({ ok: true, message: await testAiConnection(config, active.text_model) });
   } catch (error) {
     return json({ ok: false, message: safeAiErrorMessage(error) });
   }

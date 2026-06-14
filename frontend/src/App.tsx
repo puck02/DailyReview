@@ -96,6 +96,8 @@ type PdfSaveTarget = { kind: "handle"; handle: PdfFileHandle } | { kind: "downlo
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "gpt-5.5";
 const reportModels = [defaultModel, complexModel];
+const zhipuTextModels = ["glm-5"];
+const zhipuVisionModels = ["glm-4.6v-flash", "glm-4.6v"];
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared";
@@ -1796,9 +1798,15 @@ function SettingsView({
 function AdminView() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
-  const [baseUrl, setBaseUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [reportModel, setReportModel] = useState(complexModel);
+  const [activeProvider, setActiveProvider] = useState<"gpt" | "zhipu">("gpt");
+  const [gptBaseUrl, setGptBaseUrl] = useState("");
+  const [gptApiKey, setGptApiKey] = useState("");
+  const [gptTextModel, setGptTextModel] = useState(complexModel);
+  const [gptVisionModel, setGptVisionModel] = useState(complexModel);
+  const [zhipuBaseUrl, setZhipuBaseUrl] = useState("https://open.bigmodel.cn/api/paas/v4");
+  const [zhipuApiKey, setZhipuApiKey] = useState("");
+  const [zhipuTextModel, setZhipuTextModel] = useState("glm-5");
+  const [zhipuVisionModel, setZhipuVisionModel] = useState("glm-4.6v-flash");
   const [loadingAdmin, setLoadingAdmin] = useState(true);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -1809,8 +1817,15 @@ function AdminView() {
     const [inviteItems, config] = await Promise.all([api.invites(), api.aiConfig()]);
     setInvites(inviteItems);
     setAiConfig(config);
-    setBaseUrl(config.base_url);
-    setReportModel(config.report_model);
+    setActiveProvider(config.active_provider);
+    setGptBaseUrl(config.providers.gpt.base_url);
+    setGptApiKey("");
+    setGptTextModel(config.providers.gpt.text_model);
+    setGptVisionModel(config.providers.gpt.vision_model);
+    setZhipuBaseUrl(config.providers.zhipu.base_url);
+    setZhipuApiKey("");
+    setZhipuTextModel(config.providers.zhipu.text_model);
+    setZhipuVisionModel(config.providers.zhipu.vision_model);
   }
 
   useEffect(() => {
@@ -1835,11 +1850,33 @@ function AdminView() {
       setError("");
       setSaved("");
       setTestResult("");
-      const config = await api.updateAiConfig(baseUrl, apiKey, reportModel);
+      const config = await api.updateAiConfig({
+        active_provider: activeProvider,
+        providers: {
+          gpt: {
+            base_url: gptBaseUrl,
+            api_key: gptApiKey || undefined,
+            text_model: gptTextModel,
+            vision_model: gptVisionModel
+          },
+          zhipu: {
+            base_url: zhipuBaseUrl,
+            api_key: zhipuApiKey || undefined,
+            text_model: zhipuTextModel,
+            vision_model: zhipuVisionModel
+          }
+        }
+      });
       setAiConfig(config);
-      setBaseUrl(config.base_url);
-      setReportModel(config.report_model);
-      setApiKey("");
+      setActiveProvider(config.active_provider);
+      setGptBaseUrl(config.providers.gpt.base_url);
+      setGptApiKey("");
+      setGptTextModel(config.providers.gpt.text_model);
+      setGptVisionModel(config.providers.gpt.vision_model);
+      setZhipuBaseUrl(config.providers.zhipu.base_url);
+      setZhipuApiKey("");
+      setZhipuTextModel(config.providers.zhipu.text_model);
+      setZhipuVisionModel(config.providers.zhipu.vision_model);
       setSaved("AI 配置已保存");
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
@@ -1852,7 +1889,23 @@ function AdminView() {
       setSaved("");
       setTestResult("");
       setTesting(true);
-      const result = await api.testAiConfig(baseUrl, apiKey);
+      const result = await api.testAiConfig({
+        active_provider: activeProvider,
+        providers: {
+          gpt: {
+            base_url: gptBaseUrl,
+            api_key: gptApiKey || undefined,
+            text_model: gptTextModel,
+            vision_model: gptVisionModel
+          },
+          zhipu: {
+            base_url: zhipuBaseUrl,
+            api_key: zhipuApiKey || undefined,
+            text_model: zhipuTextModel,
+            vision_model: zhipuVisionModel
+          }
+        }
+      });
       setTestResult(result.message);
     } catch (err) {
       setError(err instanceof Error ? err.message : "测试失败");
@@ -1876,30 +1929,94 @@ function AdminView() {
         ) : (
         <form className="admin-form" onSubmit={saveAiConfig}>
           <label>
-            Base URL
-            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
-          </label>
-          <label>
-            API Key
-            <input
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              type="password"
-              placeholder={aiConfig?.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
-            />
-          </label>
-          <label>
-            日报模型
-            <select value={reportModel} onChange={(event) => setReportModel(event.target.value)}>
-              {reportModels.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
+            当前启用提供商
+            <select value={activeProvider} onChange={(event) => setActiveProvider(event.target.value as "gpt" | "zhipu")}>
+              <option value="gpt">GPT</option>
+              <option value="zhipu">ZHIPU</option>
             </select>
           </label>
+          <div className="provider-grid">
+            <section className="provider-card">
+              <div className="provider-card-head">
+                <strong>GPT</strong>
+                <span>{aiConfig?.providers.gpt.api_key_preview ? `当前密钥 ${aiConfig.providers.gpt.api_key_preview}` : "密钥未配置"}</span>
+              </div>
+              <label>
+                Base URL
+                <input value={gptBaseUrl} onChange={(event) => setGptBaseUrl(event.target.value)} required />
+              </label>
+              <label>
+                API Key
+                <input
+                  value={gptApiKey}
+                  onChange={(event) => setGptApiKey(event.target.value)}
+                  type="password"
+                  placeholder={aiConfig?.providers.gpt.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
+                />
+              </label>
+              <label>
+                文本模型
+                <select value={gptTextModel} onChange={(event) => setGptTextModel(event.target.value)}>
+                  {reportModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                视觉模型
+                <select value={gptVisionModel} onChange={(event) => setGptVisionModel(event.target.value)}>
+                  {reportModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </section>
+            <section className="provider-card">
+              <div className="provider-card-head">
+                <strong>ZHIPU</strong>
+                <span>{aiConfig?.providers.zhipu.api_key_preview ? `当前密钥 ${aiConfig.providers.zhipu.api_key_preview}` : "密钥未配置"}</span>
+              </div>
+              <label>
+                Base URL
+                <input value={zhipuBaseUrl} onChange={(event) => setZhipuBaseUrl(event.target.value)} required />
+              </label>
+              <label>
+                API Key
+                <input
+                  value={zhipuApiKey}
+                  onChange={(event) => setZhipuApiKey(event.target.value)}
+                  type="password"
+                  placeholder={aiConfig?.providers.zhipu.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
+                />
+              </label>
+              <label>
+                文本模型
+                <select value={zhipuTextModel} onChange={(event) => setZhipuTextModel(event.target.value)}>
+                  {zhipuTextModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                视觉模型
+                <select value={zhipuVisionModel} onChange={(event) => setZhipuVisionModel(event.target.value)}>
+                  {zhipuVisionModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </section>
+          </div>
           <div className="admin-actions">
-            <span>{aiConfig?.api_key_preview ? `当前密钥 ${aiConfig.api_key_preview}` : "密钥未配置"}</span>
+            <span>{aiConfig?.providers[activeProvider]?.api_key_preview ? `当前启用 ${activeProvider.toUpperCase()}` : "密钥未配置"}</span>
             <div className="admin-action-buttons">
               <button className="secondary-button compact" type="button" onClick={testAiConfig} disabled={testing}>
                 {testing ? "测试中..." : "测试连接"}

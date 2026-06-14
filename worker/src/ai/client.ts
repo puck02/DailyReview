@@ -1,27 +1,34 @@
 import type { Env } from "../env";
+import {
+  resolveTextModel,
+  resolveVisionModel,
+  type AiConfig,
+  type AiProviderConfig
+} from "./providers";
 
-export type AiConfig = {
-  base_url: string;
-  api_key: string;
-  report_model: string;
-};
+export type { AiConfig, AiProviderConfig } from "./providers";
 
 export type ChatMessage = {
   role: string;
   content: unknown;
 };
 
+function activeProviderConfig(config: AiConfig): AiProviderConfig {
+  return config.providers[config.active_provider];
+}
+
 export function isAiConfigured(config: AiConfig): boolean {
-  return Boolean(config.base_url && config.api_key && config.api_key !== "change-me");
+  const provider = activeProviderConfig(config);
+  return Boolean(provider.base_url && provider.api_key && provider.api_key !== "change-me");
 }
 
 function chatCompletionsUrl(config: AiConfig): string {
-  return `${config.base_url.replace(/\/+$/, "")}/chat/completions`;
+  return `${activeProviderConfig(config).base_url.replace(/\/+$/, "")}/chat/completions`;
 }
 
 function authHeaders(config: AiConfig): HeadersInit {
   return {
-    Authorization: `Bearer ${config.api_key}`,
+    Authorization: `Bearer ${activeProviderConfig(config).api_key}`,
     "Content-Type": "application/json"
   };
 }
@@ -114,4 +121,12 @@ export async function testAiConnection(config: AiConfig, model: string): Promise
     throw new Error("Missing assistant content");
   }
   return "AI 连接正常";
+}
+
+export function aiTextModel(config: AiConfig): string {
+  return resolveTextModel(config);
+}
+
+export function aiVisionModel(config: AiConfig): string {
+  return resolveVisionModel(config);
 }

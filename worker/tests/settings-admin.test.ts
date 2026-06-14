@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Env } from "../src/env";
+import { getAiConfig } from "../src/admin/routes";
+import { testAiConnection } from "../src/ai/client";
 import { cookieFrom, createTestEnv, fetchWorker, MemoryReportScheduler } from "./helpers";
 
 async function adminCookie(env = createTestEnv()): Promise<string> {
@@ -10,6 +12,59 @@ async function adminCookie(env = createTestEnv()): Promise<string> {
     body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
   });
   return cookieFrom(login);
+}
+
+function aiConfigPayload(overrides: Partial<{
+  active_provider: "gpt" | "zhipu";
+  providers: {
+    gpt: {
+      base_url: string;
+      api_key: string;
+      text_model: string;
+      vision_model: string;
+    };
+    zhipu: {
+      base_url: string;
+      api_key: string;
+      text_model: string;
+      vision_model: string;
+    };
+  };
+}> = {}) {
+  return {
+    active_provider: "gpt",
+    providers: {
+      gpt: {
+        base_url: "https://example.com/v1",
+        api_key: "abcdef1234567890",
+        text_model: "gpt-5.5",
+        vision_model: "gpt-5.4-mini"
+      },
+      zhipu: {
+        base_url: "https://open.bigmodel.cn/api/paas/v4",
+        api_key: "zhipu1234567890",
+        text_model: "glm-5",
+        vision_model: "glm-4.6v-flash"
+      }
+    },
+    ...overrides,
+    providers: {
+      gpt: {
+        base_url: "https://example.com/v1",
+        api_key: "abcdef1234567890",
+        text_model: "gpt-5.5",
+        vision_model: "gpt-5.4-mini",
+        ...(overrides.providers?.gpt || {})
+      },
+      zhipu: {
+        base_url: "https://open.bigmodel.cn/api/paas/v4",
+        api_key: "zhipu1234567890",
+        text_model: "glm-5",
+        vision_model: "glm-4.6v-flash",
+        ...(overrides.providers?.zhipu || {})
+      }
+    }
+  };
 }
 
 describe("settings and admin routes", () => {
@@ -176,48 +231,101 @@ describe("settings and admin routes", () => {
     });
   });
 
-  it("masks AI API keys and reports incomplete AI config", async () => {
+  it("saves both provider configs and exposes the active provider", async () => {
     const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
     const cookie = await adminCookie(env);
 
     const saved = await fetchWorker(env, "/api/admin/ai-config", {
       method: "PUT",
       headers: { cookie },
-      body: JSON.stringify({ base_url: "https://example.com/v1", api_key: "abcdef1234567890" })
+      body: JSON.stringify(aiConfigPayload())
     });
     expect(saved.status).toBe(200);
-    await expect(saved.json()).resolves.toEqual({
+    await expect(saved.json()).resolves.toMatchObject({
+      active_provider: "gpt",
+      providers: {
+        gpt: {
+          base_url: "https://example.com/v1",
+          has_api_key: true,
+          api_key_preview: "abcdef****7890",
+          text_model: "gpt-5.5",
+          vision_model: "gpt-5.4-mini"
+        },
+        zhipu: {
+          base_url: "https://open.bigmodel.cn/api/paas/v4",
+          has_api_key: true,
+          api_key_preview: "zhipu1****7890",
+          text_model: "glm-5",
+          vision_model: "glm-4.6v-flash"
+        }
+      },
       base_url: "https://example.com/v1",
       has_api_key: true,
       api_key_preview: "abcdef****7890",
       report_model: "gpt-5.5"
     });
 
-    const test = await fetchWorker(env, "/api/admin/ai-config/test", {
-      method: "POST",
+    const switched = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
       headers: { cookie },
-      body: JSON.stringify({ base_url: "", api_key: "" })
+      body: JSON.stringify(
+        aiConfigPayload({
+          active_provider: "zhipu",
+          providers: {
+            zhipu: {
+              vision_model: "glm-4.6v"
+            }
+          }
+        })
+      )
     });
-    expect(test.status).toBe(200);
-    await expect(test.json()).resolves.toEqual({ ok: false, message: "AI 配置不完整" });
+    expect(switched.status).toBe(200);
+    await expect(switched.json()).resolves.toMatchObject({
+      active_provider: "zhipu",
+      providers: {
+        gpt: {
+          base_url: "https://example.com/v1",
+          text_model: "gpt-5.5"
+        },
+        zhipu: {
+          vision_model: "glm-4.6v"
+        }
+      }
+    });
+
+    const config = await getAiConfig(env);
+    expect(config.active_provider).toBe("zhipu");
+    expect(config.providers.gpt.text_model).toBe("gpt-5.5");
   });
 
-  it("lets admins choose the model used for daily reports", async () => {
+  it("tests the active provider text model", async () => {
     const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
     const cookie = await adminCookie(env);
-
-    const before = await fetchWorker(env, "/api/admin/ai-config", { headers: { cookie } });
-    expect(before.status).toBe(200);
-    await expect(before.json()).resolves.toMatchObject({ report_model: "gpt-5.5" });
-
     const saved = await fetchWorker(env, "/api/admin/ai-config", {
       method: "PUT",
       headers: { cookie },
-      body: JSON.stringify({ base_url: "https://example.com/v1", api_key: "", report_model: "gpt-5.4-mini" })
+      body: JSON.stringify(aiConfigPayload({ active_provider: "zhipu" }))
+    });
+    expect(saved.status).toBe(200);
+
+    let requestBody: { model?: string; messages?: Array<{ role: string; content: unknown }> } | null = null;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as typeof requestBody;
+      return new Response(JSON.stringify({ choices: [{ message: { content: "AI 连接正常" } }] }), {
+        headers: { "content-type": "application/json" }
+      });
     });
 
-    expect(saved.status).toBe(200);
-    await expect(saved.json()).resolves.toMatchObject({ report_model: "gpt-5.4-mini" });
+    try {
+      const config = await getAiConfig(env);
+      const result = await testAiConnection(config, config.providers.zhipu.text_model);
+      expect(result).toBe("AI 连接正常");
+    } finally {
+      fetchMock.mockRestore();
+    }
+
+    expect(requestBody?.model).toBe("glm-5");
+    expect(requestBody?.messages?.[0]?.content).toBe("请只回复 OK");
   });
 
   it("rejects unsupported daily report models in admin AI config", async () => {
@@ -227,10 +335,18 @@ describe("settings and admin routes", () => {
     const response = await fetchWorker(env, "/api/admin/ai-config", {
       method: "PUT",
       headers: { cookie },
-      body: JSON.stringify({ base_url: "https://example.com/v1", api_key: "", report_model: "unknown-model" })
+      body: JSON.stringify(
+        aiConfigPayload({
+          providers: {
+            zhipu: {
+              text_model: "unknown-model"
+            }
+          }
+        })
+      )
     });
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ detail: "日报模型无效" });
+    await expect(response.json()).resolves.toEqual({ detail: "AI 模型无效" });
   });
 });
