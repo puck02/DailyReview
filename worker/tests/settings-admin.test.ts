@@ -315,6 +315,34 @@ describe("settings and admin routes", () => {
     expect(config.providers.gpt.text_model).toBe("gpt-5.5");
   });
 
+  it("switches the active provider back from zhipu to gpt", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+
+    const zhipu = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify(aiConfigPayload({ active_provider: "zhipu" }))
+    });
+    expect(zhipu.status).toBe(200);
+    await expect(zhipu.json()).resolves.toMatchObject({ active_provider: "zhipu" });
+
+    const gpt = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify(aiConfigPayload({ active_provider: "gpt" }))
+    });
+    expect(gpt.status).toBe(200);
+    await expect(gpt.json()).resolves.toMatchObject({
+      active_provider: "gpt",
+      base_url: "https://example.com/v1",
+      text_model: "gpt-5.5"
+    });
+
+    const config = await getAiConfig(env);
+    expect(config.active_provider).toBe("gpt");
+  });
+
   it("tests the active provider text model", async () => {
     const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
     const cookie = await adminCookie(env);

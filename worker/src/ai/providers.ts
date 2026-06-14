@@ -44,7 +44,10 @@ export type AiConfigResponse = {
 };
 
 export function normalizeProviderName(value: string | null | undefined, fallback: AiProviderName = "gpt"): AiProviderName {
-  return value === "zhipu" ? "zhipu" : fallback;
+  if (value === "gpt" || value === "zhipu") {
+    return value;
+  }
+  return fallback;
 }
 
 export function providerModels(provider: AiProviderName): { text: readonly string[]; vision: readonly string[] } {

@@ -1898,7 +1898,7 @@ function AdminView() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
   const [activeProvider, setActiveProvider] = useState<"gpt" | "zhipu">("gpt");
-  const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>("gpt");
+  const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>(null);
   const [gptBaseUrl, setGptBaseUrl] = useState("");
   const [gptApiKey, setGptApiKey] = useState("");
   const [gptTextModel, setGptTextModel] = useState(complexModel);
@@ -1916,6 +1916,7 @@ function AdminView() {
   const [saved, setSaved] = useState("");
   const [testResult, setTestResult] = useState("");
   const [testing, setTesting] = useState(false);
+  const [savingAiConfig, setSavingAiConfig] = useState(false);
 
   async function refresh() {
     const [inviteItems, config] = await Promise.all([api.invites(), api.aiConfig()]);
@@ -1934,7 +1935,6 @@ function AdminView() {
     setZhipuVisionModel(config.providers.zhipu.vision_model);
     setZhipuTranslationModel(config.providers.zhipu.translation_model);
     setZhipuReportModel(config.providers.zhipu.report_model);
-    setExpandedProvider((current) => current || config.active_provider);
   }
 
   useEffect(() => {
@@ -1955,10 +1955,12 @@ function AdminView() {
 
   async function saveAiConfig(event: FormEvent) {
     event.preventDefault();
+    const previousProvider = aiConfig?.active_provider;
     try {
       setError("");
       setSaved("");
       setTestResult("");
+      setSavingAiConfig(true);
       const config = await api.updateAiConfig({
         active_provider: activeProvider,
         providers: {
@@ -1994,9 +1996,11 @@ function AdminView() {
       setZhipuVisionModel(config.providers.zhipu.vision_model);
       setZhipuTranslationModel(config.providers.zhipu.translation_model);
       setZhipuReportModel(config.providers.zhipu.report_model);
-      setSaved("AI 配置已保存");
+      setSaved(providerSwitchMessage(previousProvider, config.active_provider));
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingAiConfig(false);
     }
   }
 
@@ -2037,6 +2041,17 @@ function AdminView() {
 
   function toggleProvider(provider: "gpt" | "zhipu") {
     setExpandedProvider((current) => (current === provider ? null : provider));
+  }
+
+  function providerDisplayName(provider: "gpt" | "zhipu") {
+    return provider === "gpt" ? "GPT" : "ZHIPU";
+  }
+
+  function providerSwitchMessage(previousProvider: "gpt" | "zhipu" | undefined, nextProvider: "gpt" | "zhipu") {
+    if (previousProvider && previousProvider !== nextProvider) {
+      return nextProvider === "gpt" ? "已切换到 GPT" : "已切换到 ZHIPU";
+    }
+    return "AI 配置已保存";
   }
 
   return (
@@ -2211,13 +2226,20 @@ function AdminView() {
             </section>
           </div>
           <div className="admin-actions">
-            <span>{aiConfig?.providers[activeProvider]?.api_key_preview ? `当前启用 ${activeProvider.toUpperCase()}` : "密钥未配置"}</span>
+            <span className={savingAiConfig ? "provider-switch-status is-switching" : "provider-switch-status"}>
+              {savingAiConfig && <span className="provider-status-dot" />}
+              {savingAiConfig
+                ? `切换中，目标 ${providerDisplayName(activeProvider)}`
+                : aiConfig?.providers[activeProvider]?.api_key_preview
+                  ? `当前启用 ${activeProvider.toUpperCase()}`
+                  : "密钥未配置"}
+            </span>
             <div className="admin-action-buttons">
-              <button className="secondary-button compact" type="button" onClick={testAiConfig} disabled={testing}>
+              <button className="secondary-button compact" type="button" onClick={testAiConfig} disabled={testing || savingAiConfig}>
                 {testing ? "测试中..." : "测试连接"}
               </button>
-              <button className="primary-button compact" type="submit">
-                保存 AI 配置
+              <button className="primary-button compact" type="submit" disabled={savingAiConfig}>
+                {savingAiConfig ? "切换中..." : "保存 AI 配置"}
               </button>
             </div>
           </div>

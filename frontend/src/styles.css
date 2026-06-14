@@ -2094,6 +2094,38 @@ textarea:focus {
   font-weight: 680;
 }
 
+.provider-switch-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--muted-text);
+}
+
+.provider-switch-status.is-switching {
+  color: var(--headline);
+}
+
+.provider-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary-bg);
+  animation: provider-status-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes provider-status-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .settings-panel {
   height: 100vh;
   display: grid;

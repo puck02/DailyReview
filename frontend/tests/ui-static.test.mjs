@@ -245,7 +245,7 @@ test("pending image previews share one visual surface with the composer", () => 
 });
 
 test("admin provider settings expand by clicking each provider row", () => {
-  assert.ok(app.includes('const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>'));
+  assert.ok(app.includes('const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>(null);'));
   assert.ok(app.includes("toggleProvider"));
   assert.ok(app.includes("provider-row-button"));
   assert.ok(app.includes("provider-card-body"));
@@ -255,6 +255,23 @@ test("admin provider settings expand by clicking each provider row", () => {
   assert.match(styles, /\.provider-grid\s*{[^}]*grid-template-columns:\s*1fr;/s);
   assert.match(styles, /\.provider-row-button\s*{[^}]*display:\s*grid;/s);
   assert.match(styles, /\.provider-card-body\s*{[^}]*display:\s*grid;/s);
+});
+
+test("admin provider switching shows progress and save result", () => {
+  assert.ok(app.includes("const [savingAiConfig, setSavingAiConfig] = useState(false);"));
+  assert.ok(app.includes("const previousProvider = aiConfig?.active_provider;"));
+  assert.ok(app.includes("setSavingAiConfig(true);"));
+  assert.ok(app.includes("setSaved(providerSwitchMessage(previousProvider, config.active_provider));"));
+  assert.ok(app.includes("savingAiConfig ? \"切换中...\" : \"保存 AI 配置\""));
+  assert.ok(app.includes("disabled={savingAiConfig}"));
+  assert.ok(app.includes("provider-switch-status"));
+  assert.ok(app.includes("provider-status-dot"));
+  assert.ok(app.includes("已切换到 GPT"));
+  assert.ok(app.includes("已切换到 ZHIPU"));
+  assert.ok(app.includes("AI 配置已保存"));
+  assert.match(styles, /\.provider-switch-status\s*{[^}]*display:\s*inline-flex;/s);
+  assert.match(styles, /\.provider-status-dot\s*{[^}]*animation:\s*provider-status-pulse 900ms ease-in-out infinite;/s);
+  assert.match(styles, /@keyframes provider-status-pulse\s*{/);
 });
 
 test("composer blocks sending while image upload is still running", () => {
