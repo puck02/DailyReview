@@ -104,6 +104,7 @@ const zhipuVisionModels = ["glm-4.6v-flash", "glm-4.6v"];
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared";
+const aiConfigChangedEvent = "dailyreview:ai-config-changed";
 const wordCloudLaneCount = 4;
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
 function preloadMarkdownRenderer() {
@@ -691,20 +692,35 @@ function ChatView({
   const regularSessions = useMemo(() => sessions.filter((session) => !session.is_archived), [sessions]);
   const archivedSessions = useMemo(() => sessions.filter((session) => session.is_archived), [sessions]);
 
+  async function loadChatModels() {
+    const config = await api.aiModels();
+    const options = config.available_models[config.active_provider].text;
+    const nextOptions = options.length ? options : [config.text_model || defaultModel];
+    setChatModelOptions(nextOptions);
+    setModel((current) => {
+      if (nextOptions.includes(current)) return current;
+      return nextOptions.includes(config.text_model) ? config.text_model : nextOptions[0] || defaultModel;
+    });
+  }
+
   useEffect(() => {
     refreshSessions().catch((err) => setError(err.message));
-    api
-      .aiModels()
-      .then((config) => {
-        const options = config.available_models[config.active_provider].text;
-        const nextOptions = options.length ? options : [config.text_model || defaultModel];
-        setChatModelOptions(nextOptions);
-        setModel(nextOptions.includes(config.text_model) ? config.text_model : nextOptions[0] || defaultModel);
-      })
-      .catch(() => {
+    loadChatModels().catch(() => {
+      setChatModelOptions(reportModels);
+      setModel(defaultModel);
+    });
+  }, []);
+
+  useEffect(() => {
+    function handleAiConfigChanged() {
+      loadChatModels().catch(() => {
         setChatModelOptions(reportModels);
         setModel(defaultModel);
       });
+    }
+
+    window.addEventListener(aiConfigChangedEvent, handleAiConfigChanged);
+    return () => window.removeEventListener(aiConfigChangedEvent, handleAiConfigChanged);
   }, []);
 
   useEffect(() => {
@@ -1997,6 +2013,7 @@ function AdminView() {
       setZhipuTranslationModel(config.providers.zhipu.translation_model);
       setZhipuReportModel(config.providers.zhipu.report_model);
       setSaved(providerSwitchMessage(previousProvider, config.active_provider));
+      window.dispatchEvent(new Event(aiConfigChangedEvent));
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
     } finally {

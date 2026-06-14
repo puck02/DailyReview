@@ -70,6 +70,10 @@ test("chat model picker uses the full upstream model names", () => {
   assert.match(app, /api\s*\.\s*aiModels\(\)/);
   assert.ok(app.includes("setChatModelOptions"));
   assert.ok(app.includes("config.available_models[config.active_provider].text"));
+  assert.ok(app.includes("aiConfigChangedEvent"));
+  assert.ok(app.includes("loadChatModels().catch"));
+  assert.ok(app.includes("window.addEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
+  assert.ok(app.includes("window.removeEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
   assert.match(app, /chatModelOptions\.map\(\(option\) =>/);
 });
 
@@ -269,6 +273,7 @@ test("admin provider switching shows progress and save result", () => {
   assert.ok(app.includes("已切换到 GPT"));
   assert.ok(app.includes("已切换到 ZHIPU"));
   assert.ok(app.includes("AI 配置已保存"));
+  assert.ok(app.includes("window.dispatchEvent(new Event(aiConfigChangedEvent));"));
   assert.match(styles, /\.provider-switch-status\s*{[^}]*display:\s*inline-flex;/s);
   assert.match(styles, /\.provider-status-dot\s*{[^}]*animation:\s*provider-status-pulse 900ms ease-in-out infinite;/s);
   assert.match(styles, /@keyframes provider-status-pulse\s*{/);
