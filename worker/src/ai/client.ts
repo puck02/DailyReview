@@ -1,7 +1,9 @@
 import type { Env } from "../env";
 import {
   resolveTextModel,
+  resolveTranslationModel,
   resolveVisionModel,
+  resolveReportModel,
   type AiConfig,
   type AiProviderConfig
 } from "./providers";
@@ -125,6 +127,14 @@ export async function testAiConnection(config: AiConfig, model: string): Promise
 
 export function aiTextModel(config: AiConfig): string {
   return resolveTextModel(config);
+}
+
+export function aiTranslationModel(config: AiConfig): string {
+  return resolveTranslationModel(config);
+}
+
+export function aiReportModel(config: AiConfig): string {
+  return resolveReportModel(config);
 }
 
 export function aiVisionModel(config: AiConfig): string {

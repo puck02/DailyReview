@@ -91,6 +91,64 @@ describe("translation routes", () => {
     await expect(after.json()).resolves.toEqual({ system_prompt: "请用两行说明译文和重点。" });
   });
 
+  it("uses the active provider translation model", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const adminLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    const adminCookie = cookieFrom(adminLogin);
+    await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({
+        active_provider: "zhipu",
+        providers: {
+          zhipu: {
+            base_url: "https://open.bigmodel.cn/api/paas/v4",
+            api_key: "test-key",
+            text_model: "glm-5",
+            vision_model: "glm-4.6v",
+            translation_model: "glm-5",
+            report_model: "glm-5"
+          }
+        }
+      })
+    });
+    const invite = await fetchWorker(env, "/api/invites", {
+      method: "POST",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({ expires_days: 7 })
+    });
+    const { code } = (await invite.json()) as { code: string };
+    const register = await fetchWorker(env, "/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "zhipu-user@example.com", password: "user-password", invite_code: code })
+    });
+    const cookie = cookieFrom(register);
+    let requestBody: { model?: string } | null = null;
+    const aiFetch = vi.fn(async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body)) as typeof requestBody;
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "### 译文\n极限存在\n\n### 重点\n- limit 表示极限。" } }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+    vi.stubGlobal("fetch", aiFetch);
+
+    const response = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ text: "limit exists" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(aiFetch).toHaveBeenCalledOnce();
+    expect(requestBody?.model).toBe("glm-5");
+  });
+
   it("rejects text over the 2000 character limit before storing entries", async () => {
     const { env, cookie } = await loginUser();
 

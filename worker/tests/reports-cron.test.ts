@@ -146,7 +146,19 @@ describe("reports, cron jobs, and PDF downgrade", () => {
     await fetchWorker(env, "/api/admin/ai-config", {
       method: "PUT",
       headers: { cookie: adminCookie },
-      body: JSON.stringify({ base_url: "https://ai.example.test/v1", api_key: "", report_model: "gpt-5.4-mini" })
+      body: JSON.stringify({
+        active_provider: "gpt",
+        providers: {
+          gpt: {
+            base_url: "https://ai.example.test/v1",
+            api_key: "",
+            text_model: "gpt-5.5",
+            vision_model: "gpt-5.5",
+            translation_model: "gpt-5.5",
+            report_model: "gpt-5.4-mini"
+          }
+        }
+      })
     });
     await createMessage(env, userId, "今天理解了极限存在必须左右极限相等，并修正了只看代入值的误解", "2026-06-09T10:00:00.000Z");
 

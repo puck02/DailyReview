@@ -624,6 +624,7 @@ function ChatView({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [model, setModel] = useState(defaultModel);
+  const [chatModelOptions, setChatModelOptions] = useState(reportModels);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const activeRef = useRef<ChatSession | null>(null);
@@ -669,6 +670,18 @@ function ChatView({
 
   useEffect(() => {
     refreshSessions().catch((err) => setError(err.message));
+    api
+      .aiModels()
+      .then((config) => {
+        const options = config.available_models[config.active_provider].text;
+        const nextOptions = options.length ? options : [config.text_model || defaultModel];
+        setChatModelOptions(nextOptions);
+        setModel(nextOptions.includes(config.text_model) ? config.text_model : nextOptions[0] || defaultModel);
+      })
+      .catch(() => {
+        setChatModelOptions(reportModels);
+        setModel(defaultModel);
+      });
   }, []);
 
   useEffect(() => {
@@ -1187,8 +1200,11 @@ function ChatView({
               {currentTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <select value={model} onChange={(event) => setModel(event.target.value)}>
-              <option value={defaultModel}>{defaultModel}</option>
-              <option value={complexModel}>{complexModel}</option>
+              {chatModelOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
             </select>
           </div>
         </header>
@@ -1803,10 +1819,14 @@ function AdminView() {
   const [gptApiKey, setGptApiKey] = useState("");
   const [gptTextModel, setGptTextModel] = useState(complexModel);
   const [gptVisionModel, setGptVisionModel] = useState(complexModel);
+  const [gptTranslationModel, setGptTranslationModel] = useState(defaultModel);
+  const [gptReportModel, setGptReportModel] = useState(complexModel);
   const [zhipuBaseUrl, setZhipuBaseUrl] = useState("https://open.bigmodel.cn/api/paas/v4");
   const [zhipuApiKey, setZhipuApiKey] = useState("");
   const [zhipuTextModel, setZhipuTextModel] = useState("glm-5");
   const [zhipuVisionModel, setZhipuVisionModel] = useState("glm-4.6v-flash");
+  const [zhipuTranslationModel, setZhipuTranslationModel] = useState("glm-5");
+  const [zhipuReportModel, setZhipuReportModel] = useState("glm-5");
   const [loadingAdmin, setLoadingAdmin] = useState(true);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -1822,10 +1842,14 @@ function AdminView() {
     setGptApiKey("");
     setGptTextModel(config.providers.gpt.text_model);
     setGptVisionModel(config.providers.gpt.vision_model);
+    setGptTranslationModel(config.providers.gpt.translation_model);
+    setGptReportModel(config.providers.gpt.report_model);
     setZhipuBaseUrl(config.providers.zhipu.base_url);
     setZhipuApiKey("");
     setZhipuTextModel(config.providers.zhipu.text_model);
     setZhipuVisionModel(config.providers.zhipu.vision_model);
+    setZhipuTranslationModel(config.providers.zhipu.translation_model);
+    setZhipuReportModel(config.providers.zhipu.report_model);
   }
 
   useEffect(() => {
@@ -1857,13 +1881,17 @@ function AdminView() {
             base_url: gptBaseUrl,
             api_key: gptApiKey || undefined,
             text_model: gptTextModel,
-            vision_model: gptVisionModel
+            vision_model: gptVisionModel,
+            translation_model: gptTranslationModel,
+            report_model: gptReportModel
           },
           zhipu: {
             base_url: zhipuBaseUrl,
             api_key: zhipuApiKey || undefined,
             text_model: zhipuTextModel,
-            vision_model: zhipuVisionModel
+            vision_model: zhipuVisionModel,
+            translation_model: zhipuTranslationModel,
+            report_model: zhipuReportModel
           }
         }
       });
@@ -1873,10 +1901,14 @@ function AdminView() {
       setGptApiKey("");
       setGptTextModel(config.providers.gpt.text_model);
       setGptVisionModel(config.providers.gpt.vision_model);
+      setGptTranslationModel(config.providers.gpt.translation_model);
+      setGptReportModel(config.providers.gpt.report_model);
       setZhipuBaseUrl(config.providers.zhipu.base_url);
       setZhipuApiKey("");
       setZhipuTextModel(config.providers.zhipu.text_model);
       setZhipuVisionModel(config.providers.zhipu.vision_model);
+      setZhipuTranslationModel(config.providers.zhipu.translation_model);
+      setZhipuReportModel(config.providers.zhipu.report_model);
       setSaved("AI 配置已保存");
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
@@ -1896,13 +1928,17 @@ function AdminView() {
             base_url: gptBaseUrl,
             api_key: gptApiKey || undefined,
             text_model: gptTextModel,
-            vision_model: gptVisionModel
+            vision_model: gptVisionModel,
+            translation_model: gptTranslationModel,
+            report_model: gptReportModel
           },
           zhipu: {
             base_url: zhipuBaseUrl,
             api_key: zhipuApiKey || undefined,
             text_model: zhipuTextModel,
-            vision_model: zhipuVisionModel
+            vision_model: zhipuVisionModel,
+            translation_model: zhipuTranslationModel,
+            report_model: zhipuReportModel
           }
         }
       });
@@ -1974,6 +2010,26 @@ function AdminView() {
                   ))}
                 </select>
               </label>
+              <label>
+                翻译模型
+                <select value={gptTranslationModel} onChange={(event) => setGptTranslationModel(event.target.value)}>
+                  {reportModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                日报模型
+                <select value={gptReportModel} onChange={(event) => setGptReportModel(event.target.value)}>
+                  {reportModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </section>
             <section className="provider-card">
               <div className="provider-card-head">
@@ -2007,6 +2063,26 @@ function AdminView() {
                 视觉模型
                 <select value={zhipuVisionModel} onChange={(event) => setZhipuVisionModel(event.target.value)}>
                   {zhipuVisionModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                翻译模型
+                <select value={zhipuTranslationModel} onChange={(event) => setZhipuTranslationModel(event.target.value)}>
+                  {zhipuTextModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                日报模型
+                <select value={zhipuReportModel} onChange={(event) => setZhipuReportModel(event.target.value)}>
+                  {zhipuTextModels.map((model) => (
                     <option key={model} value={model}>
                       {model}
                     </option>

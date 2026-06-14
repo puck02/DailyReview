@@ -5,7 +5,7 @@ import { requireUser } from "../auth/routes";
 import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
-import { completeChat, aiTextModel } from "../ai/client";
+import { aiTranslationModel, completeChat } from "../ai/client";
 import {
   DEFAULT_TRANSLATION_PROMPT,
   TRANSLATION_INPUT_LIMIT,
@@ -258,7 +258,7 @@ async function translate(request: Request, env: Env): Promise<Response> {
         { role: "system", content: await getTranslationPrompt(env, user.id) },
         { role: "user", content: buildTranslationUserPrompt(text, sourceKind) }
       ],
-      aiTextModel(aiConfig),
+      aiTranslationModel(aiConfig),
       fallback,
       env,
       aiConfig

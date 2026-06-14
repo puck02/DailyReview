@@ -22,12 +22,16 @@ function aiConfigPayload(overrides: Partial<{
       api_key: string;
       text_model: string;
       vision_model: string;
+      translation_model: string;
+      report_model: string;
     };
     zhipu: {
       base_url: string;
       api_key: string;
       text_model: string;
       vision_model: string;
+      translation_model: string;
+      report_model: string;
     };
   };
 }> = {}) {
@@ -38,13 +42,17 @@ function aiConfigPayload(overrides: Partial<{
         base_url: "https://example.com/v1",
         api_key: "abcdef1234567890",
         text_model: "gpt-5.5",
-        vision_model: "gpt-5.4-mini"
+        vision_model: "gpt-5.4-mini",
+        translation_model: "gpt-5.4-mini",
+        report_model: "gpt-5.5"
       },
       zhipu: {
         base_url: "https://open.bigmodel.cn/api/paas/v4",
         api_key: "zhipu1234567890",
         text_model: "glm-5",
-        vision_model: "glm-4.6v-flash"
+        vision_model: "glm-4.6v-flash",
+        translation_model: "glm-5",
+        report_model: "glm-5"
       }
     },
     ...overrides,
@@ -54,6 +62,8 @@ function aiConfigPayload(overrides: Partial<{
         api_key: "abcdef1234567890",
         text_model: "gpt-5.5",
         vision_model: "gpt-5.4-mini",
+        translation_model: "gpt-5.4-mini",
+        report_model: "gpt-5.5",
         ...(overrides.providers?.gpt || {})
       },
       zhipu: {
@@ -61,6 +71,8 @@ function aiConfigPayload(overrides: Partial<{
         api_key: "zhipu1234567890",
         text_model: "glm-5",
         vision_model: "glm-4.6v-flash",
+        translation_model: "glm-5",
+        report_model: "glm-5",
         ...(overrides.providers?.zhipu || {})
       }
     }
@@ -249,19 +261,24 @@ describe("settings and admin routes", () => {
           has_api_key: true,
           api_key_preview: "abcdef****7890",
           text_model: "gpt-5.5",
-          vision_model: "gpt-5.4-mini"
+          vision_model: "gpt-5.4-mini",
+          translation_model: "gpt-5.4-mini",
+          report_model: "gpt-5.5"
         },
         zhipu: {
           base_url: "https://open.bigmodel.cn/api/paas/v4",
           has_api_key: true,
           api_key_preview: "zhipu1****7890",
           text_model: "glm-5",
-          vision_model: "glm-4.6v-flash"
+          vision_model: "glm-4.6v-flash",
+          translation_model: "glm-5",
+          report_model: "glm-5"
         }
       },
       base_url: "https://example.com/v1",
       has_api_key: true,
       api_key_preview: "abcdef****7890",
+      translation_model: "gpt-5.4-mini",
       report_model: "gpt-5.5"
     });
 
@@ -338,8 +355,8 @@ describe("settings and admin routes", () => {
       body: JSON.stringify(
         aiConfigPayload({
           providers: {
-            zhipu: {
-              text_model: "unknown-model"
+            gpt: {
+              report_model: "unknown-model"
             }
           }
         })

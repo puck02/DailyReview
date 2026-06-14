@@ -2,7 +2,7 @@ import { all, first, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError } from "../http";
 import { getAiConfig } from "../admin/routes";
-import { aiTextModel, completeChat, isAiConfigured } from "../ai/client";
+import { aiReportModel, completeChat, isAiConfigured } from "../ai/client";
 
 export const PDF_DOWNGRADE_MESSAGE = "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。";
 
@@ -490,7 +490,7 @@ subject, topic, question, insight, misconception, memory, value_score, evidence
 问答片段：
 ${renderSegments(segments)}`;
   const fallback = JSON.stringify(fallbackLearningEvents(fallbackSegments, keywords));
-  const response = await completeChat([{ role: "user", content: prompt }], aiTextModel(aiConfig), fallback, env, aiConfig);
+  const response = await completeChat([{ role: "user", content: prompt }], aiReportModel(aiConfig), fallback, env, aiConfig);
   const events = safeJsonArray(response).map(normalizeLearningEvent).filter((event): event is LearningEvent => Boolean(event));
   return events.length ? events.slice(0, LEARNING_EVENT_LIMIT) : fallbackLearningEvents(fallbackSegments, keywords);
 }
@@ -552,7 +552,7 @@ ${eventSummary}`;
   const fallback = fallbackDailyMarkdown(day, eventSummary, keywords);
   const markdown = await completeChat(
     [{ role: "user", content: prompt }],
-    aiTextModel(aiConfig),
+    aiReportModel(aiConfig),
     fallback,
     env,
     aiConfig
@@ -592,7 +592,7 @@ ${renderLearningEvents(events)}
 待审查日报：
 ${markdown}`;
   const fallback = "PASS";
-  const response = await completeChat([{ role: "user", content: prompt }], aiTextModel(aiConfig), fallback, env, aiConfig);
+  const response = await completeChat([{ role: "user", content: prompt }], aiReportModel(aiConfig), fallback, env, aiConfig);
   const normalized = response.trim();
   if (/^PASS\b/i.test(normalized)) {
     return { status: "pass", feedback: "" };

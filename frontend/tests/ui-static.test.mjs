@@ -66,6 +66,11 @@ test("chat model picker uses the full upstream model names", () => {
   assert.match(app, /const defaultModel = "gpt-5\.4-mini";/);
   assert.match(app, /const complexModel = "gpt-5\.5";/);
   assert.doesNotMatch(app, /const complexModel = "5\.5";/);
+  assert.ok(apiSource.includes("aiModels: () => request<AiModels>"));
+  assert.match(app, /api\s*\.\s*aiModels\(\)/);
+  assert.ok(app.includes("setChatModelOptions"));
+  assert.ok(app.includes("config.available_models[config.active_provider].text"));
+  assert.match(app, /chatModelOptions\.map\(\(option\) =>/);
 });
 
 test("desktop global sidebar is a narrow icon rail", () => {
@@ -388,11 +393,19 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(apiSource.includes("providers: {"));
   assert.ok(apiSource.includes("text_model: string;"));
   assert.ok(apiSource.includes("vision_model: string;"));
+  assert.ok(apiSource.includes("translation_model: string;"));
+  assert.ok(apiSource.includes("report_model: string;"));
   assert.ok(app.includes("const [activeProvider, setActiveProvider]"));
   assert.ok(app.includes("setGptTextModel(config.providers.gpt.text_model)"));
   assert.ok(app.includes("setZhipuTextModel(config.providers.zhipu.text_model)"));
+  assert.ok(app.includes("setGptTranslationModel(config.providers.gpt.translation_model)"));
+  assert.ok(app.includes("setZhipuReportModel(config.providers.zhipu.report_model)"));
   assert.ok(app.includes("text_model"));
   assert.ok(app.includes("vision_model"));
+  assert.ok(app.includes("translation_model"));
+  assert.ok(app.includes("report_model"));
+  assert.ok(app.includes("翻译模型"));
+  assert.ok(app.includes("日报模型"));
   assert.ok(app.includes("glm-5"));
   assert.ok(app.includes("glm-4.6v-flash"));
   assert.ok(app.includes("当前密钥"));

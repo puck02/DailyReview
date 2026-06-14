@@ -58,6 +58,8 @@ export type AiConfig = {
       api_key_preview: string | null;
       text_model: string;
       vision_model: string;
+      translation_model: string;
+      report_model: string;
     };
     zhipu: {
       base_url: string;
@@ -65,6 +67,8 @@ export type AiConfig = {
       api_key_preview: string | null;
       text_model: string;
       vision_model: string;
+      translation_model: string;
+      report_model: string;
     };
   };
   available_models: {
@@ -74,6 +78,21 @@ export type AiConfig = {
   base_url: string;
   has_api_key: boolean;
   api_key_preview: string | null;
+  text_model: string;
+  vision_model: string;
+  translation_model: string;
+  report_model: string;
+};
+
+export type AiModels = {
+  active_provider: "gpt" | "zhipu";
+  available_models: {
+    gpt: { text: string[]; vision: string[] };
+    zhipu: { text: string[]; vision: string[] };
+  };
+  text_model: string;
+  vision_model: string;
+  translation_model: string;
   report_model: string;
 };
 
@@ -190,11 +209,26 @@ export const api = {
     return response.blob();
   },
   aiConfig: () => request<AiConfig>("/api/admin/ai-config"),
+  aiModels: () => request<AiModels>("/api/ai-models"),
   updateAiConfig: (payload: {
     active_provider: "gpt" | "zhipu";
     providers: {
-      gpt?: { base_url?: string; api_key?: string; text_model?: string; vision_model?: string };
-      zhipu?: { base_url?: string; api_key?: string; text_model?: string; vision_model?: string };
+      gpt?: {
+        base_url?: string;
+        api_key?: string;
+        text_model?: string;
+        vision_model?: string;
+        translation_model?: string;
+        report_model?: string;
+      };
+      zhipu?: {
+        base_url?: string;
+        api_key?: string;
+        text_model?: string;
+        vision_model?: string;
+        translation_model?: string;
+        report_model?: string;
+      };
     };
   }) =>
     request<AiConfig>("/api/admin/ai-config", {
@@ -204,8 +238,22 @@ export const api = {
   testAiConfig: (payload: {
     active_provider: "gpt" | "zhipu";
     providers: {
-      gpt?: { base_url?: string; api_key?: string; text_model?: string; vision_model?: string };
-      zhipu?: { base_url?: string; api_key?: string; text_model?: string; vision_model?: string };
+      gpt?: {
+        base_url?: string;
+        api_key?: string;
+        text_model?: string;
+        vision_model?: string;
+        translation_model?: string;
+        report_model?: string;
+      };
+      zhipu?: {
+        base_url?: string;
+        api_key?: string;
+        text_model?: string;
+        vision_model?: string;
+        translation_model?: string;
+        report_model?: string;
+      };
     };
   }) =>
     request<AiConfigTest>("/api/admin/ai-config/test", {

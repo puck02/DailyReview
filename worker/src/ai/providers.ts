@@ -11,6 +11,8 @@ export type AiProviderConfig = {
   api_key: string;
   text_model: string;
   vision_model: string;
+  translation_model: string;
+  report_model: string;
 };
 
 export type AiConfig = {
@@ -24,6 +26,8 @@ export type AiProviderConfigResponse = {
   api_key_preview: string | null;
   text_model: string;
   vision_model: string;
+  translation_model: string;
+  report_model: string;
 };
 
 export type AiConfigResponse = {
@@ -33,6 +37,9 @@ export type AiConfigResponse = {
   base_url: string;
   has_api_key: boolean;
   api_key_preview: string | null;
+  text_model: string;
+  vision_model: string;
+  translation_model: string;
   report_model: string;
 };
 
@@ -66,7 +73,9 @@ export function providerResponse(config: AiProviderConfig): AiProviderConfigResp
     has_api_key: Boolean(config.api_key),
     api_key_preview: maskApiKey(config.api_key),
     text_model: config.text_model,
-    vision_model: config.vision_model
+    vision_model: config.vision_model,
+    translation_model: config.translation_model,
+    report_model: config.report_model
   };
 }
 
@@ -91,7 +100,10 @@ export function configResponse(config: AiConfig): AiConfigResponse {
     base_url: active.base_url,
     has_api_key: Boolean(active.api_key),
     api_key_preview: maskApiKey(active.api_key),
-    report_model: active.text_model
+    text_model: active.text_model,
+    vision_model: active.vision_model,
+    translation_model: active.translation_model,
+    report_model: active.report_model
   };
 }
 
@@ -107,6 +119,24 @@ export function resolveTextModel(config: AiConfig): string {
     return textModel;
   }
   return fallbackTextModel(provider, textModel);
+}
+
+export function resolveTranslationModel(config: AiConfig): string {
+  const provider = config.active_provider;
+  const model = config.providers[provider].translation_model.trim();
+  if (isAllowedTextModel(provider, model)) {
+    return model;
+  }
+  return resolveTextModel(config);
+}
+
+export function resolveReportModel(config: AiConfig): string {
+  const provider = config.active_provider;
+  const model = config.providers[provider].report_model.trim();
+  if (isAllowedTextModel(provider, model)) {
+    return model;
+  }
+  return resolveTextModel(config);
 }
 
 export function resolveVisionModel(config: AiConfig): string {
