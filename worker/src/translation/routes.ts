@@ -5,13 +5,14 @@ import { requireUser } from "../auth/routes";
 import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
-import { aiTranslationModel, completeChat } from "../ai/client";
+import { aiTranslationModel, completeChat, isAiConfigured } from "../ai/client";
 import {
   DEFAULT_TRANSLATION_PROMPT,
   TRANSLATION_INPUT_LIMIT,
   TRANSLATION_LIMIT_MESSAGE,
   TRANSLATION_PROMPT_PREFIX,
   buildTranslationUserPrompt,
+  buildWordDetailUserPrompt,
   correctedWordFromMarkdown,
   detectSourceKind,
   extractCanonicalWordAndMarkdown,
@@ -186,6 +187,92 @@ async function queueWordDetail(env: Env, userId: number, text: string, isAutoDet
   });
 }
 
+async function completeWordDetail(env: Env, entry: TranslationEntryRow): Promise<void> {
+  if (entry.source_kind !== "word" || entry.detail_status === "ready") {
+    return;
+  }
+  const text = normalizeWord(entry.source_text);
+  if (!text) {
+    await env.DB.prepare("UPDATE translation_entries SET detail_status = 'failed' WHERE id = ?").bind(entry.id).run();
+    return;
+  }
+
+  const cached = await findCachedWordDetail(env, text);
+  if (cached) {
+    await env.DB.prepare(
+      `UPDATE translation_entries
+       SET source_text = ?, phonetic = ?, result_markdown = ?, detail_status = 'ready'
+       WHERE id = ?`
+    )
+      .bind(cached.source_text, cached.phonetic, cached.result_markdown, entry.id)
+      .run();
+    return;
+  }
+
+  await env.DB.prepare("UPDATE translation_entries SET detail_status = 'processing' WHERE id = ? AND detail_status != 'ready'")
+    .bind(entry.id)
+    .run();
+  const aiConfig = await getAiConfig(env);
+  const fallback = fallbackTranslation(text, "word");
+  let result: string;
+  try {
+    result = await completeChat(
+      [
+        { role: "system", content: await getTranslationPrompt(env, entry.user_id) },
+        { role: "user", content: buildWordDetailUserPrompt(text) }
+      ],
+      aiTranslationModel(aiConfig),
+      fallback,
+      env,
+      aiConfig
+    );
+  } catch {
+    result = fallback;
+  }
+
+  if (isFallbackTranslationMarkdown(result)) {
+    await env.DB.prepare("UPDATE translation_entries SET detail_status = 'failed' WHERE id = ?").bind(entry.id).run();
+    return;
+  }
+
+  const canonical = extractCanonicalWordAndMarkdown(result);
+  const correctedText = canonical.canonicalWord && isNormalizedWord(canonical.canonicalWord) ? canonical.canonicalWord : text;
+  const extracted = extractPhoneticAndMarkdown(canonical.markdown);
+  await saveCachedWordDetail(env, correctedText, extracted.phonetic, extracted.markdown);
+  if (correctedText !== text) {
+    await deleteCachedWordDetail(env, text);
+  }
+  await env.DB.prepare(
+    `UPDATE translation_entries
+     SET source_text = ?, phonetic = ?, result_markdown = ?, detail_status = 'ready'
+     WHERE id = ?`
+  )
+    .bind(correctedText, extracted.phonetic, extracted.markdown, entry.id)
+    .run();
+}
+
+export async function processQueuedWordDetails(env: Env, limit = 10): Promise<void> {
+  const entries = await all<TranslationEntryRow>(
+    env.DB.prepare(
+      `SELECT * FROM translation_entries
+       WHERE source_kind = 'word' AND detail_status IN ('queued', 'processing')
+       ORDER BY created_at ASC, id ASC
+       LIMIT ?`
+    ).bind(limit)
+  );
+  for (const entry of entries) {
+    try {
+      await completeWordDetail(env, entry);
+    } catch (error) {
+      console.error("Queued word detail failed", {
+        entryId: entry.id,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      await env.DB.prepare("UPDATE translation_entries SET detail_status = 'failed' WHERE id = ?").bind(entry.id).run();
+    }
+  }
+}
+
 async function readPrompt(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   return json({ system_prompt: await getTranslationPrompt(env, user.id) });
@@ -215,14 +302,17 @@ async function clearEntries(request: Request, env: Env): Promise<Response> {
   return json({ status: "ok" });
 }
 
-async function dictionaryEntry(request: Request, env: Env): Promise<Response> {
+async function dictionaryEntry(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = translationSchema.parse(await parseJson<unknown>(request));
   const entry = await queueWordDetail(env, user.id, payload.text, true);
+  if (entry.detail_status === "queued") {
+    ctx?.waitUntil(processQueuedWordDetails(env, 3));
+  }
   return json(entryResponse(entry));
 }
 
-async function translate(request: Request, env: Env): Promise<Response> {
+async function translate(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = translationSchema.parse(await parseJson<unknown>(request));
   if (payload.text.length > TRANSLATION_INPUT_LIMIT) {
@@ -234,8 +324,6 @@ async function translate(request: Request, env: Env): Promise<Response> {
     text = normalizeWord(text);
   }
 
-  const fallback = fallbackTranslation(text, sourceKind);
-  const aiConfig = await getAiConfig(env);
   if (sourceKind === "word") {
     const cached = await findCachedWordDetail(env, text);
     if (cached) {
@@ -250,7 +338,28 @@ async function translate(request: Request, env: Env): Promise<Response> {
       });
       return json(entryResponse(entry));
     }
+    const aiConfig = await getAiConfig(env);
+    if (!isAiConfigured(aiConfig)) {
+      const extracted = extractPhoneticAndMarkdown(fallbackTranslation(text, sourceKind));
+      const entry = await insertEntry(env, {
+        userId: user.id,
+        sourceText: text,
+        sourceKind,
+        phonetic: extracted.phonetic,
+        resultMarkdown: extracted.markdown,
+        detailStatus: "ready",
+        isAutoDetail: false
+      });
+      return json(entryResponse(entry));
+    }
+    const entry = await queueWordDetail(env, user.id, text, false);
+    if (entry.detail_status === "queued") {
+      ctx?.waitUntil(processQueuedWordDetails(env, 3));
+    }
+    return json(entryResponse(entry));
   }
+  const fallback = fallbackTranslation(text, sourceKind);
+  const aiConfig = await getAiConfig(env);
   let result: string;
   try {
     result = await completeChat(
@@ -266,18 +375,10 @@ async function translate(request: Request, env: Env): Promise<Response> {
   } catch {
     result = fallback;
   }
-  const canonical = sourceKind === "word" ? extractCanonicalWordAndMarkdown(result) : { canonicalWord: null, markdown: result };
-  const correctedText = canonical.canonicalWord && isNormalizedWord(canonical.canonicalWord) ? canonical.canonicalWord : text;
-  const extracted = extractPhoneticAndMarkdown(canonical.markdown);
-  if (sourceKind === "word") {
-    await saveCachedWordDetail(env, correctedText, extracted.phonetic, extracted.markdown);
-    if (correctedText !== text) {
-      await deleteCachedWordDetail(env, text);
-    }
-  }
+  const extracted = extractPhoneticAndMarkdown(result);
   const entry = await insertEntry(env, {
     userId: user.id,
-    sourceText: correctedText,
+    sourceText: text,
     sourceKind,
     phonetic: extracted.phonetic,
     resultMarkdown: extracted.markdown,
@@ -308,7 +409,7 @@ export function translationRoutes(env: Env): Route[] {
     route("PUT", "/api/translation/prompt", (request) => updatePrompt(request, env)),
     route("GET", "/api/translation/entries", (request) => listEntries(request, env)),
     route("DELETE", "/api/translation/entries", (request) => clearEntries(request, env)),
-    route("POST", "/api/translation/dictionary-entry", (request) => dictionaryEntry(request, env)),
-    route("POST", "/api/translation", (request) => translate(request, env))
+    route("POST", "/api/translation/dictionary-entry", (request, _params, ctx) => dictionaryEntry(request, env, ctx)),
+    route("POST", "/api/translation", (request, _params, ctx) => translate(request, env, ctx))
   ];
 }

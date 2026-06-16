@@ -11,7 +11,7 @@ import { translationRoutes } from "./translation/routes";
 
 export { ReportScheduler } from "./report-scheduler";
 
-async function handleApi(request: Request, env: Env): Promise<Response> {
+async function handleApi(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/health") {
     await ensureInitialAdmin(env);
@@ -27,7 +27,8 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
       ...translationRoutes(env),
       ...reportRoutes(env)
     ],
-    request
+    request,
+    ctx
   );
   if (response) {
     return response;
@@ -36,18 +37,18 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith("/api/")) {
-        return await handleApi(request, env);
+        return await handleApi(request, env, ctx);
       }
       return env.ASSETS.fetch(request);
     } catch (error) {
       return errorResponse(error);
     }
   },
-  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     await runScheduledJobs(env, new Date(event.scheduledTime), event.cron);
   }
 };

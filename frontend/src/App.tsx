@@ -1549,7 +1549,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (!entries.some((entry) => entry.is_auto_detail && isTranslationDetailPending(entry))) return;
+    if (!entries.some((entry) => isTranslationDetailPending(entry))) return;
     const timer = window.setInterval(() => {
       api
         .translationEntries()
@@ -1574,10 +1574,6 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
       const translated = await api.translate(text);
       setResult(translated);
       setEntries((current) => [translated, ...current.filter((item) => item.id !== translated.id)].slice(0, 30));
-      api
-        .translationEntries()
-        .then((history) => setEntries(history))
-        .catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "翻译失败");
     } finally {
@@ -1671,10 +1667,19 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
             </div>
             <div className="translation-result-content">
               {activeResult ? (
-                <>
-                  <TranslationPhonetic phonetic={activeResult.phonetic} />
-                  <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
-                </>
+                isTranslationDetailPending(activeResult) && !activeResult.result_markdown.trim() ? (
+                  <div className="word-cloud-detail-loading">
+                    <TranslationLoading />
+                    <span>正在生成词条详解</span>
+                  </div>
+                ) : activeResult.detail_status === "failed" && !activeResult.result_markdown.trim() ? (
+                  <div className="form-error">词条详解生成失败，稍后再试。</div>
+                ) : (
+                  <>
+                    <TranslationPhonetic phonetic={activeResult.phonetic} />
+                    <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
+                  </>
+                )
               ) : historyLoading ? (
                 <div className="translation-empty">正在加载翻译历史...</div>
               ) : (

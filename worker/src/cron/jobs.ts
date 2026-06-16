@@ -9,6 +9,7 @@ import {
 import { checkAndSwitchAiProvider } from "../ai/health";
 import { ensureReportSchedulers } from "../report-scheduler";
 import { getUserReportSettings } from "../settings/report-settings";
+import { processQueuedWordDetails } from "../translation/routes";
 
 type AttachmentCleanupRow = Row & {
   id: number;
@@ -58,21 +59,6 @@ export async function cleanupExpiredData(env: Env, now: Date): Promise<void> {
     await env.DB.prepare("DELETE FROM messages WHERE session_id = ?").bind(session.id).run();
     await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ?").bind(session.id).run();
   }
-}
-
-export async function processQueuedWordDetails(env: Env, limit = 10): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE translation_entries
-     SET detail_status = 'failed'
-     WHERE id IN (
-       SELECT id FROM translation_entries
-       WHERE detail_status = 'processing'
-       ORDER BY created_at ASC
-       LIMIT ?
-     )`
-  )
-    .bind(limit)
-    .run();
 }
 
 function localDateTimeParts(date: Date, timeZone: string): Record<string, string> {
@@ -140,6 +126,7 @@ export async function backfillMissedDailyReports(env: Env, now: Date, limit = 10
 export async function runScheduledJobs(env: Env, now: Date, cron = "0 * * * *"): Promise<void> {
   if (cron === "*/10 * * * *") {
     await checkAndSwitchAiProvider(env);
+    await processQueuedWordDetails(env, 10);
     return;
   }
   await backfillMissedDailyReports(env, now, 100);

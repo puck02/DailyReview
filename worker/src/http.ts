@@ -4,7 +4,11 @@ export class HttpError extends Error {
   }
 }
 
-export type RouteHandler = (request: Request, params: Record<string, string>) => Promise<Response> | Response;
+export type RouteHandler = (
+  request: Request,
+  params: Record<string, string>,
+  ctx?: ExecutionContext
+) => Promise<Response> | Response;
 
 export type Route = {
   method: string;
@@ -24,7 +28,7 @@ export function route(method: string, path: string, handler: RouteHandler): Rout
   return { method, pattern: new RegExp(`^${source}$`), keys, handler };
 }
 
-export async function dispatch(routes: Route[], request: Request): Promise<Response | null> {
+export async function dispatch(routes: Route[], request: Request, ctx?: ExecutionContext): Promise<Response | null> {
   const url = new URL(request.url);
   for (const item of routes) {
     if (item.method !== request.method) {
@@ -38,7 +42,7 @@ export async function dispatch(routes: Route[], request: Request): Promise<Respo
     item.keys.forEach((key, index) => {
       params[key] = decodeURIComponent(match[index + 1] || "");
     });
-    return await item.handler(request, params);
+    return await item.handler(request, params, ctx);
   }
   return null;
 }
