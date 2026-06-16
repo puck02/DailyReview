@@ -2249,25 +2249,38 @@ textarea:focus {
 }
 
 @media (max-width: 980px) {
+  body {
+    overflow: hidden;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-height: 100dvh;
   }
 
   .app-nav {
+    order: 2;
     min-height: auto;
     flex-direction: row;
     align-items: center;
-    overflow-x: auto;
-    padding: 10px;
-    box-shadow: 0 1px 0 var(--stroke) inset;
+    justify-content: space-around;
+    gap: 4px;
+    overflow-x: visible;
+    padding: 8px max(10px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-right));
+    box-shadow: 0 -1px 0 var(--stroke) inset;
   }
 
   .app-nav button {
-    width: auto;
+    width: 54px;
+    min-height: 48px;
     display: inline-flex;
+    flex-direction: column;
     gap: 8px;
-    padding: 0 11px;
+    padding: 6px 4px;
+    border-radius: 16px;
+    font-size: 11px;
+    line-height: 1;
   }
 
   .nav-label {
@@ -2281,13 +2294,14 @@ textarea:focus {
   }
 
   .app-content {
+    order: 1;
     min-height: 0;
   }
 
   .workspace,
   .report-layout,
   .translation-panel {
-    height: calc(100dvh - 62px);
+    height: calc(100dvh - 64px);
     grid-template-columns: 1fr;
   }
 
@@ -2297,11 +2311,11 @@ textarea:focus {
 
   .sessions-pane {
     position: fixed;
-    top: 62px;
-    bottom: 0;
+    top: 0;
+    bottom: 64px;
     left: 0;
-    z-index: 20;
-    width: min(82vw, 320px);
+    z-index: 40;
+    width: min(86vw, 340px);
     max-height: none;
     border-right: 1px solid var(--stroke);
     border-bottom: 0;
@@ -2342,30 +2356,76 @@ textarea:focus {
   }
 
   .chat-pane {
-    height: calc(100dvh - 62px);
+    height: calc(100dvh - 64px);
     min-height: 0;
   }
 
   .pane-header {
-    min-height: 60px;
-    padding: 14px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    min-height: 56px;
+    padding: 8px 12px;
+    gap: 10px;
+  }
+
+  .pane-title-group {
+    gap: 8px;
+  }
+
+  .sidebar-toggle,
+  .theme-toggle {
+    width: 36px;
+    height: 36px;
+    border-radius: 13px;
+  }
+
+  .pane-actions {
+    gap: 6px;
   }
 
   .messages {
-    padding: 22px 14px;
+    --chat-content-width: 100%;
+    padding: 16px 14px 18px;
+    overscroll-behavior: contain;
   }
 
   .empty-chat-content {
+    width: 100%;
+    gap: 18px;
     transform: translateY(-1vh);
   }
 
   .composer {
-    padding: 0 14px 16px;
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding: 0 12px 12px;
+    background: linear-gradient(180deg, transparent, var(--background) 18%);
   }
 
   .composer-floating {
     padding: 0;
+  }
+
+  .composer-shell {
+    border-radius: 24px;
+  }
+
+  .composer-row {
+    grid-template-columns: 40px minmax(0, 1fr) 42px;
+    gap: 8px;
+    padding: 9px;
+    border-radius: 23px;
+  }
+
+  .icon-button,
+  .send-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+  }
+
+  .attachment-grid {
+    gap: 8px;
+    padding: 10px 12px 0;
   }
 
   .message.user .message-content {
@@ -2373,17 +2433,37 @@ textarea:focus {
   }
 
   .admin-panel {
-    height: calc(100dvh - 62px);
+    height: calc(100dvh - 64px);
     overflow-y: auto;
     padding: 16px;
   }
 
   .settings-panel {
-    height: calc(100dvh - 62px);
+    height: calc(100dvh - 64px);
   }
 }
 
 @media (max-width: 620px) {
+  .app-nav {
+    gap: 2px;
+  }
+
+  .app-nav button {
+    width: 48px;
+    min-height: 46px;
+    gap: 5px;
+    font-size: 10px;
+  }
+
+  .workspace,
+  .report-layout,
+  .translation-panel,
+  .chat-pane,
+  .admin-panel,
+  .settings-panel {
+    height: calc(100dvh - 62px);
+  }
+
   .pane-header {
     align-items: center;
     flex-direction: row;
@@ -2394,26 +2474,30 @@ textarea:focus {
   }
 
   .pane-header h2 {
-    max-width: calc(100vw - 218px);
+    max-width: calc(100vw - 194px);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 17px;
+    font-size: 16px;
   }
 
   .pane-header select {
-    width: 128px;
+    width: 110px;
+    min-height: 36px;
+    border-radius: 12px;
+    padding: 8px 28px 8px 10px;
+    font-size: 12px;
   }
 
   .composer-row {
-    grid-template-columns: 40px minmax(0, 1fr) 42px;
-    padding: 9px;
+    grid-template-columns: 38px minmax(0, 1fr) 40px;
+    gap: 7px;
   }
 
   .icon-button,
   .send-button {
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
   }
 
   .attachment-preview {
@@ -2422,11 +2506,11 @@ textarea:focus {
   }
 
   .messages {
-    padding: 18px 12px;
+    padding: 14px 10px 16px;
   }
 
   .empty-chat-greeting {
-    font-size: 24px;
+    font-size: 22px;
   }
 
   .message {
@@ -2445,7 +2529,7 @@ textarea:focus {
   }
 
   .message.assistant .message-content {
-    padding: 4px 44px 4px 0;
+    padding: 2px 0;
   }
 
   .admin-actions {

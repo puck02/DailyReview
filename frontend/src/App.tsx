@@ -972,7 +972,7 @@ function ChatView({
 
   async function sendMessage() {
     const content = input.trim();
-    if (!content || busy) return;
+    if ((!content && !hasReadyAttachments) || busy) return;
     if (uploadingCount > 0) {
       setError("图片上传中，请稍等");
       return;
@@ -984,7 +984,8 @@ function ChatView({
     const readyAttachments = attachments.filter((attachment) => attachment.status === "ready");
     let session = active;
     if (!session) {
-      const createdSession = await api.createSession(content.slice(0, 24), model);
+      const sessionTitle = content ? content.slice(0, 24) : "图片消息";
+      const createdSession = await api.createSession(sessionTitle, model);
       session = createdSession;
       setDraftSessionActive(false);
       draftSessionActiveRef.current = false;
@@ -1100,6 +1101,7 @@ function ChatView({
 
   const isEmptyChat = !messagesLoading && messages.length === 0;
   const isUploading = uploadingCount > 0;
+  const hasReadyAttachments = attachments.some((attachment) => attachment.status === "ready");
   const hasFailedAttachments = attachments.some((attachment) => attachment.status === "failed");
   const composer = (
     <footer className={`composer ${isEmptyChat ? "composer-floating" : ""}`}>
@@ -1159,7 +1161,7 @@ function ChatView({
             placeholder="输入问题，或直接粘贴图片..."
             rows={1}
           />
-          <button className="send-button" onClick={sendMessage} disabled={busy || isUploading || hasFailedAttachments}>
+          <button className="send-button" onClick={sendMessage} disabled={busy || isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments)}>
             <Send size={18} />
           </button>
         </div>

@@ -235,6 +235,56 @@ describe("chat sessions and attachments", () => {
     });
   });
 
+  it("accepts image-only messages and prompts the AI to analyze the image", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    let requestBody: { messages?: Array<{ role: string; content: unknown }> } | null = null;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body || "{}")) as typeof requestBody;
+      return new Response('data: {"choices":[{"delta":{"content":"图片分析完成"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "图片消息", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])], { type: "image/png" }), "chart.png");
+    const upload = await fetchWorker(env, "/api/attachments", { method: "POST", headers: { cookie }, body: form });
+    const attachment = (await upload.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "",
+        model: "gpt-5.4-mini",
+        attachment_ids: [attachment.id],
+        image_data_urls: ["data:image/png;base64,client-prepared"]
+      })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([JSON.stringify("图片分析完成"), "[DONE]"]);
+    expect(requestBody?.messages?.at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "请分析这张图片" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,client-prepared" } }
+      ]
+    });
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    const storedMessages = (await messages.json()) as Array<{ role: string; content: string }>;
+    expect(storedMessages[0]).toMatchObject({ role: "user", content: "" });
+  });
+
   it("falls back to R2 only for attachments without client-prepared data urls", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";

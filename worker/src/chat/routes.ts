@@ -40,10 +40,12 @@ const archiveSchema = z.object({
 
 const chatStreamSchema = z.object({
   session_id: z.number().int(),
-  content: z.string().min(1),
+  content: z.string().default(""),
   model: z.string().default("gpt-5.4-mini"),
   attachment_ids: z.array(z.number().int()).default([]),
   image_data_urls: z.array(z.string().startsWith("data:image/")).default([])
+}).refine((payload) => payload.content.trim() || payload.attachment_ids.length > 0, {
+  message: "消息不能为空"
 });
 
 const chatRegenerateSchema = z.object({
@@ -197,7 +199,7 @@ async function contentWithAttachments(
   attachments: AttachmentRow[],
   imageDataUrls: string[]
 ): Promise<ChatContentPart[]> {
-  const parts: ChatContentPart[] = [{ type: "text", text: content }];
+  const parts: ChatContentPart[] = [{ type: "text", text: content.trim() || "请分析这张图片" }];
   for (const [index, attachment] of attachments.entries()) {
     const url = imageDataUrls[index] || (await dataUrlForAttachment(env, attachment));
     parts.push({ type: "image_url", image_url: { url } });
@@ -304,7 +306,7 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
   const hasImages = payload.attachment_ids.length > 0 || payload.image_data_urls.length > 0;
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
-  const history = await historyForSession(env, session.id, aiConfig, userMessageId, payload.image_data_urls);
+  const history = await historyForSession(env, session.id, aiConfig, hasImages ? userMessageId : null, payload.image_data_urls);
   return streamAssistantResponse(env, session.id, aiConfig, aiModel, history);
 }
 

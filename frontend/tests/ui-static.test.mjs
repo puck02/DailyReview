@@ -285,9 +285,17 @@ test("composer blocks sending while image upload is still running", () => {
   assert.ok(app.includes("请先删除上传失败的图片"));
   assert.ok(app.includes("上传中"));
   assert.ok(app.includes("hasFailedAttachments"));
-  assert.ok(app.includes("disabled={busy || isUploading || hasFailedAttachments}"));
+  assert.ok(app.includes("disabled={busy || isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments)}"));
   assert.ok(app.includes("aria-disabled={isUploading || busy}"));
   assert.match(styles, /\.icon-button\.disabled\s*{/);
+});
+
+test("composer can send ready images without typed text", () => {
+  assert.ok(app.includes("const hasReadyAttachments = attachments.some((attachment) => attachment.status === \"ready\");"));
+  assert.ok(app.includes("if ((!content && !hasReadyAttachments) || busy) return;"));
+  assert.ok(app.includes("const sessionTitle = content ? content.slice(0, 24) : \"图片消息\";"));
+  assert.ok(app.includes("content,"));
+  assert.ok(app.includes("disabled={busy || isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments)}"));
 });
 
 test("app icon is used for favicon and brand", () => {
@@ -365,7 +373,7 @@ test("new chat stays local until the first message is sent", () => {
   assert.ok(app.includes("const [draftSessionActive, setDraftSessionActive]"));
   assert.match(app, /async function newSession\(\)\s*{[\s\S]*setDraftSessionActive\(true\);[\s\S]*setActive\(null\);[\s\S]*setMessages\(\[\]\);/);
   assert.doesNotMatch(app, /async function newSession\(\)\s*{[\s\S]*api\.createSession\("新会话", model\)/);
-  assert.match(app, /if \(!session\)\s*{[\s\S]*api\.createSession\(content\.slice\(0,\s*24\),\s*model\)/);
+  assert.match(app, /if \(!session\)\s*{[\s\S]*const sessionTitle = content \? content\.slice\(0,\s*24\) : "图片消息";[\s\S]*api\.createSession\(sessionTitle,\s*model\)/);
 });
 
 test("draft chat first message skips the initial history reload while streaming", () => {
@@ -692,8 +700,13 @@ test("Workers PDF downgrade displays the API error before any save target is cre
 test("mobile chat uses a slide-over session drawer", () => {
   assert.ok(app.includes("isMobileViewport()"));
   assert.ok(app.includes("if (isMobileViewport()) setSidebarOpen(false);"));
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.app-shell\s*{[\s\S]*grid-template-rows:\s*minmax\(0,\s*1fr\) auto;/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.app-nav\s*{[\s\S]*order:\s*2;[\s\S]*justify-content:\s*space-around;[\s\S]*padding:\s*8px max\(10px,\s*env\(safe-area-inset-left\)\) max\(8px,\s*env\(safe-area-inset-bottom\)\) max\(10px,\s*env\(safe-area-inset-right\)\);/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.app-content\s*{[\s\S]*order:\s*1;/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane\s*{[\s\S]*position:\s*fixed;[\s\S]*transform:\s*translateX\(0\);/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.workspace\.sidebar-collapsed \.sessions-pane\s*{[\s\S]*transform:\s*translateX\(-100%\);/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.pane-header\s*{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;[\s\S]*z-index:\s*10;/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.composer-shell\s*{[\s\S]*border-radius:\s*24px;/);
   assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message\.user \.message-content\s*{[\s\S]*max-width:\s*100%;/);
-  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message\.assistant \.message-content\s*{[\s\S]*padding:\s*4px 44px 4px 0;/);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message\.assistant \.message-content\s*{[\s\S]*padding:\s*2px 0;/);
 });
