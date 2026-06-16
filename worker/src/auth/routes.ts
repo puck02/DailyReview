@@ -160,7 +160,7 @@ async function register(request: Request, env: Env): Promise<Response> {
     .bind(email, await hashPassword(payload.password), created)
     .run();
   const userId = await insertAndReturnId(insert);
-  await env.DB.prepare("UPDATE invite_codes SET is_used = 1, used_by_id = ? WHERE id = ?").bind(userId, invite.id).run();
+  await env.DB.prepare("UPDATE invite_codes SET is_used = 1 WHERE id = ?").bind(invite.id).run();
   const user = await findUserById(env, userId);
   if (!user) {
     throw new HttpError(500, "服务器内部错误");

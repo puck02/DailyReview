@@ -139,4 +139,48 @@ describe("auth and invite routes", () => {
     expect(blocked.status).toBe(403);
     await expect(blocked.json()).resolves.toEqual({ detail: "需要管理员权限" });
   });
+
+  it("registers with legacy invite tables that do not have used_by_id", async () => {
+    const env = createTestEnv();
+    await fetchWorker(env, "/api/health");
+    const adminLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    const adminCookie = cookieFrom(adminLogin);
+    const invite = await fetchWorker(env, "/api/invites", {
+      method: "POST",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({ expires_days: 7 })
+    });
+    const inviteBody = (await invite.json()) as { code: string };
+    await env.DB.prepare("ALTER TABLE invite_codes RENAME TO invite_codes_current").run();
+    await env.DB.prepare(
+      `CREATE TABLE invite_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        created_by_id INTEGER,
+        is_used INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`
+    ).run();
+    await env.DB.prepare(
+      `INSERT INTO invite_codes (id, code, created_by_id, is_used, expires_at, created_at)
+       SELECT id, code, created_by_id, is_used, expires_at, created_at FROM invite_codes_current`
+    ).run();
+    await env.DB.prepare("DROP TABLE invite_codes_current").run();
+
+    const register = await fetchWorker(env, "/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "legacy-user@example.com", password: "user-password", invite_code: inviteBody.code })
+    });
+
+    expect(register.status).toBe(200);
+    await expect(register.json()).resolves.toMatchObject({ email: "legacy-user@example.com", role: "user" });
+    const inviteRow = await env.DB.prepare("SELECT is_used FROM invite_codes WHERE code = ?")
+      .bind(inviteBody.code)
+      .first<{ is_used: number }>();
+    expect(inviteRow?.is_used).toBe(1);
+  });
 });
