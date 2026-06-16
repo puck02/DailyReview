@@ -1,3 +1,5 @@
+import { ZodError } from "zod";
+
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -64,6 +66,9 @@ export function empty(status = 204, init: ResponseInit = {}): Response {
 export function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
     return json({ detail: error.message }, { status: error.status });
+  }
+  if (error instanceof ZodError) {
+    return json({ detail: "请求参数无效" }, { status: 400 });
   }
   if (error instanceof Error) {
     console.error("Unhandled request error", { name: error.name, message: error.message });

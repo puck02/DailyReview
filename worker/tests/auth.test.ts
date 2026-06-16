@@ -183,4 +183,34 @@ describe("auth and invite routes", () => {
       .first<{ is_used: number }>();
     expect(inviteRow?.is_used).toBe(1);
   });
+
+  it("returns validation errors for invalid registration input", async () => {
+    const env = createTestEnv();
+    await fetchWorker(env, "/api/health");
+    const adminLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    const adminCookie = cookieFrom(adminLogin);
+    const invite = await fetchWorker(env, "/api/invites", {
+      method: "POST",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({ expires_days: 7 })
+    });
+    const inviteBody = (await invite.json()) as { code: string };
+
+    const shortPassword = await fetchWorker(env, "/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "short-password@example.com", password: "123", invite_code: inviteBody.code })
+    });
+    const invalidEmail = await fetchWorker(env, "/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: "not-an-email", password: "user-password", invite_code: inviteBody.code })
+    });
+
+    expect(shortPassword.status).toBe(400);
+    await expect(shortPassword.json()).resolves.toEqual({ detail: "请求参数无效" });
+    expect(invalidEmail.status).toBe(400);
+    await expect(invalidEmail.json()).resolves.toEqual({ detail: "请求参数无效" });
+  });
 });
