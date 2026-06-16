@@ -551,6 +551,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("entry.detail_status === \"queued\" || entry.detail_status === \"processing\""));
   assert.ok(app.includes("entries.some((entry) => isTranslationDetailPending(entry))"));
   assert.ok(app.includes("正在生成词条详解"));
+  assert.ok(app.includes("const updatedResult = result ? entries.find((entry) => entry.id === result.id) || result : null;"));
   assert.ok(app.includes("正在查询词条并生成详解"));
   assert.ok(app.includes("正在按学习 Prompt 生成详解"));
   assert.doesNotMatch(app, /const translated = await api\.translate\(text\);[\s\S]*?api\s*\.translationEntries\(\)/);

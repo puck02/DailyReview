@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cookieFrom, createTestEnv, fetchWorker } from "./helpers";
-import { processQueuedWordDetails } from "../src/translation/routes";
 
 async function loginUser(
   envOverrides: Parameters<typeof createTestEnv>[0] = {}
@@ -314,27 +313,16 @@ describe("translation routes", () => {
     });
 
     expect(response.status).toBe(200);
-    const queued = await response.json();
-    expect(queued).toMatchObject({
+    expect(aiFetch).toHaveBeenCalledOnce();
+    const body = await response.json();
+    expect(body).toMatchObject({
       source_text: "derivative",
       source_kind: "word",
-      result_markdown: "",
-      detail_status: "queued"
+      phonetic: "/dɪˈrɪvətɪv/",
+      result_markdown: expect.stringContaining("衍生物"),
+      detail_status: "ready"
     });
-    expect(aiFetch).not.toHaveBeenCalled();
-
-    await processQueuedWordDetails(env, 10);
-
-    expect(aiFetch).toHaveBeenCalledOnce();
-    const entries = await fetchWorker(env, "/api/translation/entries", { headers: { cookie } });
-    await expect(entries.json()).resolves.toMatchObject([
-      {
-        source_text: "derivative",
-        phonetic: "/dɪˈrɪvətɪv/",
-        result_markdown: expect.stringContaining("衍生物"),
-        detail_status: "ready"
-      }
-    ]);
+    expect(body.result_markdown).not.toContain("bad-cache");
     const cached = await env.DB.prepare(
       "SELECT result_markdown FROM translation_dictionary_entries WHERE source_text = ?"
     )
@@ -386,7 +374,6 @@ describe("translation routes", () => {
       headers: { cookie: first.cookie },
       body: JSON.stringify({ text: "access" })
     });
-    await processQueuedWordDetails(env, 10);
     const secondLookup = await fetchWorker(env, "/api/translation", {
       method: "POST",
       headers: { cookie: secondCookie },
@@ -398,8 +385,9 @@ describe("translation routes", () => {
     await expect(firstLookup.json()).resolves.toMatchObject({
       source_text: "access",
       source_kind: "word",
-      result_markdown: "",
-      detail_status: "queued"
+      phonetic: "/ˈakses/",
+      result_markdown: expect.stringContaining("have access to"),
+      detail_status: "ready"
     });
     expect(aiFetch).toHaveBeenCalledTimes(1);
     await expect(secondLookup.json()).resolves.toMatchObject({
@@ -445,24 +433,14 @@ describe("translation routes", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      source_text: "enviroment",
-      source_kind: "word",
-      result_markdown: "",
-      detail_status: "queued"
-    });
-    await processQueuedWordDetails(env, 10);
     expect(aiFetch).toHaveBeenCalledOnce();
-    const entries = await fetchWorker(env, "/api/translation/entries", { headers: { cookie } });
-    await expect(entries.json()).resolves.toMatchObject([
-      {
-        source_text: "environment",
-        source_kind: "word",
-        phonetic: "/ɪnˈvaɪrənmənt/",
-        result_markdown: expect.not.stringContaining("词条："),
-        detail_status: "ready"
-      }
-    ]);
+    await expect(response.json()).resolves.toMatchObject({
+      source_text: "environment",
+      source_kind: "word",
+      phonetic: "/ɪnˈvaɪrənmənt/",
+      result_markdown: expect.not.stringContaining("词条："),
+      detail_status: "ready"
+    });
     const correct = await env.DB.prepare(
       "SELECT source_text, result_markdown FROM translation_dictionary_entries WHERE source_text = ?"
     )

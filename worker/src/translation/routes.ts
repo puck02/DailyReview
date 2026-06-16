@@ -187,38 +187,23 @@ async function queueWordDetail(env: Env, userId: number, text: string, isAutoDet
   });
 }
 
-async function completeWordDetail(env: Env, entry: TranslationEntryRow): Promise<void> {
-  if (entry.source_kind !== "word" || entry.detail_status === "ready") {
-    return;
-  }
-  const text = normalizeWord(entry.source_text);
-  if (!text) {
-    await env.DB.prepare("UPDATE translation_entries SET detail_status = 'failed' WHERE id = ?").bind(entry.id).run();
-    return;
-  }
-
+async function generateWordDetail(
+  env: Env,
+  userId: number,
+  text: string
+): Promise<{ sourceText: string; phonetic: string | null; resultMarkdown: string } | null> {
   const cached = await findCachedWordDetail(env, text);
   if (cached) {
-    await env.DB.prepare(
-      `UPDATE translation_entries
-       SET source_text = ?, phonetic = ?, result_markdown = ?, detail_status = 'ready'
-       WHERE id = ?`
-    )
-      .bind(cached.source_text, cached.phonetic, cached.result_markdown, entry.id)
-      .run();
-    return;
+    return { sourceText: cached.source_text, phonetic: cached.phonetic, resultMarkdown: cached.result_markdown };
   }
 
-  await env.DB.prepare("UPDATE translation_entries SET detail_status = 'processing' WHERE id = ? AND detail_status != 'ready'")
-    .bind(entry.id)
-    .run();
   const aiConfig = await getAiConfig(env);
   const fallback = fallbackTranslation(text, "word");
   let result: string;
   try {
     result = await completeChat(
       [
-        { role: "system", content: await getTranslationPrompt(env, entry.user_id) },
+        { role: "system", content: await getTranslationPrompt(env, userId) },
         { role: "user", content: buildWordDetailUserPrompt(text) }
       ],
       aiTranslationModel(aiConfig),
@@ -231,8 +216,7 @@ async function completeWordDetail(env: Env, entry: TranslationEntryRow): Promise
   }
 
   if (isFallbackTranslationMarkdown(result)) {
-    await env.DB.prepare("UPDATE translation_entries SET detail_status = 'failed' WHERE id = ?").bind(entry.id).run();
-    return;
+    return null;
   }
 
   const canonical = extractCanonicalWordAndMarkdown(result);
@@ -242,12 +226,33 @@ async function completeWordDetail(env: Env, entry: TranslationEntryRow): Promise
   if (correctedText !== text) {
     await deleteCachedWordDetail(env, text);
   }
+  return { sourceText: correctedText, phonetic: extracted.phonetic, resultMarkdown: extracted.markdown };
+}
+
+async function completeWordDetail(env: Env, entry: TranslationEntryRow): Promise<void> {
+  if (entry.source_kind !== "word" || entry.detail_status === "ready") {
+    return;
+  }
+  const text = normalizeWord(entry.source_text);
+  if (!text) {
+    await env.DB.prepare("UPDATE translation_entries SET detail_status = 'failed' WHERE id = ?").bind(entry.id).run();
+    return;
+  }
+
+  await env.DB.prepare("UPDATE translation_entries SET detail_status = 'processing' WHERE id = ? AND detail_status != 'ready'")
+    .bind(entry.id)
+    .run();
+  const detail = await generateWordDetail(env, entry.user_id, text);
+  if (!detail) {
+    await env.DB.prepare("UPDATE translation_entries SET detail_status = 'failed' WHERE id = ?").bind(entry.id).run();
+    return;
+  }
   await env.DB.prepare(
     `UPDATE translation_entries
      SET source_text = ?, phonetic = ?, result_markdown = ?, detail_status = 'ready'
      WHERE id = ?`
   )
-    .bind(correctedText, extracted.phonetic, extracted.markdown, entry.id)
+    .bind(detail.sourceText, detail.phonetic, detail.resultMarkdown, entry.id)
     .run();
 }
 
@@ -352,10 +357,29 @@ async function translate(request: Request, env: Env, ctx?: ExecutionContext): Pr
       });
       return json(entryResponse(entry));
     }
-    const entry = await queueWordDetail(env, user.id, text, false);
-    if (entry.detail_status === "queued") {
-      ctx?.waitUntil(processQueuedWordDetails(env, 3));
+    const detail = await generateWordDetail(env, user.id, text);
+    if (!detail) {
+      const extracted = extractPhoneticAndMarkdown(fallbackTranslation(text, sourceKind));
+      const entry = await insertEntry(env, {
+        userId: user.id,
+        sourceText: text,
+        sourceKind,
+        phonetic: extracted.phonetic,
+        resultMarkdown: extracted.markdown,
+        detailStatus: "ready",
+        isAutoDetail: false
+      });
+      return json(entryResponse(entry));
     }
+    const entry = await insertEntry(env, {
+      userId: user.id,
+      sourceText: detail.sourceText,
+      sourceKind,
+      phonetic: detail.phonetic,
+      resultMarkdown: detail.resultMarkdown,
+      detailStatus: "ready",
+      isAutoDetail: false
+    });
     return json(entryResponse(entry));
   }
   const fallback = fallbackTranslation(text, sourceKind);

@@ -1606,7 +1606,8 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
     }
   }
 
-  const activeResult = result || entries.find((entry) => !entry.is_auto_detail) || entries[0] || null;
+  const updatedResult = result ? entries.find((entry) => entry.id === result.id) || result : null;
+  const activeResult = updatedResult || entries.find((entry) => !entry.is_auto_detail) || entries[0] || null;
   const isTranslationOverLimit = input.length > translationInputLimit;
   const translationMetaText = `${input.length}/${translationInputLimit}`;
 
