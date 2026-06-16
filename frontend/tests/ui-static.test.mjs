@@ -549,6 +549,10 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("dailyreview:translation-entries-cleared"));
   assert.ok(apiSource.includes("clearTranslationEntries"));
   assert.ok(app.includes("entry.detail_status === \"queued\" || entry.detail_status === \"processing\""));
+  assert.ok(app.includes("const historyRequestId = useRef(0);"));
+  assert.ok(app.includes("async function refreshTranslationEntries()"));
+  assert.ok(app.includes("if (requestId !== historyRequestId.current) return;"));
+  assert.ok(app.includes("void refreshTranslationEntries();"));
   assert.ok(app.includes("entries.some((entry) => isTranslationDetailPending(entry))"));
   assert.ok(app.includes("正在生成词条详解"));
   assert.ok(app.includes("const updatedResult = result ? entries.find((entry) => entry.id === result.id) || result : null;"));

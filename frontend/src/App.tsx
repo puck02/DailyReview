@@ -1527,12 +1527,20 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
+  const historyRequestId = useRef(0);
+
+  async function refreshTranslationEntries() {
+    const requestId = historyRequestId.current + 1;
+    historyRequestId.current = requestId;
+    const history = await api.translationEntries();
+    if (requestId !== historyRequestId.current) return;
+    setEntries(history);
+  }
 
   useEffect(() => {
-    Promise.all([api.translationPrompt(), api.translationEntries()])
-      .then(([prompt, history]) => {
+    Promise.all([api.translationPrompt(), refreshTranslationEntries()])
+      .then(([prompt]) => {
         setPromptDraft(prompt.system_prompt);
-        setEntries(history);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "翻译模块加载失败"))
       .finally(() => setHistoryLoading(false));
@@ -1551,10 +1559,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   useEffect(() => {
     if (!entries.some((entry) => isTranslationDetailPending(entry))) return;
     const timer = window.setInterval(() => {
-      api
-        .translationEntries()
-        .then((history) => setEntries(history))
-        .catch(() => undefined);
+      refreshTranslationEntries().catch(() => undefined);
     }, 3500);
     return () => window.clearInterval(timer);
   }, [entries]);
@@ -1574,6 +1579,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
       const translated = await api.translate(text);
       setResult(translated);
       setEntries((current) => [translated, ...current.filter((item) => item.id !== translated.id)].slice(0, 30));
+      void refreshTranslationEntries();
     } catch (err) {
       setError(err instanceof Error ? err.message : "翻译失败");
     } finally {
