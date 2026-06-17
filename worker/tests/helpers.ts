@@ -128,8 +128,13 @@ export function createTestEnv(overrides: Partial<Env> = {}): Env {
   };
 }
 
-export async function fetchWorker(env: Env, path: string, init: RequestInit = {}): Promise<Response> {
-  return await worker.fetch(new Request(`http://example.com${path}`, init), env);
+export async function fetchWorker(
+  env: Env,
+  path: string,
+  init: RequestInit = {},
+  url = `https://example.com${path}`
+): Promise<Response> {
+  return await worker.fetch(new Request(url, init), env);
 }
 
 export function cookieFrom(response: Response): string {

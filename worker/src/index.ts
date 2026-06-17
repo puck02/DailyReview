@@ -11,6 +11,16 @@ import { translationRoutes } from "./translation/routes";
 
 export { ReportScheduler } from "./report-scheduler";
 
+function redirectToHttps(request: Request): Response | null {
+  const url = new URL(request.url);
+  const localHosts = new Set(["localhost", "127.0.0.1", "0.0.0.0"]);
+  if (url.protocol !== "http:" || localHosts.has(url.hostname)) {
+    return null;
+  }
+  url.protocol = "https:";
+  return Response.redirect(url.toString(), 308);
+}
+
 async function handleApi(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/health") {
@@ -40,6 +50,10 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     try {
+      const httpsRedirect = redirectToHttps(request);
+      if (httpsRedirect) {
+        return httpsRedirect;
+      }
       if (url.pathname.startsWith("/api/")) {
         return await handleApi(request, env, ctx);
       }

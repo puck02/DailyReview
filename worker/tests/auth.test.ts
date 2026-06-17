@@ -45,6 +45,19 @@ describe("auth security", () => {
 });
 
 describe("auth and invite routes", () => {
+  it("redirects plain HTTP requests to HTTPS so secure session cookies can be stored", async () => {
+    const env = createTestEnv();
+    const response = await fetchWorker(
+      env,
+      "/api/health",
+      {},
+      "http://nektos.cn/api/health"
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("https://nektos.cn/api/health");
+  });
+
   it("logs in the initial admin and reads current user from the session cookie", async () => {
     const env = createTestEnv();
     await fetchWorker(env, "/api/health");
