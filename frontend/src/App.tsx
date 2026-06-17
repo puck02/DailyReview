@@ -571,6 +571,14 @@ function AppIcon({ size = 22 }: { size?: number }) {
   return <img className="app-icon" src={appIconUrl} width={size} height={size} alt="" />;
 }
 
+async function confirmAuthSession(): Promise<User> {
+  try {
+    return await api.me();
+  } catch {
+    throw new Error("登录状态未保存，请确认手机浏览器允许 Cookie 后重试。");
+  }
+}
+
 function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -584,9 +592,9 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
     setError("");
     setBusy(true);
     try {
-      const user =
-        mode === "login" ? await api.login(email, password) : await api.register(email, password, inviteCode);
-      onAuthed(user);
+      mode === "login" ? await api.login(email, password) : await api.register(email, password, inviteCode);
+      const confirmedUser = await confirmAuthSession();
+      onAuthed(confirmedUser);
     } catch (err) {
       setError(err instanceof Error ? err.message : "请求失败");
     } finally {
@@ -1171,9 +1179,32 @@ function ChatView({
 
   return (
     <div className={sidebarOpen ? "workspace" : "workspace sidebar-collapsed"}>
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="session-drawer-backdrop"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="关闭会话历史"
+        />
+      )}
       <aside className="sessions-pane">
         {sidebarOpen && (
           <>
+            <div className="sessions-pane-head">
+              <div>
+                <span>会话</span>
+                <strong>{regularSessions.length} 个最近会话</strong>
+              </div>
+              <button
+                type="button"
+                className="session-drawer-close"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="关闭会话历史"
+                title="关闭"
+              >
+                <X size={17} />
+              </button>
+            </div>
             <button className="new-session" onClick={newSession}>
               <Plus size={16} />
               新会话

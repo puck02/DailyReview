@@ -644,6 +644,14 @@ test("chat top bar is compact and keeps retention copy in the expanded sidebar",
   assert.match(styles, /\.pane-header\s*{[^}]*min-height:\s*58px;[^}]*padding:\s*8px 20px;/s);
 });
 
+test("auth confirms the session cookie before entering the app", () => {
+  assert.match(apiSource, /credentials:\s*"include"/);
+  assert.match(apiSource, /cache:\s*init\?\.cache \?\? "no-store"/);
+  assert.match(app, /async function confirmAuthSession\(\): Promise<User> \{[\s\S]*return await api\.me\(\);[\s\S]*登录状态未保存，请确认手机浏览器允许 Cookie 后重试。/);
+  assert.match(app, /mode === "login" \? await api\.login\(email, password\) : await api\.register\(email, password, inviteCode\);/);
+  assert.match(app, /const confirmedUser = await confirmAuthSession\(\);[\s\S]*onAuthed\(confirmedUser\);/);
+});
+
 test("reports can be exported as downloaded PDF files without opening print", () => {
   assert.ok(app.includes("Download"));
   assert.ok(app.includes("function exportReportPdf"));
@@ -700,11 +708,21 @@ test("Workers PDF downgrade displays the API error before any save target is cre
 test("mobile chat uses a slide-over session drawer", () => {
   assert.ok(app.includes("isMobileViewport()"));
   assert.ok(app.includes("if (isMobileViewport()) setSidebarOpen(false);"));
+  assert.ok(app.includes("session-drawer-backdrop"));
+  assert.ok(app.includes("sessions-pane-head"));
+  assert.ok(app.includes("session-drawer-close"));
+  assert.ok(app.includes('aria-label="关闭会话历史"'));
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.app-shell\s*{[\s\S]*grid-template-rows:\s*minmax\(0,\s*1fr\) auto;/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.app-nav\s*{[\s\S]*order:\s*2;[\s\S]*justify-content:\s*space-around;[\s\S]*padding:\s*8px max\(10px,\s*env\(safe-area-inset-left\)\) max\(8px,\s*env\(safe-area-inset-bottom\)\) max\(10px,\s*env\(safe-area-inset-right\)\);/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.app-content\s*{[\s\S]*order:\s*1;/);
-  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane\s*{[\s\S]*position:\s*fixed;[\s\S]*transform:\s*translateX\(0\);/);
+  assert.match(styles, /\.session-drawer-backdrop\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /\.sessions-pane-head\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.session-drawer-backdrop\s*{[\s\S]*position:\s*fixed;[\s\S]*backdrop-filter:\s*blur\(10px\);/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane\s*{[\s\S]*position:\s*fixed;[\s\S]*border-radius:\s*0 22px 22px 0;[\s\S]*transform:\s*translateX\(0\);/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.workspace\.sidebar-collapsed \.sessions-pane\s*{[\s\S]*transform:\s*translateX\(-100%\);/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane-head\s*{[\s\S]*display:\s*flex;/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.session-drawer-close\s*{[\s\S]*width:\s*36px;[\s\S]*height:\s*36px;/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.session-retention-note\s*{[\s\S]*display:\s*none;/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.pane-header\s*{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;[\s\S]*z-index:\s*10;/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.composer-shell\s*{[\s\S]*border-radius:\s*24px;/);
   assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.message\.user \.message-content\s*{[\s\S]*max-width:\s*100%;/);

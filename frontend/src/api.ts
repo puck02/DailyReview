@@ -128,7 +128,8 @@ export const pdfDowngradeMessage = "Cloudflare Workers 部署暂不支持 PDF �
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    credentials: "same-origin",
+    credentials: "include",
+    cache: init?.cache ?? "no-store",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers || {})
@@ -184,7 +185,8 @@ export const api = {
       response = await fetch("/api/attachments", {
         method: "POST",
         body: form,
-        credentials: "same-origin"
+        credentials: "include",
+        cache: "no-store"
       });
     } catch (error) {
       throw new Error("图片上传失败，请检查网络后重试");
@@ -201,7 +203,7 @@ export const api = {
     request<ReportItem[]>(`/api/reports?report_type=${reportType}&month=${month}`),
   report: (id: number) => request<ReportContent>(`/api/reports/${id}`),
   reportPdf: async (id: number): Promise<Blob> => {
-    const response = await fetch(`/api/reports/${id}/pdf`, { credentials: "same-origin" });
+    const response = await fetch(`/api/reports/${id}/pdf`, { credentials: "include", cache: "no-store" });
     if (!response.ok) {
       const data = await response.json().catch(() => ({ detail: response.status === 501 ? pdfDowngradeMessage : "PDF 导出失败" }));
       throw new Error(data.detail || "PDF 导出失败");
@@ -307,7 +309,8 @@ async function streamChatEndpoint(
 ): Promise<void> {
   const response = await fetch(path, {
     method: "POST",
-    credentials: "same-origin",
+    credentials: "include",
+    cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });

@@ -422,6 +422,14 @@ textarea:focus {
   border-right: 0;
 }
 
+.session-drawer-backdrop {
+  display: none;
+}
+
+.sessions-pane-head {
+  display: none;
+}
+
 .sessions-pane {
   min-height: 0;
   display: grid;
@@ -431,6 +439,24 @@ textarea:focus {
   padding: 14px;
   overflow-y: hidden;
   overflow-x: hidden;
+}
+
+.session-drawer-close {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  color: var(--headline);
+  background: var(--button-surface);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  padding: 0;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.session-drawer-close:hover {
+  background: var(--button-surface-hover);
+  transform: translateY(-1px);
 }
 
 .new-session {
@@ -2309,6 +2335,16 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .session-drawer-backdrop {
+    position: fixed;
+    inset: 0 0 64px;
+    z-index: 35;
+    display: block;
+    background: rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(10px);
+    padding: 0;
+  }
+
   .sessions-pane {
     position: fixed;
     top: 0;
@@ -2319,14 +2355,55 @@ textarea:focus {
     max-height: none;
     border-right: 1px solid var(--stroke);
     border-bottom: 0;
+    border-radius: 0 22px 22px 0;
     box-shadow: 18px 0 42px rgba(0, 0, 0, 0.16);
     transform: translateX(0);
-    transition: transform 180ms ease;
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .workspace.sidebar-collapsed .sessions-pane {
     transform: translateX(-100%);
     box-shadow: none;
+  }
+
+  .sessions-pane-head {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .sessions-pane-head div {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+  }
+
+  .sessions-pane-head span {
+    color: var(--headline);
+    font-size: 16px;
+    font-weight: 760;
+  }
+
+  .sessions-pane-head strong {
+    overflow: hidden;
+    color: var(--muted-text);
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .session-drawer-close {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+  }
+
+  .session-retention-note {
+    display: none;
   }
 
   .report-sidebar {
