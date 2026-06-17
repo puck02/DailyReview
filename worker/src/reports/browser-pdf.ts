@@ -22,6 +22,7 @@ function markdownToPrintHtml(markdown: string, title: string): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${safeTitle}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.css">
     <style>
       :root { color-scheme: light; }
       html, body { margin: 0; padding: 0; background: #fff; color: #111; }
@@ -88,6 +89,26 @@ function replaceInlineMath(text: string): string {
   return result;
 }
 
+function renderDisplayMathLine(line: string): string[] | null {
+  const blocks: string[] = [];
+  let cursor = 0;
+  while (cursor < line.length) {
+    const open = line.indexOf("$$", cursor);
+    if (open === -1) {
+      const rest = line.slice(cursor).trim();
+      if (rest) blocks.push(`<p>${inlineMarkdownToHtml(rest)}</p>`);
+      return blocks.length ? blocks : null;
+    }
+    const close = line.indexOf("$$", open + 2);
+    if (close === -1) return null;
+    const before = line.slice(cursor, open).trim();
+    if (before) blocks.push(`<p>${inlineMarkdownToHtml(before)}</p>`);
+    blocks.push(`<div class="markdown-math-block">${renderMath(line.slice(open + 2, close), true)}</div>`);
+    cursor = close + 2;
+  }
+  return blocks.length ? blocks : null;
+}
+
 function inlineMarkdownToHtml(text: string): string {
   return replaceInlineMath(text)
     .replace(/`([^`]+)`/g, "<code class=\"markdown-inline-code\">$1</code>")
@@ -146,6 +167,14 @@ function markdownToHtml(markdown: string): string {
       flushList();
       flushCode();
       blocks.push(`<div class="markdown-math-block">${renderMath(singleLineMath[1] || "", true)}</div>`);
+      continue;
+    }
+    const displayMathLine = !inCode && !inMath && line.includes("$$") ? renderDisplayMathLine(line) : null;
+    if (displayMathLine) {
+      flushParagraph();
+      flushList();
+      flushCode();
+      blocks.push(...displayMathLine);
       continue;
     }
     if (/^```/.test(line)) {
