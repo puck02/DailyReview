@@ -4,7 +4,8 @@ import {
   allUsers,
   generateDailyReport,
   generateMonthlyReport,
-  generateWeeklyReport
+  generateWeeklyReport,
+  processReportPdfQueue
 } from "../reports/service";
 import { checkAndSwitchAiProvider } from "../ai/health";
 import { ensureReportSchedulers } from "../report-scheduler";
@@ -127,10 +128,12 @@ export async function runScheduledJobs(env: Env, now: Date, cron = "0 * * * *"):
   if (cron === "*/10 * * * *") {
     await checkAndSwitchAiProvider(env);
     await processQueuedWordDetails(env, 10);
+    await processReportPdfQueue(env, 5);
     return;
   }
   await backfillMissedDailyReports(env, now, 100);
   await ensureReportSchedulers(env, 100);
   await processQueuedWordDetails(env, 10);
+  await processReportPdfQueue(env, 10);
   await cleanupExpiredData(env, now);
 }

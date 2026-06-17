@@ -4,16 +4,26 @@ import { requireUser } from "../auth/routes";
 import type { Env } from "../env";
 import { HttpError, json, route, type Route } from "../http";
 import { reportMarkdownToPdfBytes } from "./pdf";
-import { ensureReportPdf, readReportMarkdown, reportById, reportContent, reportListItem, reportsForUser } from "./service";
+import {
+  processReportPdfQueue,
+  readReportMarkdown,
+  readReportPdf,
+  refreshReportPdfCache,
+  reportById,
+  reportContent,
+  reportListItem,
+  reportsForUser
+} from "./service";
 
 const reportTypeSchema = z.enum(["daily", "weekly", "monthly"]);
 
-async function listReports(request: Request, env: Env): Promise<Response> {
+async function listReports(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const user = await requireUser(request, env);
   const url = new URL(request.url);
   const reportType = reportTypeSchema.parse(url.searchParams.get("report_type") || "daily");
   const month = url.searchParams.get("month");
   const reports = await reportsForUser(env, user.id, reportType, month);
+  ctx?.waitUntil(processReportPdfQueue(env, 5));
   return json(reports.map(reportListItem));
 }
 
@@ -27,7 +37,7 @@ async function getReport(request: Request, env: Env, params: Record<string, stri
   return json(await reportContent(env, report));
 }
 
-async function getReportPdf(request: Request, env: Env, params: Record<string, string>): Promise<Response> {
+async function getReportPdf(request: Request, env: Env, params: Record<string, string>, ctx?: ExecutionContext): Promise<Response> {
   const user = await requireUser(request, env);
   const id = Number.parseInt(params.report_id || "", 10);
   const report = Number.isFinite(id) ? await reportById(env, id) : null;
@@ -36,12 +46,20 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
   }
   const filename = `${report.period}-${report.report_type}.pdf`;
   const title = `${report.period} ${report.report_type}`;
-  let pdf = await ensureReportPdf(env, report, title);
-  if (!pdf) {
-    const markdown = await readReportMarkdown(env, report);
-    pdf = reportMarkdownToPdfBytes(markdown, title);
+  const cached = await readReportPdf(env, report);
+  if (cached) {
+    return new Response(cached, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff"
+      }
+    });
   }
-  return new Response(pdf, {
+  const markdown = await readReportMarkdown(env, report);
+  ctx?.waitUntil(refreshReportPdfCache(env, report, title));
+  return new Response(reportMarkdownToPdfBytes(markdown, title), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
@@ -53,8 +71,8 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
 
 export function reportRoutes(env: Env): Route[] {
   return [
-    route("GET", "/api/reports", (request) => listReports(request, env)),
-    route("GET", "/api/reports/:report_id/pdf", (request, params) => getReportPdf(request, env, params)),
-    route("GET", "/api/reports/:report_id", (request, params) => getReport(request, env, params))
+    route("GET", "/api/reports", (request, params, ctx) => listReports(request, env, ctx)),
+    route("GET", "/api/reports/:report_id/pdf", (request, params, ctx) => getReportPdf(request, env, params, ctx)),
+    route("GET", "/api/reports/:report_id", (request, params, ctx) => getReport(request, env, params))
   ];
 }

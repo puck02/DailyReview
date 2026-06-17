@@ -174,6 +174,9 @@ export async function ensureReportPdf(
     return cached;
   }
   const markdown = await readReportMarkdown(env, report);
+  if (!markdown.trim()) {
+    return null;
+  }
   let pdf: ArrayBuffer | null = null;
   try {
     pdf = await renderBrowserPdf(env, markdown, title);
@@ -193,6 +196,11 @@ export async function ensureReportPdf(
   return pdf;
 }
 
+export async function refreshReportPdfCache(env: Env, report: ReportRow, title: string): Promise<boolean> {
+  const pdf = await ensureReportPdf(env, report, title);
+  return pdf !== null;
+}
+
 export async function reportContent(env: Env, report: ReportRow): Promise<Record<string, unknown>> {
   return {
     ...reportListItem(report),
@@ -202,6 +210,46 @@ export async function reportContent(env: Env, report: ReportRow): Promise<Record
 
 export async function reportById(env: Env, id: number): Promise<ReportRow | null> {
   return await first<ReportRow>(env.DB.prepare("SELECT * FROM reports WHERE id = ?").bind(id));
+}
+
+export async function reportsMissingPdf(env: Env, limit = 20, scanLimit = 100): Promise<ReportRow[]> {
+  const reports = await all<ReportRow>(
+    env.DB.prepare(
+      `SELECT r.*
+       FROM reports r
+       WHERE r.markdown_key LIKE 'reports/%'
+       ORDER BY r.created_at DESC, r.id DESC
+       LIMIT ?`
+    ).bind(scanLimit)
+  );
+  const missing: ReportRow[] = [];
+  for (const report of reports) {
+    const cached = await readReportPdf(env, report);
+    if (!cached) {
+      missing.push(report);
+      if (missing.length >= limit) {
+        break;
+      }
+    }
+  }
+  return missing;
+}
+
+export async function processReportPdfQueue(env: Env, limit = 10): Promise<void> {
+  if (!env.BROWSER) {
+    return;
+  }
+  const reports = await reportsMissingPdf(env, limit);
+  for (const report of reports) {
+    try {
+      await refreshReportPdfCache(env, report, `${report.period} ${report.report_type}`);
+    } catch (error) {
+      console.error("Queued report PDF generation failed", {
+        reportId: report.id,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 }
 
 async function writeReport(

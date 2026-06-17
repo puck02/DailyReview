@@ -656,7 +656,7 @@ test("reports can be exported as downloaded PDF files without opening print", ()
   assert.ok(app.includes("Download"));
   assert.ok(app.includes("function exportReportPdf"));
   assert.ok(apiSource.includes("reportPdf"));
-  assert.ok(app.includes("api.reportPdf(active.id)"));
+  assert.ok(app.includes("api.reportPdf(reportId)"));
   assert.ok(!app.includes("reportPreviewRef"));
   assert.ok(!app.includes("exportReportElementToPdf"));
   assert.ok(!app.includes("html2canvas"));
@@ -697,11 +697,15 @@ test("reports list can render before the selected report markdown finishes loadi
 });
 
 test("PDF export opens the save picker before downloading the backend-rendered PDF", () => {
-  const exportFunction = app.match(/async function exportReportPdf\(\) \{[\s\S]*?\n  \}/)?.[0] || "";
-  assert.ok(exportFunction.includes("api.reportPdf(active.id)"));
+  const exportFunction = app.slice(app.indexOf("function exportReportPdf()"), app.indexOf("async function selectReport"));
+  assert.ok(exportFunction.includes("api.reportPdf(reportId)"));
   assert.ok(exportFunction.includes("pickPdfSaveTarget(filename)"));
-  assert.ok(exportFunction.indexOf("pickPdfSaveTarget(filename)") < exportFunction.indexOf("api.reportPdf(active.id)"));
+  assert.ok(exportFunction.includes("const targetPromise = pickPdfSaveTarget(filename);"));
+  assert.ok(exportFunction.indexOf("pickPdfSaveTarget(filename)") < exportFunction.indexOf("setExportingPdf(true)"));
+  assert.ok(exportFunction.indexOf("pickPdfSaveTarget(filename)") < exportFunction.indexOf("api.reportPdf(reportId)"));
   assert.ok(exportFunction.includes("setExportError(error instanceof Error ? error.message : \"PDF 导出失败\")"));
+  assert.ok(app.includes("isSavePickerGestureError"));
+  assert.ok(app.includes('return { kind: "download" };'));
 });
 
 test("mobile chat uses a slide-over session drawer", () => {

@@ -132,9 +132,10 @@ export async function fetchWorker(
   env: Env,
   path: string,
   init: RequestInit = {},
-  url = `https://example.com${path}`
+  url = `https://example.com${path}`,
+  ctx?: ExecutionContext
 ): Promise<Response> {
-  return await worker.fetch(new Request(url, init), env);
+  return await worker.fetch(new Request(url, init), env, ctx as ExecutionContext);
 }
 
 export function cookieFrom(response: Response): string {

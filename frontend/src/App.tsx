@@ -225,17 +225,28 @@ function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: b
   );
 }
 
-async function pickPdfSaveTarget(filename: string): Promise<PdfSaveTarget> {
+function isSavePickerGestureError(error: unknown): boolean {
+  return error instanceof DOMException && /user gesture|handling a user gesture|activation/i.test(error.message);
+}
+
+function pickPdfSaveTarget(filename: string): Promise<PdfSaveTarget> {
   const pickerWindow = window as PdfSavePickerWindow;
-  if (!pickerWindow.showSaveFilePicker) return { kind: "download" };
+  if (!pickerWindow.showSaveFilePicker) return Promise.resolve({ kind: "download" });
   try {
-    const handle = await pickerWindow.showSaveFilePicker({
+    const handlePromise = pickerWindow.showSaveFilePicker({
       suggestedName: filename,
       types: [{ description: "PDF 文件", accept: { "application/pdf": [".pdf"] } }]
     });
-    return { kind: "handle", handle };
+    return handlePromise
+      .then((handle) => ({ kind: "handle", handle }) as PdfSaveTarget)
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return { kind: "cancelled" };
+        if (isSavePickerGestureError(error)) return { kind: "download" };
+        throw error;
+      });
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return { kind: "cancelled" };
+    if (error instanceof DOMException && error.name === "AbortError") return Promise.resolve({ kind: "cancelled" });
+    if (isSavePickerGestureError(error)) return Promise.resolve({ kind: "download" });
     throw error;
   }
 }
@@ -1454,21 +1465,25 @@ function ReportsView() {
   );
   const reportTypeLabel = type === "daily" ? "日报" : type === "weekly" ? "周报" : "月报";
 
-  async function exportReportPdf() {
+  function exportReportPdf() {
     if (!active || exportingPdf) return;
-    try {
-      setExportingPdf(true);
-      setExportError("");
-      const filename = `${active.period}-${reportTypeLabel}.pdf`;
-      const target = await pickPdfSaveTarget(filename);
-      if (target.kind === "cancelled") return;
-      const blob = await api.reportPdf(active.id);
-      await savePdfBlob(blob, filename, target);
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : "PDF 导出失败");
-    } finally {
-      setExportingPdf(false);
-    }
+    const reportId = active.id;
+    const filename = `${active.period}-${reportTypeLabel}.pdf`;
+    const targetPromise = pickPdfSaveTarget(filename);
+    setExportingPdf(true);
+    setExportError("");
+    void (async () => {
+      try {
+        const target = await targetPromise;
+        if (target.kind === "cancelled") return;
+        const blob = await api.reportPdf(reportId);
+        await savePdfBlob(blob, filename, target);
+      } catch (error) {
+        setExportError(error instanceof Error ? error.message : "PDF 导出失败");
+      } finally {
+        setExportingPdf(false);
+      }
+    })();
   }
 
   async function selectReport(item: ReportItem) {
