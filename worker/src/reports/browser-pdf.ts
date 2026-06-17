@@ -150,7 +150,7 @@ function markdownToHtml(markdown: string): string {
   };
   for (const rawLine of markdown.replace(/\r\n?/g, "\n").split("\n")) {
     const line = rawLine.trim();
-    if (line === "$$") {
+    if (!inCode && line === "$$") {
       if (inMath) {
         flushMath();
       } else {
