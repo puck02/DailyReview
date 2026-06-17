@@ -15,6 +15,16 @@ export type ChatMessage = {
   content: unknown;
 };
 
+export type ChatCompletionResult = {
+  content: string;
+  totalTokens: number | null;
+};
+
+export type ChatStreamEvent = {
+  content: string;
+  totalTokens?: number | null;
+};
+
 function activeProviderConfig(config: AiConfig): AiProviderConfig {
   return config.providers[config.active_provider];
 }
@@ -49,8 +59,18 @@ export async function completeChat(
   _env: Env,
   config: AiConfig
 ): Promise<string> {
+  return (await completeChatWithUsage(messages, model, fallback, _env, config)).content;
+}
+
+export async function completeChatWithUsage(
+  messages: ChatMessage[],
+  model: string,
+  fallback: string,
+  _env: Env,
+  config: AiConfig
+): Promise<ChatCompletionResult> {
   if (!isAiConfigured(config)) {
-    return fallback;
+    return { content: fallback, totalTokens: null };
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -62,13 +82,31 @@ export async function completeChat(
       signal: controller.signal
     });
     if (!response.ok) {
-      return fallback;
+      return { content: fallback, totalTokens: null };
     }
-    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    return data.choices?.[0]?.message?.content || fallback;
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { total_tokens?: number; totalTokens?: number };
+    };
+    return {
+      content: data.choices?.[0]?.message?.content || fallback,
+      totalTokens: data.usage?.total_tokens ?? data.usage?.totalTokens ?? null
+    };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function streamResponse(messages: ChatMessage[], model: string, config: AiConfig, includeUsage: boolean): Promise<Response> {
+  const body: Record<string, unknown> = { model, messages, stream: true };
+  if (includeUsage) {
+    body.stream_options = { include_usage: true };
+  }
+  return await fetch(chatCompletionsUrl(config), {
+    method: "POST",
+    headers: authHeaders(config),
+    body: JSON.stringify(body)
+  });
 }
 
 export async function* streamChatCompletion(
@@ -77,15 +115,27 @@ export async function* streamChatCompletion(
   _env: Env,
   config: AiConfig
 ): AsyncIterable<string> {
+  for await (const event of streamChatCompletionWithUsage(messages, model, _env, config)) {
+    if (event.content) {
+      yield event.content;
+    }
+  }
+}
+
+export async function* streamChatCompletionWithUsage(
+  messages: ChatMessage[],
+  model: string,
+  _env: Env,
+  config: AiConfig
+): AsyncIterable<ChatStreamEvent> {
   if (!isAiConfigured(config)) {
-    yield "这是一个本地测试回答。生产环境会使用配置的 AI API。";
+    yield { content: "这是一个本地测试回答。生产环境会使用配置的 AI API。", totalTokens: null };
     return;
   }
-  const response = await fetch(chatCompletionsUrl(config), {
-    method: "POST",
-    headers: authHeaders(config),
-    body: JSON.stringify({ model, messages, stream: true })
-  });
+  let response = await streamResponse(messages, model, config, true);
+  if (response.status === 400) {
+    response = await streamResponse(messages, model, config, false);
+  }
   if (!response.ok || !response.body) {
     throw new Error(`AI HTTP ${response.status}`);
   }
@@ -102,9 +152,16 @@ export async function* streamChatCompletion(
       if (!line.startsWith("data:")) continue;
       const data = line.slice(5).trim();
       if (data === "[DONE]") return;
-      const chunk = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> };
+      const chunk = JSON.parse(data) as {
+        choices?: Array<{ delta?: { content?: string } }>;
+        usage?: { total_tokens?: number; totalTokens?: number } | null;
+      };
+      const totalTokens = chunk.usage?.total_tokens ?? chunk.usage?.totalTokens;
+      if (typeof totalTokens === "number") {
+        yield { content: "", totalTokens };
+      }
       const content = chunk.choices?.[0]?.delta?.content;
-      if (content) yield content;
+      if (content) yield { content };
     }
   }
 }

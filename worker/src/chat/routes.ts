@@ -6,9 +6,10 @@ import { requireUser } from "../auth/routes";
 import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
-import { isAiConfigured, streamChatCompletion, type AiConfig, type ChatMessage } from "../ai/client";
+import { isAiConfigured, streamChatCompletionWithUsage, type AiConfig, type ChatMessage } from "../ai/client";
 import { aiTextModel } from "../ai/client";
 import { resolveChatModel } from "../ai/providers";
+import { recordTokenUsage } from "../ai/usage";
 
 type SessionRow = Row & {
   id: number;
@@ -240,16 +241,24 @@ async function streamAssistantResponse(
   aiConfig: AiConfig,
   aiModel: string,
   history: ChatMessage[],
+  userId: number,
   replaceAssistantMessageId: number | null = null
 ): Promise<Response> {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const parts: string[] = [];
+      let totalTokens: number | null = null;
       try {
-        for await (const token of streamChatCompletion(history, aiModel, env, aiConfig)) {
-          parts.push(token);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
+        for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig)) {
+          if (typeof chunk.totalTokens === "number") {
+            totalTokens = chunk.totalTokens;
+          }
+          if (!chunk.content) {
+            continue;
+          }
+          parts.push(chunk.content);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk.content)}\n\n`));
         }
       } catch {
         const token = "AI 服务连接失败，请稍后重试。";
@@ -266,6 +275,7 @@ async function streamAssistantResponse(
           .bind(sessionId, assistantContent, aiModel, nowIso())
           .run();
       }
+      await recordTokenUsage(env, userId, aiConfig, aiModel, totalTokens);
       await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
@@ -307,7 +317,7 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
   const history = await historyForSession(env, session.id, aiConfig, hasImages ? userMessageId : null, payload.image_data_urls);
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history);
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history, user.id);
 }
 
 async function regenerateChat(request: Request, env: Env): Promise<Response> {
@@ -342,7 +352,7 @@ async function regenerateChat(request: Request, env: Env): Promise<Response> {
   const aiModel = resolveChatModel(aiConfig, payload.model, attachments.length > 0);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, lastUserMessage.id).run();
   const history = await historyForSession(env, session.id, aiConfig, lastUserMessage.id);
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history, assistantMessage.id);
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history, user.id, assistantMessage.id);
 }
 
 export function chatRoutes(env: Env): Route[] {

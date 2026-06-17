@@ -5,7 +5,8 @@ import { requireUser } from "../auth/routes";
 import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
-import { aiTranslationModel, completeChat, isAiConfigured } from "../ai/client";
+import { aiTranslationModel, completeChatWithUsage, isAiConfigured } from "../ai/client";
+import { recordTokenUsage } from "../ai/usage";
 import {
   DEFAULT_TRANSLATION_PROMPT,
   TRANSLATION_INPUT_LIMIT,
@@ -201,16 +202,19 @@ async function generateWordDetail(
   const fallback = fallbackTranslation(text, "word");
   let result: string;
   try {
-    result = await completeChat(
+    const model = aiTranslationModel(aiConfig);
+    const response = await completeChatWithUsage(
       [
         { role: "system", content: await getTranslationPrompt(env, userId) },
         { role: "user", content: buildWordDetailUserPrompt(text) }
       ],
-      aiTranslationModel(aiConfig),
+      model,
       fallback,
       env,
       aiConfig
     );
+    await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+    result = response.content;
   } catch {
     result = fallback;
   }
@@ -386,16 +390,19 @@ async function translate(request: Request, env: Env, ctx?: ExecutionContext): Pr
   const aiConfig = await getAiConfig(env);
   let result: string;
   try {
-    result = await completeChat(
+    const model = aiTranslationModel(aiConfig);
+    const response = await completeChatWithUsage(
       [
         { role: "system", content: await getTranslationPrompt(env, user.id) },
         { role: "user", content: buildTranslationUserPrompt(text, sourceKind) }
       ],
-      aiTranslationModel(aiConfig),
+      model,
       fallback,
       env,
       aiConfig
     );
+    await recordTokenUsage(env, user.id, aiConfig, model, response.totalTokens);
+    result = response.content;
   } catch {
     result = fallback;
   }

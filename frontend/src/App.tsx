@@ -46,6 +46,7 @@ import {
   Message,
   ReportContent,
   ReportItem,
+  TokenUsageSummary,
   TranslationEntry,
   regenerateChat,
   streamChat,
@@ -1957,6 +1958,7 @@ function SettingsView({
 
 function AdminView() {
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageSummary[]>([]);
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
   const [activeProvider, setActiveProvider] = useState<"gpt" | "zhipu">("gpt");
   const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>(null);
@@ -1980,8 +1982,9 @@ function AdminView() {
   const [savingAiConfig, setSavingAiConfig] = useState(false);
 
   async function refresh() {
-    const [inviteItems, config] = await Promise.all([api.invites(), api.aiConfig()]);
+    const [inviteItems, config, usage] = await Promise.all([api.invites(), api.aiConfig(), api.tokenUsage()]);
     setInvites(inviteItems);
+    setTokenUsage(usage);
     setAiConfig(config);
     setActiveProvider(config.active_provider);
     setGptBaseUrl(config.providers.gpt.base_url);
@@ -2314,7 +2317,7 @@ function AdminView() {
         <header className="pane-header">
           <div>
             <h2>邀请码</h2>
-            <p>管理员只管理邀请，不查看用户聊天和报告。</p>
+            <p>只显示最新 3 个邀请码，旧邀请码仍保留在数据库中。</p>
           </div>
           <button className="primary-button compact" onClick={createInvite}>
             <KeyRound size={16} />
@@ -2323,7 +2326,7 @@ function AdminView() {
         </header>
       <div className="invite-table">
         {loadingAdmin && !invites.length ? <div className="empty-state compact">正在加载邀请码...</div> : null}
-        {invites.map((invite) => (
+        {invites.slice(0, 3).map((invite) => (
           <div key={invite.code} className="invite-row">
             <code>{invite.code}</code>
             <span>{invite.is_used ? "已使用" : "未使用"}</span>
@@ -2331,6 +2334,28 @@ function AdminView() {
           </div>
         ))}
       </div>
+      </section>
+      <section className="admin-section">
+        <header className="pane-header">
+          <div>
+            <h2>Token 用量</h2>
+            <p>按账号展示今日与过去 7 天的总 token。</p>
+          </div>
+        </header>
+        <div className="token-usage-table">
+          {loadingAdmin && !tokenUsage.length ? <div className="empty-state compact">正在加载 token 用量...</div> : null}
+          {!loadingAdmin && !tokenUsage.length ? <div className="empty-state compact">暂无 token 用量。</div> : null}
+          {tokenUsage.map((item) => (
+            <div key={item.user_id} className="token-usage-row">
+              <div className="token-usage-user">
+                <strong>{item.email}</strong>
+                <span>{item.role === "admin" ? "管理员" : "用户"}</span>
+              </div>
+              <span>今日 {item.today_total_tokens.toLocaleString()} token</span>
+              <span>7 天 {item.last_7d_total_tokens.toLocaleString()} token</span>
+            </div>
+          ))}
+        </div>
       </section>
     </section>
   );

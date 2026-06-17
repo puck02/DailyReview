@@ -5,6 +5,7 @@ import { all, first, nowIso, type Row } from "../db/d1";
 import { HttpError, json, parseJson, route, type Route } from "../http";
 import { requireAdmin, requireUser } from "../auth/routes";
 import { safeAiErrorMessage, testAiConnection, type AiConfig } from "../ai/client";
+import { summarizeTokenUsage } from "../ai/usage";
 import {
   AI_PROVIDER_NAMES,
   configResponse,
@@ -366,11 +367,20 @@ async function testConfig(request: Request, env: Env): Promise<Response> {
   }
 }
 
+async function readTokenUsage(request: Request, env: Env): Promise<Response> {
+  await requireAdmin(request, env);
+  const url = new URL(request.url);
+  const nowParam = url.searchParams.get("now");
+  const now = nowParam ? new Date(nowParam) : new Date();
+  return json(await summarizeTokenUsage(env, Number.isNaN(now.getTime()) ? new Date() : now));
+}
+
 export function adminRoutes(env: Env): Route[] {
   return [
     route("GET", "/api/ai-models", (request) => readAiModels(request, env)),
     route("GET", "/api/admin/ai-config", (request) => readAiConfig(request, env)),
     route("PUT", "/api/admin/ai-config", (request) => updateAiConfig(request, env)),
-    route("POST", "/api/admin/ai-config/test", (request) => testConfig(request, env))
+    route("POST", "/api/admin/ai-config/test", (request) => testConfig(request, env)),
+    route("GET", "/api/admin/token-usage", (request) => readTokenUsage(request, env))
   ];
 }

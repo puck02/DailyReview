@@ -111,6 +111,41 @@ describe("chat sessions and attachments", () => {
     ]);
   });
 
+  it("records total token usage returned by streaming chat completions", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    vi.stubGlobal("fetch", async () => {
+      const body = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "回答" } }] })}`,
+        `data: ${JSON.stringify({ choices: [], usage: { total_tokens: 37 } })}`,
+        "data: [DONE]",
+        ""
+      ].join("\n\n");
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "token 统计", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "解释极限", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([JSON.stringify("回答"), "[DONE]"]);
+    const usage = await env.DB.prepare("SELECT user_id, total_tokens FROM ai_token_usage").first<{
+      user_id: number;
+      total_tokens: number;
+    }>();
+    expect(usage).toEqual({ user_id: 2, total_tokens: 37 });
+  });
+
   it("uploads and downloads a PNG attachment for its owner", async () => {
     const { env, cookie } = await loginUser();
     const form = new FormData();

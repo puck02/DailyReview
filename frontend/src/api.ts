@@ -37,6 +37,14 @@ export type Invite = {
   created_at: string;
 };
 
+export type TokenUsageSummary = {
+  user_id: number;
+  email: string;
+  role: "admin" | "user";
+  today_total_tokens: number;
+  last_7d_total_tokens: number;
+};
+
 export type ReportItem = {
   id: number;
   report_type: "daily" | "weekly" | "monthly";
@@ -161,6 +169,7 @@ export const api = {
       body: JSON.stringify({ expires_days: 7 })
     }),
   invites: () => request<Invite[]>("/api/invites"),
+  tokenUsage: () => request<TokenUsageSummary[]>("/api/admin/token-usage"),
   sessions: () => request<ChatSession[]>("/api/sessions"),
   createSession: (title: string, model: string) =>
     request<ChatSession>("/api/sessions", {

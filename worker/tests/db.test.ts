@@ -7,8 +7,10 @@ describe("D1 schema", () => {
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS users");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS chat_sessions");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS reports");
+    expect(schema).toContain("CREATE TABLE IF NOT EXISTS ai_token_usage");
     expect(schema).toContain("idx_chat_sessions_user_archived_updated");
     expect(schema).toContain("idx_messages_session_created");
     expect(schema).toContain("idx_reports_user_type_period");
+    expect(schema).toContain("idx_ai_token_usage_user_created");
   });
 });

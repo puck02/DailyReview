@@ -153,6 +153,36 @@ describe("auth and invite routes", () => {
     await expect(blocked.json()).resolves.toEqual({ detail: "需要管理员权限" });
   });
 
+  it("lists only the latest three invite codes for admins", async () => {
+    const env = createTestEnv();
+    await fetchWorker(env, "/api/health");
+    const adminLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    const adminCookie = cookieFrom(adminLogin);
+    const createdCodes: string[] = [];
+    for (let index = 0; index < 5; index += 1) {
+      const invite = await fetchWorker(env, "/api/invites", {
+        method: "POST",
+        headers: { cookie: adminCookie },
+        body: JSON.stringify({ expires_days: 7 })
+      });
+      expect(invite.status).toBe(200);
+      const inviteBody = (await invite.json()) as { code: string };
+      createdCodes.push(inviteBody.code);
+    }
+
+    const list = await fetchWorker(env, "/api/invites", { headers: { cookie: adminCookie } });
+
+    expect(list.status).toBe(200);
+    const body = (await list.json()) as Array<{ code: string }>;
+    expect(body.map((invite) => invite.code)).toEqual(createdCodes.slice(-3).reverse());
+
+    const stored = await env.DB.prepare("SELECT COUNT(*) AS count FROM invite_codes").first<{ count: number }>();
+    expect(stored?.count).toBe(5);
+  });
+
   it("registers with legacy invite tables that do not have used_by_id", async () => {
     const env = createTestEnv();
     await fetchWorker(env, "/api/health");

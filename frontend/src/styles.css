@@ -2274,6 +2274,36 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+.token-usage-table {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.token-usage-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 0.8fr 0.8fr;
+  gap: 10px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.token-usage-user {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.token-usage-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 980px) {
   body {
     overflow: hidden;
@@ -2659,6 +2689,10 @@ textarea:focus {
   }
 
   .invite-row {
+    grid-template-columns: 1fr;
+  }
+
+  .token-usage-row {
     grid-template-columns: 1fr;
   }
 }

@@ -412,4 +412,53 @@ describe("settings and admin routes", () => {
     expect(config.providers.gpt.text_model).toBe("gpt-5.5");
     expect(config.providers.zhipu.text_model).toBe("glm-5");
   });
+
+  it("returns per-user total token usage for today and the last seven days", async () => {
+    const env = createTestEnv();
+    const cookie = await adminCookie(env);
+    const now = "2026-06-17T08:00:00.000Z";
+    await env.DB.prepare("INSERT INTO users (email, password_hash, role, created_at) VALUES (?, ?, 'user', ?)")
+      .bind("learner@example.com", "hash", "2026-06-10T00:00:00.000Z")
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO ai_token_usage (user_id, provider, model, total_tokens, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+      .bind(1, "gpt", "gpt-5.5", 100, "2026-06-17T01:00:00.000Z")
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO ai_token_usage (user_id, provider, model, total_tokens, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+      .bind(1, "gpt", "gpt-5.5", 40, "2026-06-16T12:00:00.000Z")
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO ai_token_usage (user_id, provider, model, total_tokens, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+      .bind(2, "zhipu", "glm-5", 25, "2026-06-17T02:00:00.000Z")
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO ai_token_usage (user_id, provider, model, total_tokens, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+      .bind(2, "zhipu", "glm-5", 999, "2026-06-09T02:00:00.000Z")
+      .run();
+
+    const response = await fetchWorker(env, `/api/admin/token-usage?now=${encodeURIComponent(now)}`, { headers: { cookie } });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual([
+      {
+        user_id: 1,
+        email: "admin@example.com",
+        role: "admin",
+        today_total_tokens: 100,
+        last_7d_total_tokens: 140
+      },
+      {
+        user_id: 2,
+        email: "learner@example.com",
+        role: "user",
+        today_total_tokens: 25,
+        last_7d_total_tokens: 25
+      }
+    ]);
+  });
 });

@@ -2,7 +2,8 @@ import { all, first, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError } from "../http";
 import { getAiConfig } from "../admin/routes";
-import { aiReportModel, completeChat, isAiConfigured } from "../ai/client";
+import { aiReportModel, completeChatWithUsage, isAiConfigured } from "../ai/client";
+import { recordTokenUsage } from "../ai/usage";
 
 export const PDF_DOWNGRADE_MESSAGE = "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。";
 
@@ -464,6 +465,7 @@ function renderLearningEvents(events: LearningEvent[]): string {
 
 async function extractLearningEvents(
   env: Env,
+  userId: number,
   segments: LearningSegment[],
   fallbackSegments: LearningSegment[],
   keywords: string[],
@@ -490,13 +492,16 @@ subject, topic, question, insight, misconception, memory, value_score, evidence
 问答片段：
 ${renderSegments(segments)}`;
   const fallback = JSON.stringify(fallbackLearningEvents(fallbackSegments, keywords));
-  const response = await completeChat([{ role: "user", content: prompt }], aiReportModel(aiConfig), fallback, env, aiConfig);
-  const events = safeJsonArray(response).map(normalizeLearningEvent).filter((event): event is LearningEvent => Boolean(event));
+  const model = aiReportModel(aiConfig);
+  const response = await completeChatWithUsage([{ role: "user", content: prompt }], model, fallback, env, aiConfig);
+  await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+  const events = safeJsonArray(response.content).map(normalizeLearningEvent).filter((event): event is LearningEvent => Boolean(event));
   return events.length ? events.slice(0, LEARNING_EVENT_LIMIT) : fallbackLearningEvents(fallbackSegments, keywords);
 }
 
 async function aiDailyMarkdown(
   env: Env,
+  userId: number,
   day: string,
   events: LearningEvent[],
   keywords: string[],
@@ -550,14 +555,10 @@ ${rewriteInstruction}
 高价值学习事件：
 ${eventSummary}`;
   const fallback = fallbackDailyMarkdown(day, eventSummary, keywords);
-  const markdown = await completeChat(
-    [{ role: "user", content: prompt }],
-    aiReportModel(aiConfig),
-    fallback,
-    env,
-    aiConfig
-  );
-  return compactDailyMarkdown(markdown);
+  const model = aiReportModel(aiConfig);
+  const response = await completeChatWithUsage([{ role: "user", content: prompt }], model, fallback, env, aiConfig);
+  await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+  return compactDailyMarkdown(response.content);
 }
 
 type QualityReview = {
@@ -567,6 +568,7 @@ type QualityReview = {
 
 async function reviewDailyMarkdown(
   env: Env,
+  userId: number,
   day: string,
   markdown: string,
   events: LearningEvent[],
@@ -592,8 +594,10 @@ ${renderLearningEvents(events)}
 待审查日报：
 ${markdown}`;
   const fallback = "PASS";
-  const response = await completeChat([{ role: "user", content: prompt }], aiReportModel(aiConfig), fallback, env, aiConfig);
-  const normalized = response.trim();
+  const model = aiReportModel(aiConfig);
+  const response = await completeChatWithUsage([{ role: "user", content: prompt }], model, fallback, env, aiConfig);
+  await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+  const normalized = response.content.trim();
   if (/^PASS\b/i.test(normalized)) {
     return { status: "pass", feedback: "" };
   }
@@ -611,17 +615,25 @@ export async function generateDailyReport(env: Env, userId: number, day: string)
   const filteredMessages = studyMessages(messages);
   const conversation = renderConversation(filteredMessages.length ? filteredMessages : messages);
   const keywords = extractKeywords(conversation);
-  const events = await extractLearningEvents(env, isAiConfigured(aiConfig) ? segments : filteredSegments, filteredSegments, keywords, aiConfig);
+  const events = await extractLearningEvents(
+    env,
+    userId,
+    isAiConfigured(aiConfig) ? segments : filteredSegments,
+    filteredSegments,
+    keywords,
+    aiConfig
+  );
   if (!events.length) {
     return null;
   }
-  let markdown = await aiDailyMarkdown(env, day, events, keywords, aiConfig);
+  let markdown = await aiDailyMarkdown(env, userId, day, events, keywords, aiConfig);
   let rewriteCount = 0;
-  const review = await reviewDailyMarkdown(env, day, markdown, events, aiConfig);
+  const review = await reviewDailyMarkdown(env, userId, day, markdown, events, aiConfig);
   if (review.status === "rewrite") {
     rewriteCount = 1;
     markdown = await aiDailyMarkdown(
       env,
+      userId,
       day,
       events,
       keywords,
