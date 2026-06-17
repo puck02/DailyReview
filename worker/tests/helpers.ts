@@ -113,6 +113,7 @@ export function createTestEnv(overrides: Partial<Env> = {}): Env {
   return {
     DB: new SqliteD1() as unknown as D1Database,
     BUCKET: new MemoryR2() as unknown as R2Bucket,
+    BROWSER: undefined,
     REPORT_SCHEDULER: new MemoryReportScheduler() as unknown as Env["REPORT_SCHEDULER"],
     ASSETS: { fetch: () => new Response("asset") },
     SECRET_KEY: "test-secret",

@@ -96,7 +96,6 @@ type PdfSavePickerWindow = Window &
     }) => Promise<PdfFileHandle>;
   };
 type PdfSaveTarget = { kind: "handle"; handle: PdfFileHandle } | { kind: "download" } | { kind: "cancelled" };
-
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "gpt-5.5";
 const reportModels = [defaultModel, complexModel];

@@ -9,6 +9,7 @@
     "load:local-server": "node tests/load/local-worker-server.mjs"
   },
   "dependencies": {
+    "@cloudflare/puppeteer": "^1.1.0",
     "itty-router": "^5.0.22",
     "jose": "^6.2.3",
     "zod": "^4.4.3"

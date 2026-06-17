@@ -2789,4 +2789,9 @@ textarea:focus {
     background: #f6f6f6;
     border-color: #dddddd;
   }
+
+  .markdown-preview .katex-display {
+    overflow: visible;
+    white-space: normal;
+  }
 }

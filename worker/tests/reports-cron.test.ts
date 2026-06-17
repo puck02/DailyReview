@@ -3,6 +3,27 @@ import { describe, expect, it, vi } from "vitest";
 import { generateDailyReports, generateMonthlyReports, generateWeeklyReports, runScheduledJobs } from "../src/cron/jobs";
 import { cookieFrom, createTestEnv, fetchWorker, MemoryReportScheduler } from "./helpers";
 
+const pdfCalls: { html: string; closed: boolean }[] = [];
+
+vi.mock("@cloudflare/puppeteer", () => ({
+  default: {
+    launch: vi.fn(async () => ({
+      newPage: async () => ({
+        setViewport: async () => {},
+        setContent: async (html: string) => {
+          pdfCalls.push({ html, closed: false });
+        },
+        evaluate: async () => {},
+        pdf: async () => new TextEncoder().encode("%PDF-1.7\n% rendered by browser\n").buffer
+      }),
+      close: async () => {
+        const call = pdfCalls[pdfCalls.length - 1];
+        if (call) call.closed = true;
+      }
+    }))
+  }
+}));
+
 async function loginUser(email = "user@example.com"): Promise<{
   env: ReturnType<typeof createTestEnv>;
   cookie: string;
@@ -585,5 +606,33 @@ describe("reports, cron jobs, and PDF export", () => {
     const body = new Uint8Array(await pdf.arrayBuffer());
     expect(new TextDecoder("latin1").decode(body.slice(0, 8))).toBe("%PDF-1.7");
     expect(new TextDecoder("latin1").decode(body)).toContain("STSong-Light");
+  });
+
+  it("uses Browser Rendering for formula-quality PDF export when the binding is available", async () => {
+    pdfCalls.length = 0;
+    const first = await loginUser("formula@example.com");
+    const markdownKey = "reports/user-formula/daily/2026/06/2026-06-10.md";
+    await first.env.BUCKET.put(
+      markdownKey,
+      "# 学习日报\n\n## 核心知识\n\n核心公式：$$\\lim_{x \\to 0}\\frac{\\sin x}{x}=1$$",
+      { httpMetadata: { contentType: "text/markdown; charset=utf-8" } }
+    );
+    const insert = await first.env.DB.prepare(
+      `INSERT INTO reports (user_id, report_type, period, markdown_key, html_key, stats_json, created_at)
+       VALUES (?, 'daily', '2026-06-10', ?, NULL, '{}', '2026-06-10T23:00:00.000Z')`
+    )
+      .bind(first.userId, markdownKey)
+      .run();
+    const reportId = Number((insert.meta as { last_row_id: number }).last_row_id);
+    const envWithBrowser = { ...first.env, BROWSER: { fetch: async () => new Response(null) } as Fetcher };
+
+    const pdf = await fetchWorker(envWithBrowser, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } });
+
+    expect(pdf.status).toBe(200);
+    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
+    expect(pdfCalls).toHaveLength(1);
+    expect(pdfCalls[0]?.html).toContain("renderMathInElement");
+    expect(pdfCalls[0]?.html).toContain("\\lim_{x \\to 0}");
+    expect(pdfCalls[0]?.closed).toBe(true);
   });
 });

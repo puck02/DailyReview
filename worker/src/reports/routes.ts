@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireUser } from "../auth/routes";
 import type { Env } from "../env";
 import { HttpError, json, route, type Route } from "../http";
+import { renderBrowserPdf } from "./browser-pdf";
 import { reportMarkdownToPdfBytes } from "./pdf";
 import { readReportMarkdown, reportById, reportContent, reportListItem, reportsForUser } from "./service";
 
@@ -36,7 +37,11 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
   }
   const markdown = await readReportMarkdown(env, report);
   const filename = `${report.period}-${report.report_type}.pdf`;
-  const pdf = reportMarkdownToPdfBytes(markdown, `${report.period} ${report.report_type}`);
+  const title = `${report.period} ${report.report_type}`;
+  let pdf = await renderBrowserPdf(env, markdown, title);
+  if (!pdf) {
+    pdf = reportMarkdownToPdfBytes(markdown, title);
+  }
   return new Response(pdf, {
     headers: {
       "Content-Type": "application/pdf",

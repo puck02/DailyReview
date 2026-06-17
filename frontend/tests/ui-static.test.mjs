@@ -696,7 +696,7 @@ test("reports list can render before the selected report markdown finishes loadi
   assert.ok(app.includes("reportContentCacheRef.current.set(content.id, content)"));
 });
 
-test("Workers PDF export requests the backend PDF before creating any save target", () => {
+test("PDF export downloads the backend-rendered PDF before creating any save target", () => {
   const exportFunction = app.match(/async function exportReportPdf\(\) \{[\s\S]*?\n  \}/)?.[0] || "";
   assert.ok(exportFunction.includes("api.reportPdf(active.id)"));
   assert.ok(exportFunction.includes("pickPdfSaveTarget(filename)"));

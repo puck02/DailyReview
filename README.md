@@ -12,7 +12,7 @@ DailyReview 是一个 AI 辅助学习 Web 应用。当前 `cloudflare-workers-de
 - 中英翻译、词汇讲解、个人提示词。
 - 日报、周报、月报 Markdown 报告。
 - Cron 定时生成报告、清理过期会话和附件。
-- Worker 内置基础 PDF 导出。
+- Browser Rendering PDF 导出，支持 Markdown 和 KaTeX 公式渲染。
 
 ## 技术栈
 
@@ -29,6 +29,7 @@ Cloudflare 后端：
 - TypeScript Cloudflare Worker
 - Cloudflare D1：用户、会话、消息、翻译、报告索引
 - Cloudflare R2：上传图片和 Markdown 报告
+- Cloudflare Browser Rendering：报告 PDF 渲染导出
 - Cloudflare Cron Triggers：报告生成、清理、队列处理
 - Wrangler：本地开发、资源管理、部署
 - Vitest：Worker 单元和集成测试
@@ -166,7 +167,7 @@ node worker/src/migrations/r2-upload.mjs ./data/reports reports
 
 ## PDF 导出
 
-Workers 部署内置轻量 PDF 生成能力，`GET /api/reports/:id/pdf` 会读取报告 Markdown 并返回 `application/pdf` 下载文件。当前实现优先保证稳定、可下载、中文可读和权限隔离；复杂 Markdown 会按纯文本排版导出，不依赖 Chrome、外部 PDF 服务或前端截图。
+Workers 部署使用 Cloudflare Browser Rendering 生成报告 PDF。`GET /api/reports/:id/pdf` 会读取报告 Markdown，渲染打印 HTML 和 KaTeX 公式后返回 `application/pdf` 下载文件。若当前环境没有 `BROWSER` binding，则自动回退到轻量文本 PDF，保证导出接口仍可用。
 
 ## 测试
 
