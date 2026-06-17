@@ -6,6 +6,7 @@ export type PreparedImage = {
 const maxImageDimension = 1600;
 const jpegQuality = 0.82;
 const compressionThresholdBytes = 900 * 1024;
+const genericClipboardTypes = new Set(["", "application/octet-stream"]);
 
 function readAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -30,12 +31,29 @@ function compressedFileName(name: string, type: string): string {
   return (name || "image").replace(/\.[^.]+$/, "") + extension;
 }
 
-export async function prepareImageForUpload(file: File): Promise<PreparedImage> {
-  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.size <= compressionThresholdBytes || !("createImageBitmap" in window)) {
-    return { file, dataUrl: await readAsDataUrl(file) };
-  }
+function isLikelyImage(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  if (!genericClipboardTypes.has(file.type)) return false;
+  return file.size > 0;
+}
 
-  const image = await createImageBitmap(file);
+function loadHtmlImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("图片加载失败"));
+    };
+    image.src = url;
+  });
+}
+
+function drawToCanvas(image: { width: number; height: number }, file: File): { canvas: HTMLCanvasElement; type: string } | null {
   const scale = Math.min(1, maxImageDimension / Math.max(image.width, image.height));
   const width = Math.max(1, Math.round(image.width * scale));
   const height = Math.max(1, Math.round(image.height * scale));
@@ -43,15 +61,35 @@ export async function prepareImageForUpload(file: File): Promise<PreparedImage> 
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext("2d");
-  if (!context) {
-    image.close();
+  if (!context) return null;
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image as CanvasImageSource, 0, 0, width, height);
+  const type = "image/jpeg";
+  return { canvas, type };
+}
+
+export async function prepareImageForUpload(file: File): Promise<PreparedImage> {
+  if (!isLikelyImage(file) || file.type === "image/gif" || file.size <= compressionThresholdBytes) {
     return { file, dataUrl: await readAsDataUrl(file) };
   }
 
-  context.drawImage(image, 0, 0, width, height);
-  image.close();
-  const type = file.type === "image/png" ? "image/png" : "image/jpeg";
+  let image: ImageBitmap | HTMLImageElement;
+  try {
+    image = "createImageBitmap" in window ? await createImageBitmap(file) : await loadHtmlImage(file);
+  } catch {
+    image = await loadHtmlImage(file);
+  }
+
+  const drawn = drawToCanvas(image, file);
+  if (!drawn) {
+    if ("close" in image && typeof image.close === "function") image.close();
+    return { file, dataUrl: await readAsDataUrl(file) };
+  }
+
+  const { canvas, type } = drawn;
   const blob = await canvasBlob(canvas, type, type === "image/jpeg" ? jpegQuality : undefined);
+  if ("close" in image && typeof image.close === "function") image.close();
   const output = blob.size < file.size ? new File([blob], compressedFileName(file.name, type), { type }) : file;
   return { file: output, dataUrl: await readAsDataUrl(output) };
 }
