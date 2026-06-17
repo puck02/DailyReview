@@ -22,7 +22,6 @@ function markdownToPrintHtml(markdown: string, title: string): string {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${safeTitle}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.css">
     <style>
       :root { color-scheme: light; }
       html, body { margin: 0; padding: 0; background: #fff; color: #111; }
@@ -36,10 +35,9 @@ function markdownToPrintHtml(markdown: string, title: string): string {
       .markdown-preview ul, .markdown-preview ol { padding-left: 16pt; }
       .markdown-preview h2, .markdown-preview h3, .markdown-preview table, .markdown-preview pre, .markdown-preview blockquote { break-inside: avoid; page-break-inside: avoid; }
       .markdown-preview .markdown-code, .markdown-preview .markdown-inline-code { color: #111; background: #f6f6f6; border-color: #ddd; }
-      .markdown-preview .katex { font-size: 1.02em; line-height: 1.35; }
-      .markdown-preview .katex-display { max-width: 100%; overflow: visible; white-space: normal; margin: 4px 0; padding: 4px 0; }
-      .markdown-preview .katex-display > .katex { display: inline-block; min-width: max-content; }
-      .markdown-preview .markdown-math-block { margin: 3mm 0; overflow: visible; }
+      .markdown-preview math { font-family: "Times New Roman", serif; font-size: 1.04em; }
+      .markdown-preview .katex-display { display: block; max-width: 100%; overflow: visible; margin: 4px 0; padding: 4px 0; text-align: center; }
+      .markdown-preview .markdown-math-block { margin: 3mm 0; overflow: visible; text-align: center; }
       .markdown-preview .markdown-math-inline { display: inline; }
     </style>
   </head>
@@ -55,12 +53,13 @@ function markdownToPrintHtml(markdown: string, title: string): string {
 }
 
 function renderMath(tex: string, displayMode: boolean): string {
-  return katex.renderToString(tex.trim(), {
+  const math = katex.renderToString(tex.trim(), {
     displayMode,
-    output: "htmlAndMathml",
+    output: "mathml",
     throwOnError: false,
     strict: "ignore"
   });
+  return displayMode ? `<span class="katex-display">${math}</span>` : math;
 }
 
 function replaceInlineMath(text: string): string {
@@ -239,13 +238,7 @@ export async function renderBrowserPdf(env: Env, markdown: string, title: string
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 1 });
-    await page.setContent(markdownToPrintHtml(markdown, title), { waitUntil: "networkidle0" });
-    await page.evaluate(() => {
-      const pageGlobal = globalThis as typeof globalThis & {
-        document?: { fonts?: { ready?: Promise<unknown> } };
-      };
-      return pageGlobal.document?.fonts?.ready ?? Promise.resolve();
-    });
+    await page.setContent(markdownToPrintHtml(markdown, title), { waitUntil: "load" });
     const pdf = await page.pdf({ format: "A4", printBackground: true });
     const bytes = new Uint8Array(pdf);
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;

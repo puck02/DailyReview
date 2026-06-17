@@ -3,9 +3,8 @@ import { z } from "zod";
 import { requireUser } from "../auth/routes";
 import type { Env } from "../env";
 import { HttpError, json, route, type Route } from "../http";
-import { renderBrowserPdf } from "./browser-pdf";
 import { reportMarkdownToPdfBytes } from "./pdf";
-import { readReportMarkdown, reportById, reportContent, reportListItem, reportsForUser } from "./service";
+import { ensureReportPdf, readReportMarkdown, reportById, reportContent, reportListItem, reportsForUser } from "./service";
 
 const reportTypeSchema = z.enum(["daily", "weekly", "monthly"]);
 
@@ -35,11 +34,11 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
   if (!report || report.user_id !== user.id) {
     throw new HttpError(404, "报告不存在");
   }
-  const markdown = await readReportMarkdown(env, report);
   const filename = `${report.period}-${report.report_type}.pdf`;
   const title = `${report.period} ${report.report_type}`;
-  let pdf = await renderBrowserPdf(env, markdown, title);
+  let pdf = await ensureReportPdf(env, report, title);
   if (!pdf) {
+    const markdown = await readReportMarkdown(env, report);
     pdf = reportMarkdownToPdfBytes(markdown, title);
   }
   return new Response(pdf, {

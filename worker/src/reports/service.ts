@@ -4,6 +4,7 @@ import { HttpError } from "../http";
 import { getAiConfig } from "../admin/routes";
 import { aiReportModel, completeChatWithUsage, isAiConfigured } from "../ai/client";
 import { recordTokenUsage } from "../ai/usage";
+import { renderBrowserPdf } from "./browser-pdf";
 
 type UserRow = Row & {
   id: number;
@@ -104,6 +105,15 @@ function reportKey(userId: number, reportType: string, period: string): string {
   return `reports/user-${userId}/${reportType}/${year}/${period}.md`;
 }
 
+export function reportPdfObjectKey(report: Pick<ReportRow, "user_id" | "report_type" | "period">): string {
+  const { user_id: userId, report_type: reportType, period } = report;
+  const year = period.slice(0, 4);
+  if (reportType === "daily") {
+    return `reports/user-${userId}/daily/${year}/${period.slice(5, 7)}/${period}.pdf`;
+  }
+  return `reports/user-${userId}/${reportType}/${year}/${period}.pdf`;
+}
+
 function stats(report: ReportRow): Record<string, unknown> {
   try {
     return JSON.parse(report.stats_json || "{}") as Record<string, unknown>;
@@ -133,6 +143,42 @@ export async function readReportMarkdown(env: Env, report: ReportRow): Promise<s
   return await new Response(object.body).text();
 }
 
+export async function readReportPdf(env: Env, report: ReportRow): Promise<ArrayBuffer | null> {
+  if (!report.html_key) {
+    return null;
+  }
+  const object = await env.BUCKET.get(report.html_key);
+  if (!object) {
+    return null;
+  }
+  return await new Response(object.body).arrayBuffer();
+}
+
+export async function ensureReportPdf(
+  env: Env,
+  report: ReportRow,
+  title: string
+): Promise<ArrayBuffer | null> {
+  const cached = await readReportPdf(env, report);
+  if (cached) {
+    return cached;
+  }
+  const markdown = await readReportMarkdown(env, report);
+  let pdf: ArrayBuffer | null = null;
+  try {
+    pdf = await renderBrowserPdf(env, markdown, title);
+  } catch (error) {
+    console.warn("Report PDF on-demand render failed", error);
+  }
+  if (pdf === null) {
+    return null;
+  }
+  const pdfKey = reportPdfObjectKey(report);
+  await env.BUCKET.put(pdfKey, pdf, { httpMetadata: { contentType: "application/pdf" } });
+  await env.DB.prepare("UPDATE reports SET html_key = ? WHERE id = ?").bind(pdfKey, report.id).run();
+  return pdf;
+}
+
 export async function reportContent(env: Env, report: ReportRow): Promise<Record<string, unknown>> {
   return {
     ...reportListItem(report),
@@ -153,16 +199,29 @@ async function writeReport(
   reportStats: Record<string, unknown>
 ): Promise<ReportRow> {
   const key = reportKey(userId, reportType, period);
+  const pdfKey = reportPdfObjectKey({ user_id: userId, report_type: reportType, period });
+  const title = `${period} ${reportType}`;
+  let storedPdfKey: string | null = null;
   await env.BUCKET.put(key, markdown, { httpMetadata: { contentType: "text/markdown; charset=utf-8" } });
+  try {
+    const pdf = await renderBrowserPdf(env, markdown, title);
+    if (pdf) {
+      await env.BUCKET.put(pdfKey, pdf, { httpMetadata: { contentType: "application/pdf" } });
+      storedPdfKey = pdfKey;
+    }
+  } catch (error) {
+    console.warn("Report PDF pre-render failed", error);
+  }
   await env.DB.prepare(
     `INSERT INTO reports (user_id, report_type, period, markdown_key, html_key, stats_json, created_at)
-     VALUES (?, ?, ?, ?, NULL, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, report_type, period) DO UPDATE SET
        markdown_key = excluded.markdown_key,
+       html_key = COALESCE(excluded.html_key, reports.html_key),
        stats_json = excluded.stats_json,
        created_at = excluded.created_at`
   )
-    .bind(userId, reportType, period, key, JSON.stringify(reportStats), nowIso())
+    .bind(userId, reportType, period, key, storedPdfKey, JSON.stringify(reportStats), nowIso())
     .run();
   const report = await first<ReportRow>(
     env.DB.prepare("SELECT * FROM reports WHERE user_id = ? AND report_type = ? AND period = ?").bind(userId, reportType, period)

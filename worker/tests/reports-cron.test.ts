@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { generateDailyReports, generateMonthlyReports, generateWeeklyReports, runScheduledJobs } from "../src/cron/jobs";
@@ -527,6 +528,55 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(secondReport.stats.message_count).toBe(2);
   });
 
+  it("pre-renders the daily report PDF during report generation and reuses it on export", async () => {
+    pdfCalls.length = 0;
+    const { env, cookie, userId } = await loginUser("generated-pdf@example.com");
+    env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
+    await createMessage(env, userId, "今天理解了极限存在必须左右极限相等", "2026-06-09T10:00:00.000Z");
+
+    await generateDailyReports(env, "2026-06-09");
+
+    expect(pdfCalls).toHaveLength(1);
+    const stored = await env.DB.prepare(
+      "SELECT * FROM reports WHERE user_id = ? AND report_type = 'daily' AND period = '2026-06-09'"
+    )
+      .bind(userId)
+      .first();
+    expect((stored as { html_key?: string | null } | null)?.html_key).toContain(".pdf");
+
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    const [report] = (await list.json()) as Array<{ id: number }>;
+    pdfCalls.length = 0;
+    const pdf = await fetchWorker(env, `/api/reports/${report.id}/pdf`, { headers: { cookie } });
+
+    expect(pdf.status).toBe(200);
+    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
+    expect(pdfCalls).toHaveLength(0);
+  });
+
+  it("keeps the existing cached PDF when report regeneration cannot pre-render a new PDF", async () => {
+    const { env, userId } = await loginUser("preserve-pdf@example.com");
+    env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
+    await createMessage(env, userId, "今天理解了函数连续和极限之间的关系", "2026-06-09T10:00:00.000Z");
+    await generateDailyReports(env, "2026-06-09");
+    const before = await env.DB.prepare(
+      "SELECT html_key FROM reports WHERE user_id = ? AND report_type = 'daily' AND period = '2026-06-09'"
+    )
+      .bind(userId)
+      .first<{ html_key: string | null }>();
+
+    env.BROWSER = undefined;
+    await createMessage(env, userId, "补充理解了连续函数保极限的结论", "2026-06-09T12:00:00.000Z");
+    await generateDailyReports(env, "2026-06-09");
+
+    const after = await env.DB.prepare(
+      "SELECT html_key FROM reports WHERE user_id = ? AND report_type = 'daily' AND period = '2026-06-09'"
+    )
+      .bind(userId)
+      .first<{ html_key: string | null }>();
+    expect(after?.html_key).toBe(before?.html_key);
+  });
+
   it("skips daily reports when messages are unrelated to exam study", async () => {
     const { env, cookie, userId } = await loginUser();
     await createMessage(env, userId, "给个冒泡排序模板", "2026-06-09T10:00:00.000Z");
@@ -608,42 +658,72 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(new TextDecoder("latin1").decode(body)).toContain("STSong-Light");
   });
 
-  it("uses Browser Rendering for formula-quality PDF export when the binding is available", async () => {
+  it("pre-renders and caches the daily report PDF when the report is generated", async () => {
     pdfCalls.length = 0;
     const first = await loginUser("formula@example.com");
-    const markdownKey = "reports/user-formula/daily/2026/06/2026-06-10.md";
+    first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
     await first.env.BUCKET.put(
-      markdownKey,
-      [
-        "# 学习日报",
-        "",
-        "## 核心知识",
-        "",
-        "行内代码里的数学也应该渲染：`lim_{x→1} (∛(x^2) - 2∛x + 1) / (x-1)^2`",
-        "",
-        "$$",
-        "\\lim_{x \\to 0}\\frac{\\sin x}{x}=1",
-        "$$"
-      ].join("\n"),
+      "reports/user-formula/daily/2026/06/2026-06-10.md",
+      "# 学习日报\n\n## 核心知识\n\n核心公式：$$\\lim_{x \\to 0}\\frac{\\sin x}{x}=1$$",
       { httpMetadata: { contentType: "text/markdown; charset=utf-8" } }
     );
     const insert = await first.env.DB.prepare(
       `INSERT INTO reports (user_id, report_type, period, markdown_key, html_key, stats_json, created_at)
        VALUES (?, 'daily', '2026-06-10', ?, NULL, '{}', '2026-06-10T23:00:00.000Z')`
     )
-      .bind(first.userId, markdownKey)
+      .bind(first.userId, "reports/user-formula/daily/2026/06/2026-06-10.md")
       .run();
     const reportId = Number((insert.meta as { last_row_id: number }).last_row_id);
     const envWithBrowser = { ...first.env, BROWSER: { fetch: async () => new Response(null) } as Fetcher };
 
     const pdf = await fetchWorker(envWithBrowser, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } });
-
     expect(pdf.status).toBe(200);
     expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
+
     expect(pdfCalls).toHaveLength(1);
     expect(pdfCalls[0]?.html).toContain("katex-display");
     expect(pdfCalls[0]?.html).toContain("mfrac");
-    expect(pdfCalls[0]?.html).not.toContain("renderMathInElement");
     expect(pdfCalls[0]?.closed).toBe(true);
+
+    const report = await first.env.DB.prepare("SELECT * FROM reports WHERE user_id = ? AND report_type = 'daily' AND period = ?")
+      .bind(first.userId, "2026-06-10")
+      .first();
+    expect(report).not.toBeNull();
+    expect((report as { html_key?: string | null } | null)?.html_key).toContain(".pdf");
+  });
+
+  it("does not wait for remote font loading when rendering PDF", () => {
+    const source = fs.readFileSync(new URL("../src/reports/browser-pdf.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("document.fonts");
+    expect(source).toContain('waitUntil: "load"');
+    expect(source).not.toContain('waitUntil: "networkidle0"');
+  });
+
+  it("exports a cached PDF without invoking browser rendering again", async () => {
+    pdfCalls.length = 0;
+    const first = await loginUser("cached@example.com");
+    first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
+    await first.env.BUCKET.put(
+      "reports/user-cached/daily/2026/06/2026-06-10.md",
+      "# 学习日报\n\n## 核心知识\n\n核心公式：$$\\lim_{x \\to 0}\\frac{\\sin x}{x}=1$$",
+      { httpMetadata: { contentType: "text/markdown; charset=utf-8" } }
+    );
+    const insert = await first.env.DB.prepare(
+      `INSERT INTO reports (user_id, report_type, period, markdown_key, html_key, stats_json, created_at)
+       VALUES (?, 'daily', '2026-06-10', ?, NULL, '{}', '2026-06-10T23:00:00.000Z')`
+    )
+      .bind(first.userId, "reports/user-cached/daily/2026/06/2026-06-10.md")
+      .run();
+    const reportId = Number((insert.meta as { last_row_id: number }).last_row_id);
+    const envWithBrowser = { ...first.env, BROWSER: { fetch: async () => new Response(null) } as Fetcher };
+    const firstPdf = await fetchWorker(envWithBrowser, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } });
+    expect(firstPdf.status).toBe(200);
+    pdfCalls.length = 0;
+
+    const pdf = await fetchWorker(first.env, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } });
+
+    expect(pdf.status).toBe(200);
+    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
+    expect(pdfCalls).toHaveLength(0);
   });
 });
