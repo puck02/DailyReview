@@ -12,7 +12,7 @@ DailyReview 是一个 AI 辅助学习 Web 应用。当前 `cloudflare-workers-de
 - 中英翻译、词汇讲解、个人提示词。
 - 日报、周报、月报 Markdown 报告。
 - Cron 定时生成报告、清理过期会话和附件。
-- PDF 导出在 Workers 首版中稳定降级为 501 JSON。
+- Worker 内置基础 PDF 导出。
 
 ## 技术栈
 
@@ -164,17 +164,9 @@ node worker/src/migrations/r2-upload.mjs ./data/reports reports
 
 更详细流程见 `worker/src/migrations/README.md`。
 
-## PDF 降级
+## PDF 导出
 
-Workers 首版不在边缘环境内生成 PDF。接口固定返回：
-
-```json
-{
-  "detail": "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。"
-}
-```
-
-状态码为 `501`。前端会显示这条错误，不会下载损坏 PDF。用户仍可查看 Markdown 报告。后续可升级为 Cloudflare Browser Rendering 或外部 PDF 服务。
+Workers 部署内置轻量 PDF 生成能力，`GET /api/reports/:id/pdf` 会读取报告 Markdown 并返回 `application/pdf` 下载文件。当前实现优先保证稳定、可下载、中文可读和权限隔离；复杂 Markdown 会按纯文本排版导出，不依赖 Chrome、外部 PDF 服务或前端截图。
 
 ## 测试
 

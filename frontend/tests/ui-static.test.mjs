@@ -696,9 +696,8 @@ test("reports list can render before the selected report markdown finishes loadi
   assert.ok(app.includes("reportContentCacheRef.current.set(content.id, content)"));
 });
 
-test("Workers PDF downgrade displays the API error before any save target is created", () => {
+test("Workers PDF export requests the backend PDF before creating any save target", () => {
   const exportFunction = app.match(/async function exportReportPdf\(\) \{[\s\S]*?\n  \}/)?.[0] || "";
-  assert.ok(apiSource.includes("Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。"));
   assert.ok(exportFunction.includes("api.reportPdf(active.id)"));
   assert.ok(exportFunction.includes("pickPdfSaveTarget(filename)"));
   assert.ok(exportFunction.indexOf("api.reportPdf(active.id)") < exportFunction.indexOf("pickPdfSaveTarget(filename)"));

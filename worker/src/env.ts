@@ -13,5 +13,4 @@ export type Env = {
   ADMIN_INITIAL_PASSWORD?: string;
   APP_TIMEZONE: string;
   MAX_UPLOAD_BYTES: string;
-  PDF_EXPORT_MODE: "downgraded";
 };

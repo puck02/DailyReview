@@ -76,7 +76,7 @@ async function registerUser(env: ReturnType<typeof createTestEnv>, adminCookie: 
   return { cookie: cookieFrom(register), userId: user.id };
 }
 
-describe("reports, cron jobs, and PDF downgrade", () => {
+describe("reports, cron jobs, and PDF export", () => {
   it("cron maintenance reschedules report alarms without generating reports directly", async () => {
     const { env, cookie, userId } = await loginUser();
     const scheduler = env.REPORT_SCHEDULER as unknown as MemoryReportScheduler;
@@ -554,7 +554,7 @@ describe("reports, cron jobs, and PDF downgrade", () => {
     await expect(monthly.json()).resolves.toMatchObject([{ report_type: "monthly", period: "2026-06" }]);
   });
 
-  it("hides reports from other users and returns stable PDF downgrade JSON", async () => {
+  it("hides reports from other users and exports a stable PDF file", async () => {
     const first = await loginUser("first@example.com");
     await createMessage(first.env, first.userId, "今天复习了考研英语阅读理解的定位题", "2026-06-09T10:00:00.000Z");
     await generateDailyReports(first.env, "2026-06-09");
@@ -579,9 +579,11 @@ describe("reports, cron jobs, and PDF downgrade", () => {
     await expect(hidden.json()).resolves.toEqual({ detail: "报告不存在" });
 
     const pdf = await fetchWorker(first.env, `/api/reports/${report.id}/pdf`, { headers: { cookie: first.cookie } });
-    expect(pdf.status).toBe(501);
-    await expect(pdf.json()).resolves.toEqual({
-      detail: "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。"
-    });
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers.get("content-type")).toBe("application/pdf");
+    expect(pdf.headers.get("content-disposition")).toContain("2026-06-09-daily.pdf");
+    const body = new Uint8Array(await pdf.arrayBuffer());
+    expect(new TextDecoder("latin1").decode(body.slice(0, 8))).toBe("%PDF-1.7");
+    expect(new TextDecoder("latin1").decode(body)).toContain("STSong-Light");
   });
 });

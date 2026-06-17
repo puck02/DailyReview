@@ -5,8 +5,6 @@ import { getAiConfig } from "../admin/routes";
 import { aiReportModel, completeChatWithUsage, isAiConfigured } from "../ai/client";
 import { recordTokenUsage } from "../ai/usage";
 
-export const PDF_DOWNGRADE_MESSAGE = "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。";
-
 type UserRow = Row & {
   id: number;
 };

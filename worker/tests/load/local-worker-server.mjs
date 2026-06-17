@@ -147,8 +147,7 @@ const env = {
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || "admin@example.com",
   ADMIN_INITIAL_PASSWORD: process.env.ADMIN_INITIAL_PASSWORD || process.env.ADMIN_PASSWORD || "admin-password",
   APP_TIMEZONE: "Asia/Shanghai",
-  MAX_UPLOAD_BYTES: String(10 * 1024 * 1024),
-  PDF_EXPORT_MODE: "downgraded"
+  MAX_UPLOAD_BYTES: String(10 * 1024 * 1024)
 };
 
 const server = createServer(async (nodeRequest, nodeResponse) => {

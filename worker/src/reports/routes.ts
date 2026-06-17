@@ -3,7 +3,8 @@ import { z } from "zod";
 import { requireUser } from "../auth/routes";
 import type { Env } from "../env";
 import { HttpError, json, route, type Route } from "../http";
-import { PDF_DOWNGRADE_MESSAGE, reportById, reportContent, reportListItem, reportsForUser } from "./service";
+import { reportMarkdownToPdfBytes } from "./pdf";
+import { readReportMarkdown, reportById, reportContent, reportListItem, reportsForUser } from "./service";
 
 const reportTypeSchema = z.enum(["daily", "weekly", "monthly"]);
 
@@ -33,7 +34,17 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
   if (!report || report.user_id !== user.id) {
     throw new HttpError(404, "报告不存在");
   }
-  return json({ detail: PDF_DOWNGRADE_MESSAGE }, { status: 501 });
+  const markdown = await readReportMarkdown(env, report);
+  const filename = `${report.period}-${report.report_type}.pdf`;
+  const pdf = reportMarkdownToPdfBytes(markdown, `${report.period} ${report.report_type}`);
+  return new Response(pdf, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
 }
 
 export function reportRoutes(env: Env): Route[] {

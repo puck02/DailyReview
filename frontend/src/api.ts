@@ -131,8 +131,6 @@ export type TranslationPrompt = {
   system_prompt: string;
 };
 
-export const pdfDowngradeMessage = "Cloudflare Workers 部署暂不支持 PDF 导出，请先查看 Markdown 报告。";
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -214,7 +212,7 @@ export const api = {
   reportPdf: async (id: number): Promise<Blob> => {
     const response = await fetch(`/api/reports/${id}/pdf`, { credentials: "include", cache: "no-store" });
     if (!response.ok) {
-      const data = await response.json().catch(() => ({ detail: response.status === 501 ? pdfDowngradeMessage : "PDF 导出失败" }));
+      const data = await response.json().catch(() => ({ detail: "PDF 导出失败" }));
       throw new Error(data.detail || "PDF 导出失败");
     }
     return response.blob();

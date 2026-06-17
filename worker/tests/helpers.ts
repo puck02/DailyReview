@@ -123,7 +123,6 @@ export function createTestEnv(overrides: Partial<Env> = {}): Env {
     ADMIN_INITIAL_PASSWORD: "admin-password",
     APP_TIMEZONE: "Asia/Shanghai",
     MAX_UPLOAD_BYTES: String(10 * 1024 * 1024),
-    PDF_EXPORT_MODE: "downgraded",
     ...overrides
   };
 }
