@@ -614,7 +614,17 @@ describe("reports, cron jobs, and PDF export", () => {
     const markdownKey = "reports/user-formula/daily/2026/06/2026-06-10.md";
     await first.env.BUCKET.put(
       markdownKey,
-      "# 学习日报\n\n## 核心知识\n\n核心公式：$$\\lim_{x \\to 0}\\frac{\\sin x}{x}=1$$",
+      [
+        "# 学习日报",
+        "",
+        "## 核心知识",
+        "",
+        "行内代码里的数学也应该渲染：`lim_{x→1} (∛(x^2) - 2∛x + 1) / (x-1)^2`",
+        "",
+        "$$",
+        "\\lim_{x \\to 0}\\frac{\\sin x}{x}=1",
+        "$$"
+      ].join("\n"),
       { httpMetadata: { contentType: "text/markdown; charset=utf-8" } }
     );
     const insert = await first.env.DB.prepare(
@@ -631,8 +641,9 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(pdf.status).toBe(200);
     expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
     expect(pdfCalls).toHaveLength(1);
-    expect(pdfCalls[0]?.html).toContain("renderMathInElement");
-    expect(pdfCalls[0]?.html).toContain("\\lim_{x \\to 0}");
+    expect(pdfCalls[0]?.html).toContain("katex-display");
+    expect(pdfCalls[0]?.html).toContain("mfrac");
+    expect(pdfCalls[0]?.html).not.toContain("renderMathInElement");
     expect(pdfCalls[0]?.closed).toBe(true);
   });
 });

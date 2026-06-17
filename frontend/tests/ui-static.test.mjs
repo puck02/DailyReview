@@ -156,7 +156,7 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.ok(markdownRenderer.includes("rehypeKatex"));
   assert.ok(markdownRenderer.includes("normalizeMarkdownMath"));
   assert.ok(markdownRenderer.includes("key={normalizedMarkdown}"));
-  assert.ok(fs.readFileSync(new URL("../src/markdown.ts", import.meta.url), "utf8").includes("normalizeInlineCodeMath"));
+  assert.ok(fs.readFileSync(new URL("../../shared/src/markdown.ts", import.meta.url), "utf8").includes("normalizeInlineCodeMath"));
   assert.ok(app.includes('import "katex/dist/katex.min.css";'));
   assert.ok(markdownRenderer.includes("markdown-math-block"));
   assert.ok(markdownRenderer.includes("markdown-math-inline"));

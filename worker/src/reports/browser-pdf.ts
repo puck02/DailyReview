@@ -1,5 +1,7 @@
 import puppeteer from "@cloudflare/puppeteer";
+import katex from "katex";
 
+import { normalizeMarkdownMath } from "../../../shared/src/markdown";
 import type { Env } from "../env";
 
 function escapeHtml(value: string): string {
@@ -13,14 +15,13 @@ function escapeHtml(value: string): string {
 
 function markdownToPrintHtml(markdown: string, title: string): string {
   const safeTitle = escapeHtml(title);
-  const bodyHtml = markdownToHtml(markdown);
+  const bodyHtml = markdownToHtml(normalizeMarkdownMath(markdown));
   return `<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${safeTitle}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/katex.min.css">
     <style>
       :root { color-scheme: light; }
       html, body { margin: 0; padding: 0; background: #fff; color: #111; }
@@ -34,21 +35,12 @@ function markdownToPrintHtml(markdown: string, title: string): string {
       .markdown-preview ul, .markdown-preview ol { padding-left: 16pt; }
       .markdown-preview h2, .markdown-preview h3, .markdown-preview table, .markdown-preview pre, .markdown-preview blockquote { break-inside: avoid; page-break-inside: avoid; }
       .markdown-preview .markdown-code, .markdown-preview .markdown-inline-code { color: #111; background: #f6f6f6; border-color: #ddd; }
-      .markdown-preview .katex-display { overflow: visible; white-space: normal; }
+      .markdown-preview .katex { font-size: 1.02em; line-height: 1.35; }
+      .markdown-preview .katex-display { max-width: 100%; overflow: visible; white-space: normal; margin: 4px 0; padding: 4px 0; }
+      .markdown-preview .katex-display > .katex { display: inline-block; min-width: max-content; }
+      .markdown-preview .markdown-math-block { margin: 3mm 0; overflow: visible; }
+      .markdown-preview .markdown-math-inline { display: inline; }
     </style>
-    <script>
-      window.addEventListener("DOMContentLoaded", () => {
-        if (window.renderMathInElement) {
-          window.renderMathInElement(document.getElementById("content"), {
-            delimiters: [
-              { left: "$$", right: "$$", display: true },
-              { left: "$", right: "$", display: false }
-            ]
-          });
-        }
-      });
-    </script>
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.17.0/dist/contrib/auto-render.min.js"></script>
   </head>
   <body>
     <div class="page">
@@ -61,8 +53,43 @@ function markdownToPrintHtml(markdown: string, title: string): string {
 </html>`;
 }
 
+function renderMath(tex: string, displayMode: boolean): string {
+  return katex.renderToString(tex.trim(), {
+    displayMode,
+    output: "htmlAndMathml",
+    throwOnError: false,
+    strict: "ignore"
+  });
+}
+
+function replaceInlineMath(text: string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < text.length) {
+    const open = text.indexOf("$", cursor);
+    if (open === -1) {
+      result += escapeHtml(text.slice(cursor));
+      break;
+    }
+    if (text[open - 1] === "\\" || text[open + 1] === "$") {
+      result += escapeHtml(text.slice(cursor, open + 1));
+      cursor = open + 1;
+      continue;
+    }
+    const close = text.indexOf("$", open + 1);
+    if (close === -1) {
+      result += escapeHtml(text.slice(cursor));
+      break;
+    }
+    result += escapeHtml(text.slice(cursor, open));
+    result += `<span class="markdown-math-inline">${renderMath(text.slice(open + 1, close), false)}</span>`;
+    cursor = close + 1;
+  }
+  return result;
+}
+
 function inlineMarkdownToHtml(text: string): string {
-  return escapeHtml(text)
+  return replaceInlineMath(text)
     .replace(/`([^`]+)`/g, "<code class=\"markdown-inline-code\">$1</code>")
     .replace(/\[([^\]]+)]\(([^)]+)\)/g, "<a href=\"$2\" rel=\"noreferrer\">$1</a>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -73,7 +100,9 @@ function markdownToHtml(markdown: string): string {
   let listItems: string[] = [];
   let paragraph: string[] = [];
   let codeLines: string[] = [];
+  let mathLines: string[] = [];
   let inCode = false;
+  let inMath = false;
   const flushParagraph = () => {
     if (paragraph.length) {
       blocks.push(`<p>${inlineMarkdownToHtml(paragraph.join(" "))}</p>`);
@@ -86,6 +115,12 @@ function markdownToHtml(markdown: string): string {
       codeLines = [];
     }
   };
+  const flushMath = () => {
+    if (mathLines.length) {
+      blocks.push(`<div class="markdown-math-block">${renderMath(mathLines.join("\n"), true)}</div>`);
+      mathLines = [];
+    }
+  };
   const flushList = () => {
     if (listItems.length) {
       blocks.push(`<ul>${listItems.map((item) => `<li>${inlineMarkdownToHtml(item)}</li>`).join("")}</ul>`);
@@ -94,14 +129,38 @@ function markdownToHtml(markdown: string): string {
   };
   for (const rawLine of markdown.replace(/\r\n?/g, "\n").split("\n")) {
     const line = rawLine.trim();
+    if (line === "$$") {
+      if (inMath) {
+        flushMath();
+      } else {
+        flushParagraph();
+        flushList();
+        flushCode();
+      }
+      inMath = !inMath;
+      continue;
+    }
+    const singleLineMath = /^\$\$(.+)\$\$$/.exec(line);
+    if (singleLineMath && !inCode && !inMath) {
+      flushParagraph();
+      flushList();
+      flushCode();
+      blocks.push(`<div class="markdown-math-block">${renderMath(singleLineMath[1] || "", true)}</div>`);
+      continue;
+    }
     if (/^```/.test(line)) {
       if (inCode) {
         flushCode();
       } else {
         flushParagraph();
         flushList();
+        flushMath();
       }
       inCode = !inCode;
+      continue;
+    }
+    if (inMath) {
+      mathLines.push(rawLine);
       continue;
     }
     if (inCode) {
@@ -112,6 +171,7 @@ function markdownToHtml(markdown: string): string {
       flushParagraph();
       flushList();
       flushCode();
+      flushMath();
       continue;
     }
     const heading = /^(#{1,3})\s+(.+)$/.exec(line);
@@ -140,6 +200,7 @@ function markdownToHtml(markdown: string): string {
   flushParagraph();
   flushList();
   flushCode();
+  flushMath();
   return blocks.join("\n");
 }
 
@@ -150,16 +211,12 @@ export async function renderBrowserPdf(env: Env, markdown: string, title: string
     const page = await browser.newPage();
     await page.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 1 });
     await page.setContent(markdownToPrintHtml(markdown, title), { waitUntil: "networkidle0" });
-    await page.evaluate(() => new Promise((resolve) => {
-      const pageWindow = globalThis as typeof globalThis & {
-        renderMathInElement?: (element: Element, options?: unknown) => void;
+    await page.evaluate(() => {
+      const pageGlobal = globalThis as typeof globalThis & {
+        document?: { fonts?: { ready?: Promise<unknown> } };
       };
-      if (pageWindow.renderMathInElement) {
-        resolve(null);
-      } else {
-        setTimeout(resolve, 500);
-      }
-    }));
+      return pageGlobal.document?.fonts?.ready ?? Promise.resolve();
+    });
     const pdf = await page.pdf({ format: "A4", printBackground: true });
     const bytes = new Uint8Array(pdf);
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
