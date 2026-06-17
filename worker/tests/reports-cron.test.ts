@@ -726,4 +726,43 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
     expect(pdfCalls).toHaveLength(0);
   });
+
+  it("still exports a PDF when cached PDF storage operations fail", async () => {
+    pdfCalls.length = 0;
+    const first = await loginUser("cache-failure@example.com");
+    const originalBucket = first.env.BUCKET;
+    const markdownKey = "reports/user-cache-failure/daily/2026/06/2026-06-15.md";
+    await originalBucket.put(markdownKey, "# 2026-06-15 学习日报\n\n## 核心知识\n\n- 可积必有界。", {
+      httpMetadata: { contentType: "text/markdown; charset=utf-8" }
+    });
+    const insert = await first.env.DB.prepare(
+      `INSERT INTO reports (user_id, report_type, period, markdown_key, html_key, stats_json, created_at)
+       VALUES (?, 'daily', '2026-06-15', ?, 'reports/user-cache-failure/daily/2026/06/2026-06-15.pdf', '{}', '2026-06-15T23:00:00.000Z')`
+    )
+      .bind(first.userId, markdownKey)
+      .run();
+    const reportId = Number((insert.meta as { last_row_id: number }).last_row_id);
+    first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
+    first.env.BUCKET = {
+      ...originalBucket,
+      get: async (key) => {
+        if (String(key).endsWith(".pdf")) {
+          throw new Error("simulated cached PDF read failure");
+        }
+        return await originalBucket.get(key);
+      },
+      put: async (key, value, options) => {
+        if (String(key).endsWith(".pdf")) {
+          throw new Error("simulated cached PDF write failure");
+        }
+        return await originalBucket.put(key, value, options);
+      }
+    } as R2Bucket;
+
+    const pdf = await fetchWorker(first.env, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } });
+
+    expect(pdf.status).toBe(200);
+    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
+    expect(pdfCalls).toHaveLength(1);
+  });
 });

@@ -133,7 +133,12 @@ export function reportListItem(report: ReportRow): Record<string, unknown> {
 }
 
 export async function readReportMarkdown(env: Env, report: ReportRow): Promise<string> {
-  const object = await env.BUCKET.get(report.markdown_key);
+  let object: R2ObjectBody | null = null;
+  try {
+    object = await env.BUCKET.get(report.markdown_key);
+  } catch {
+    return "";
+  }
   if (!object) {
     return "";
   }
@@ -147,7 +152,12 @@ export async function readReportPdf(env: Env, report: ReportRow): Promise<ArrayB
   if (!report.html_key) {
     return null;
   }
-  const object = await env.BUCKET.get(report.html_key);
+  let object: R2ObjectBody | null = null;
+  try {
+    object = await env.BUCKET.get(report.html_key);
+  } catch {
+    return null;
+  }
   if (!object) {
     return null;
   }
@@ -174,8 +184,12 @@ export async function ensureReportPdf(
     return null;
   }
   const pdfKey = reportPdfObjectKey(report);
-  await env.BUCKET.put(pdfKey, pdf, { httpMetadata: { contentType: "application/pdf" } });
-  await env.DB.prepare("UPDATE reports SET html_key = ? WHERE id = ?").bind(pdfKey, report.id).run();
+  try {
+    await env.BUCKET.put(pdfKey, pdf, { httpMetadata: { contentType: "application/pdf" } });
+    await env.DB.prepare("UPDATE reports SET html_key = ? WHERE id = ?").bind(pdfKey, report.id).run();
+  } catch (error) {
+    console.warn("Report PDF cache write failed", error);
+  }
   return pdf;
 }
 
