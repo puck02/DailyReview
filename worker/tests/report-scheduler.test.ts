@@ -59,6 +59,7 @@ describe("report scheduler", () => {
 
   it("coalesces daily and monthly reports at month end", () => {
     const schedule = nextReportSchedule(new Date("2026-06-30T14:55:00.000Z"), "Asia/Shanghai", {
+      daily_report_enabled: true,
       daily_report_time: "23:00",
       weekly_report_time: "22:00",
       weekly_report_day: "sun"
@@ -71,8 +72,21 @@ describe("report scheduler", () => {
     ]);
   });
 
+  it("does not schedule daily reports when daily report generation is disabled", () => {
+    const schedule = nextReportSchedule(new Date("2026-06-30T14:55:00.000Z"), "Asia/Shanghai", {
+      daily_report_enabled: false,
+      daily_report_time: "23:00",
+      weekly_report_time: "22:00",
+      weekly_report_day: "sun"
+    });
+
+    expect(schedule.run_at).toBe("2026-06-30T15:00:00.000Z");
+    expect(schedule.jobs).toEqual([{ type: "monthly", day: "2026-06-30" }]);
+  });
+
   it("coalesces daily and weekly reports when they share a local timestamp", () => {
     const schedule = nextReportSchedule(new Date("2026-06-14T14:55:00.000Z"), "Asia/Shanghai", {
+      daily_report_enabled: true,
       daily_report_time: "23:00",
       weekly_report_time: "23:00",
       weekly_report_day: "sun"

@@ -3,6 +3,7 @@ import type { Env } from "../env";
 import { HttpError } from "../http";
 
 const DAILY_REPORT_TIME_KEY = "report_daily_time";
+const DAILY_REPORT_ENABLED_KEY = "report_daily_enabled";
 const WEEKLY_REPORT_TIME_KEY = "report_weekly_time";
 const WEEKLY_REPORT_DAY_KEY = "report_weekly_day";
 const WORD_CLOUD_ENABLED_KEY = "word_cloud_enabled";
@@ -12,6 +13,7 @@ const WEEKLY_DAYS = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 export type ReportSettings = {
+  daily_report_enabled: boolean;
   daily_report_time: string;
   weekly_report_time: string;
   weekly_report_day: string;
@@ -74,6 +76,7 @@ async function setSetting(env: Env, key: string, value: string): Promise<void> {
 
 async function globalReportDefaults(env: Env): Promise<ReportSettings> {
   return {
+    daily_report_enabled: true,
     daily_report_time: validateReportTime((await getSetting(env, DAILY_REPORT_TIME_KEY)) || DEFAULT_REPORT_TIME),
     weekly_report_time: validateReportTime((await getSetting(env, WEEKLY_REPORT_TIME_KEY)) || DEFAULT_REPORT_TIME),
     weekly_report_day: validateWeeklyReportDay((await getSetting(env, WEEKLY_REPORT_DAY_KEY)) || DEFAULT_WEEKLY_REPORT_DAY)
@@ -83,6 +86,7 @@ async function globalReportDefaults(env: Env): Promise<ReportSettings> {
 export async function getUserReportSettings(env: Env, userId: number): Promise<ReportSettings> {
   const defaults = await globalReportDefaults(env);
   return {
+    daily_report_enabled: settingBool(await getSetting(env, userSettingKey(userId, DAILY_REPORT_ENABLED_KEY)), defaults.daily_report_enabled),
     daily_report_time: validateReportTime(
       (await getSetting(env, userSettingKey(userId, DAILY_REPORT_TIME_KEY))) || defaults.daily_report_time
     ),
@@ -96,6 +100,7 @@ export async function getUserReportSettings(env: Env, userId: number): Promise<R
 }
 
 export async function setUserReportSettings(env: Env, userId: number, settings: ReportSettings): Promise<void> {
+  await setSetting(env, userSettingKey(userId, DAILY_REPORT_ENABLED_KEY), settings.daily_report_enabled ? "true" : "false");
   await setSetting(env, userSettingKey(userId, DAILY_REPORT_TIME_KEY), validateReportTime(settings.daily_report_time));
   await setSetting(env, userSettingKey(userId, WEEKLY_REPORT_TIME_KEY), validateReportTime(settings.weekly_report_time));
   await setSetting(env, userSettingKey(userId, WEEKLY_REPORT_DAY_KEY), validateWeeklyReportDay(settings.weekly_report_day));
@@ -107,6 +112,7 @@ export async function setGlobalWordCloudEnabled(env: Env, enabled: boolean): Pro
 
 export async function getAppSettings(env: Env, userId: number): Promise<AppSettings> {
   const userDailyKey = userSettingKey(userId, DAILY_REPORT_TIME_KEY);
+  const userDailyEnabledKey = userSettingKey(userId, DAILY_REPORT_ENABLED_KEY);
   const userWeeklyTimeKey = userSettingKey(userId, WEEKLY_REPORT_TIME_KEY);
   const userWeeklyDayKey = userSettingKey(userId, WEEKLY_REPORT_DAY_KEY);
   const settings = await getSettingsMap(env, [
@@ -114,6 +120,7 @@ export async function getAppSettings(env: Env, userId: number): Promise<AppSetti
     WEEKLY_REPORT_TIME_KEY,
     WEEKLY_REPORT_DAY_KEY,
     WORD_CLOUD_ENABLED_KEY,
+    userDailyEnabledKey,
     userDailyKey,
     userWeeklyTimeKey,
     userWeeklyDayKey
@@ -122,6 +129,7 @@ export async function getAppSettings(env: Env, userId: number): Promise<AppSetti
   const defaultWeeklyTime = validateReportTime(settings.get(WEEKLY_REPORT_TIME_KEY) || DEFAULT_REPORT_TIME);
   const defaultWeeklyDay = validateWeeklyReportDay(settings.get(WEEKLY_REPORT_DAY_KEY) || DEFAULT_WEEKLY_REPORT_DAY);
   return {
+    daily_report_enabled: settingBool(settings.get(userDailyEnabledKey) || "", true),
     daily_report_time: validateReportTime(settings.get(userDailyKey) || defaultDailyTime),
     weekly_report_time: validateReportTime(settings.get(userWeeklyTimeKey) || defaultWeeklyTime),
     weekly_report_day: validateWeeklyReportDay(settings.get(userWeeklyDayKey) || defaultWeeklyDay),

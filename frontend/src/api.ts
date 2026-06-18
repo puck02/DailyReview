@@ -139,6 +139,7 @@ export type AiConfigTest = {
 };
 
 export type AppSettings = {
+  daily_report_enabled: boolean;
   daily_report_time: string;
   weekly_report_time: string;
   weekly_report_day: string;

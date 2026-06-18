@@ -109,11 +109,13 @@ export function nextReportSchedule(now: Date, timeZone: string, settings: Report
   const candidates: Array<{ runAt: number; jobs: ReportJob[] }> = [];
   for (let offset = 0; offset < 370; offset += 1) {
     const day = addDays(today, offset);
-    const dailyJobs: ReportJob[] = [{ type: "daily", day }];
+    const dailyJobs: ReportJob[] = settings.daily_report_enabled !== false ? [{ type: "daily", day }] : [];
     if (isMonthEnd(day)) {
       dailyJobs.push({ type: "monthly", day });
     }
-    pushCandidate(candidates, now, day, settings.daily_report_time, timeZone, dailyJobs);
+    if (dailyJobs.length) {
+      pushCandidate(candidates, now, day, settings.daily_report_time, timeZone, dailyJobs);
+    }
     if (localDayOfWeek(day) === WEEKLY_DAY_INDEX[settings.weekly_report_day]) {
       pushCandidate(candidates, now, day, settings.weekly_report_time, timeZone, [{ type: "weekly", day }]);
     }
@@ -127,8 +129,13 @@ export function nextReportSchedule(now: Date, timeZone: string, settings: Report
 }
 
 export async function runReportJobs(env: Env, userId: number, jobs: ReportJob[]): Promise<void> {
+  const hasDailyJob = jobs.some((job) => job.type === "daily");
+  const settings = hasDailyJob ? await getUserReportSettings(env, userId) : null;
   for (const job of jobs) {
     if (job.type === "daily") {
+      if (settings?.daily_report_enabled === false) {
+        continue;
+      }
       await generateDailyReport(env, userId, job.day);
     } else if (job.type === "weekly") {
       await generateWeeklyReport(env, userId, job.day);

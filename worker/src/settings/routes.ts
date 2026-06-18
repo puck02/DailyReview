@@ -13,6 +13,7 @@ import {
 } from "./report-settings";
 
 const settingsSchema = z.object({
+  daily_report_enabled: z.boolean().optional(),
   daily_report_time: z.string(),
   weekly_report_time: z.string(),
   weekly_report_day: z.string(),
@@ -31,6 +32,7 @@ async function updateSettings(request: Request, env: Env): Promise<Response> {
   const weeklyReportTime = validateReportTime(payload.weekly_report_time);
   const weeklyReportDay = validateWeeklyReportDay(payload.weekly_report_day);
   await setUserReportSettings(env, user.id, {
+    daily_report_enabled: payload.daily_report_enabled ?? true,
     daily_report_time: dailyReportTime,
     weekly_report_time: weeklyReportTime,
     weekly_report_day: weeklyReportDay

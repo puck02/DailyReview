@@ -135,6 +135,7 @@ describe("settings and admin routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
+      daily_report_enabled: true,
       daily_report_time: "23:00",
       weekly_report_time: "23:00",
       weekly_report_day: "sun",
@@ -175,6 +176,7 @@ describe("settings and admin routes", () => {
       method: "PUT",
       headers: { cookie },
       body: JSON.stringify({
+        daily_report_enabled: true,
         daily_report_time: "25:00",
         weekly_report_time: "23:00",
         weekly_report_day: "sun",
@@ -194,6 +196,7 @@ describe("settings and admin routes", () => {
       method: "PUT",
       headers: { cookie },
       body: JSON.stringify({
+        daily_report_enabled: false,
         daily_report_time: "22:30",
         weekly_report_time: "21:15",
         weekly_report_day: "fri",
@@ -203,6 +206,7 @@ describe("settings and admin routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
+      daily_report_enabled: false,
       daily_report_time: "22:30",
       weekly_report_time: "21:15",
       weekly_report_day: "fri",
@@ -229,6 +233,7 @@ describe("settings and admin routes", () => {
       method: "PUT",
       headers: { cookie: user },
       body: JSON.stringify({
+        daily_report_enabled: false,
         daily_report_time: "22:30",
         weekly_report_time: "21:15",
         weekly_report_day: "fri",
@@ -238,6 +243,7 @@ describe("settings and admin routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
+      daily_report_enabled: false,
       daily_report_time: "22:30",
       weekly_report_time: "21:15",
       weekly_report_day: "fri",
@@ -255,6 +261,7 @@ describe("settings and admin routes", () => {
       method: "PUT",
       headers: { cookie },
       body: JSON.stringify({
+        daily_report_enabled: false,
         daily_report_time: "22:30",
         weekly_report_time: "21:15",
         weekly_report_day: "fri",
@@ -275,6 +282,7 @@ describe("settings and admin routes", () => {
       method: "PUT",
       headers: { cookie },
       body: JSON.stringify({
+        daily_report_enabled: false,
         daily_report_time: "20:10",
         weekly_report_time: "20:20",
         weekly_report_day: "sat",
@@ -284,6 +292,7 @@ describe("settings and admin routes", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
+      daily_report_enabled: false,
       daily_report_time: "20:10",
       weekly_report_time: "20:20",
       weekly_report_day: "sat"

@@ -1810,6 +1810,7 @@ function sourceKindLabel(kind: TranslationEntry["source_kind"]) {
 }
 
 const defaultAppSettings: AppSettings = {
+  daily_report_enabled: true,
   daily_report_time: "23:00",
   weekly_report_time: "23:00",
   weekly_report_day: "sun",
@@ -1838,6 +1839,7 @@ function SettingsView({
   loading: boolean;
 }) {
   const currentSettings = settings || defaultAppSettings;
+  const [dailyReportEnabled, setDailyReportEnabled] = useState(currentSettings.daily_report_enabled);
   const [dailyTime, setDailyTime] = useState(currentSettings.daily_report_time);
   const [weeklyTime, setWeeklyTime] = useState(currentSettings.weekly_report_time);
   const [weeklyDay, setWeeklyDay] = useState(currentSettings.weekly_report_day);
@@ -1853,6 +1855,7 @@ function SettingsView({
   useEffect(() => {
     const nextSettings = settings || defaultAppSettings;
     skipSettingsAutoSave.current = true;
+    setDailyReportEnabled(nextSettings.daily_report_enabled);
     setDailyTime(nextSettings.daily_report_time);
     setWeeklyTime(nextSettings.weekly_report_time);
     setWeeklyDay(nextSettings.weekly_report_day);
@@ -1868,6 +1871,7 @@ function SettingsView({
     }
     if (
       settings &&
+      dailyReportEnabled === settings.daily_report_enabled &&
       dailyTime === settings.daily_report_time &&
       weeklyTime === settings.weekly_report_time &&
       weeklyDay === settings.weekly_report_day &&
@@ -1883,6 +1887,7 @@ function SettingsView({
       setSaved("");
       try {
         const updated = await api.updateSettings({
+          daily_report_enabled: dailyReportEnabled,
           daily_report_time: dailyTime,
           weekly_report_time: weeklyTime,
           weekly_report_day: weeklyDay,
@@ -1900,7 +1905,7 @@ function SettingsView({
     return () => {
       if (settingsAutoSave.current) window.clearTimeout(settingsAutoSave.current);
     };
-  }, [dailyTime, weeklyTime, weeklyDay, wordCloudEnabled, settings, onSaved]);
+  }, [dailyReportEnabled, dailyTime, weeklyTime, weeklyDay, wordCloudEnabled, settings, onSaved]);
 
   async function clearTranslationEntries() {
     if (clearingEntries || !window.confirm("确定清空当前账号的词条和词云记录吗？")) return;
@@ -1927,10 +1932,30 @@ function SettingsView({
             <span>报告生成时间</span>
             <strong>Asia/Shanghai</strong>
           </div>
+          <div className="settings-row">
+            <div>
+              <span>日报</span>
+              <p>关闭后当前账号不再自动生成日报，周报和月报继续生成。</p>
+            </div>
+            <button
+              className={dailyReportEnabled ? "settings-toggle is-on" : "settings-toggle"}
+              onClick={() => setDailyReportEnabled((current) => !current)}
+              role="switch"
+              aria-checked={dailyReportEnabled}
+              type="button"
+            >
+              <span />
+            </button>
+          </div>
           <div className="settings-grid">
             <label className="settings-field">
-              <span>日报</span>
-              <input type="time" value={dailyTime} onChange={(event) => setDailyTime(event.target.value)} />
+              <span>日报时间</span>
+              <input
+                type="time"
+                value={dailyTime}
+                onChange={(event) => setDailyTime(event.target.value)}
+                disabled={!dailyReportEnabled}
+              />
             </label>
             <label className="settings-field">
               <span>周报日期</span>

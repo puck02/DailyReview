@@ -519,6 +519,7 @@ test("settings page exposes report schedule and word cloud visibility controls",
   assert.ok(app.includes("SettingsView"));
   assert.match(app, /api\s*\.\s*settings\s*\(\s*\)/);
   assert.ok(app.includes("api.updateSettings"));
+  assert.ok(app.includes("daily_report_enabled"));
   assert.ok(app.includes("daily_report_time"));
   assert.ok(app.includes("weekly_report_time"));
   assert.ok(app.includes("weekly_report_day"));
@@ -528,6 +529,7 @@ test("settings page exposes report schedule and word cloud visibility controls",
   assert.ok(app.includes("type=\"button\""));
   assert.ok(app.includes("settingsAutoSave"));
   assert.ok(app.includes("window.setTimeout"));
+  assert.ok(app.includes("dailyReportEnabled"));
   assert.ok(app.includes("wordCloudEnabled"));
   assert.match(app, /wordCloudEnabled\s*\?\s*\(/);
   assert.ok(!app.includes("保存设置"));
@@ -537,6 +539,7 @@ test("settings page exposes report schedule and word cloud visibility controls",
   assert.match(styles, /\.settings-panel\s*{/);
   assert.match(styles, /\.settings-toggle\s*{/);
   assert.ok(apiSource.includes("export type AppSettings"));
+  assert.ok(apiSource.includes("daily_report_enabled: boolean;"));
   assert.ok(apiSource.includes("weekly_report_day:"));
   assert.ok(!apiSource.includes("monthly_report_time: string;"));
   assert.ok(apiSource.includes('settings: () => request<AppSettings>("/api/settings")'));

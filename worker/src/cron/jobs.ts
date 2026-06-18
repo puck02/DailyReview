@@ -19,6 +19,10 @@ type AttachmentCleanupRow = Row & {
 
 export async function generateDailyReports(env: Env, day: string): Promise<void> {
   for (const user of await allUsers(env)) {
+    const settings = await getUserReportSettings(env, user.id);
+    if (!settings.daily_report_enabled) {
+      continue;
+    }
     await generateDailyReport(env, user.id, day);
   }
 }
@@ -107,6 +111,9 @@ export async function backfillMissedDailyReports(env: Env, now: Date, limit = 10
   const currentTime = localTime(now, timeZone);
   for (const user of await allUsers(env, limit)) {
     const settings = await getUserReportSettings(env, user.id);
+    if (!settings.daily_report_enabled) {
+      continue;
+    }
     for (const day of days) {
       if ((day === today && settings.daily_report_time > currentTime) || (await reportExists(env, user.id, "daily", day))) {
         continue;
