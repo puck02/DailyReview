@@ -79,7 +79,7 @@ class SqliteD1 {
 }
 
 class MemoryR2 {
-  private objects = new Map<string, { body: Uint8Array; httpMetadata?: R2HTTPMetadata }>();
+  private objects = new Map<string, { body: Uint8Array; httpMetadata?: R2HTTPMetadata; customMetadata?: Record<string, string> }>();
 
   async put(key: string, value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob, options?: R2PutOptions) {
     let body: Uint8Array;
@@ -94,14 +94,18 @@ class MemoryR2 {
     } else {
       body = new Uint8Array();
     }
-    this.objects.set(key, { body, httpMetadata: options?.httpMetadata });
+    this.objects.set(key, { body, httpMetadata: options?.httpMetadata, customMetadata: options?.customMetadata });
     return null;
   }
 
   async get(key: string): Promise<R2ObjectBody | null> {
     const object = this.objects.get(key);
     if (!object) return null;
-    return new Response(object.body, { headers: object.httpMetadata?.contentType ? { "content-type": object.httpMetadata.contentType } : {} }) as unknown as R2ObjectBody;
+    const response = new Response(object.body, {
+      headers: object.httpMetadata?.contentType ? { "content-type": object.httpMetadata.contentType } : {}
+    }) as Response & { customMetadata?: Record<string, string> };
+    response.customMetadata = object.customMetadata;
+    return response as unknown as R2ObjectBody;
   }
 
   async delete(key: string): Promise<void> {

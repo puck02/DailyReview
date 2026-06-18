@@ -826,4 +826,40 @@ describe("reports, cron jobs, and PDF export", () => {
     await wait();
     expect(pdfCalls).toHaveLength(0);
   });
+
+  it("rebuilds an existing legacy PDF cache when the cached version is outdated", async () => {
+    pdfCalls.length = 0;
+    const first = await loginUser("legacy-pdf@example.com");
+    first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
+    const markdownKey = "reports/user-legacy-pdf/daily/2026/06/2026-06-16.md";
+    const pdfKey = "reports/user-legacy-pdf/daily/2026/06/2026-06-16.pdf";
+    await first.env.BUCKET.put(markdownKey, "# 学习日报\n\n## 核心知识\n\n- 极限看趋近过程。", {
+      httpMetadata: { contentType: "text/markdown; charset=utf-8" }
+    });
+    await first.env.BUCKET.put(pdfKey, "%PDF-1.7\n% legacy pdf\n", {
+      httpMetadata: { contentType: "application/pdf" }
+    });
+    const insert = await first.env.DB.prepare(
+      `INSERT INTO reports (user_id, report_type, period, markdown_key, html_key, stats_json, created_at)
+       VALUES (?, 'daily', '2026-06-16', ?, ?, '{}', '2026-06-16T23:00:00.000Z')`
+    )
+      .bind(first.userId, markdownKey, pdfKey)
+      .run();
+    const reportId = Number((insert.meta as { last_row_id: number }).last_row_id);
+    const before = await first.env.DB.prepare("SELECT html_key FROM reports WHERE id = ?").bind(reportId).first<{ html_key: string | null }>();
+    expect(before?.html_key).toBe(pdfKey);
+
+    const { ctx, wait } = waitUntilContext();
+    const pdf = await fetchWorker(first.env, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } }, undefined, ctx);
+
+    expect(pdf.status).toBe(200);
+    await expect(pdf.arrayBuffer()).resolves.toBeInstanceOf(ArrayBuffer);
+    await wait();
+    expect(pdfCalls).toHaveLength(1);
+
+    const after = await first.env.DB.prepare("SELECT html_key FROM reports WHERE id = ?").bind(reportId).first<{ html_key: string | null }>();
+    expect(after?.html_key).toBe(`reports/user-${first.userId}/daily/2026/06/2026-06-16.pdf`);
+    const rebuilt = after?.html_key ? await first.env.BUCKET.get(after.html_key) : null;
+    expect(await new Response(rebuilt?.body).text()).toContain("rendered by browser");
+  });
 });

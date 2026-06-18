@@ -6,6 +6,8 @@ import { aiReportModel, completeChatWithUsage, isAiConfigured } from "../ai/clie
 import { recordTokenUsage } from "../ai/usage";
 import { renderBrowserPdf } from "./browser-pdf";
 
+const REPORT_PDF_CACHE_VERSION = "2";
+
 type UserRow = Row & {
   id: number;
 };
@@ -161,6 +163,10 @@ export async function readReportPdf(env: Env, report: ReportRow): Promise<ArrayB
   if (!object) {
     return null;
   }
+  const metadata = object as R2ObjectBody & { customMetadata?: Record<string, string> | null };
+  if (metadata.customMetadata?.report_pdf_version !== REPORT_PDF_CACHE_VERSION) {
+    return null;
+  }
   return await new Response(object.body).arrayBuffer();
 }
 
@@ -188,7 +194,10 @@ export async function ensureReportPdf(
   }
   const pdfKey = reportPdfObjectKey(report);
   try {
-    await env.BUCKET.put(pdfKey, pdf, { httpMetadata: { contentType: "application/pdf" } });
+    await env.BUCKET.put(pdfKey, pdf, {
+      httpMetadata: { contentType: "application/pdf" },
+      customMetadata: { report_pdf_version: REPORT_PDF_CACHE_VERSION }
+    });
     await env.DB.prepare("UPDATE reports SET html_key = ? WHERE id = ?").bind(pdfKey, report.id).run();
   } catch (error) {
     console.warn("Report PDF cache write failed", error);
@@ -268,7 +277,10 @@ async function writeReport(
   try {
     const pdf = await renderBrowserPdf(env, markdown, title);
     if (pdf) {
-      await env.BUCKET.put(pdfKey, pdf, { httpMetadata: { contentType: "application/pdf" } });
+      await env.BUCKET.put(pdfKey, pdf, {
+        httpMetadata: { contentType: "application/pdf" },
+        customMetadata: { report_pdf_version: REPORT_PDF_CACHE_VERSION }
+      });
       storedPdfKey = pdfKey;
     }
   } catch (error) {
