@@ -88,6 +88,12 @@ test("desktop global sidebar is a narrow icon rail", () => {
   assert.ok(app.includes('className="nav-label"'));
 });
 
+test("desktop shell keeps the left sidebar fixed while admin content scrolls independently", () => {
+  assert.match(styles, /\.app-shell\s*{[^}]*height:\s*100vh;[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.app-content\s*{[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.admin-panel\s*{[^}]*height:\s*100vh;[^}]*overflow-y:\s*auto;/s);
+});
+
 test("chat messages render flat assistant replies and compact user messages", () => {
   assert.doesNotMatch(app, /function ChatGptAvatar/);
   assert.doesNotMatch(app, /<ChatGptAvatar \/>/);
@@ -176,7 +182,7 @@ test("visited app views stay mounted and heavy markdown renderer is prefetched f
   assert.match(app, /visitedViews\.has\("reports"\) && <ReportsView \/>/);
   assert.match(app, /style=\{\{ display: view === "translate" \? "contents" : "none" \}\}/);
   assert.match(app, /visitedViews\.has\("translate"\) &&/);
-  assert.match(styles, /\.app-content\s*{[^}]*min-width:\s*0;[^}]*min-height:\s*100vh;/s);
+  assert.match(styles, /\.app-content\s*{[^}]*min-width:\s*0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
 });
 
 test("fingerprinted static assets use immutable browser cache headers", () => {
