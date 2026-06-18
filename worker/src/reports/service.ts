@@ -7,6 +7,7 @@ import { recordTokenUsage } from "../ai/usage";
 import { renderBrowserPdf } from "./browser-pdf";
 
 const REPORT_PDF_CACHE_VERSION = "2";
+const REPORT_GENERATION_LOCK_TTL_MS = 60 * 60 * 1000;
 
 type UserRow = Row & {
   id: number;
@@ -304,6 +305,43 @@ async function writeReport(
     throw new HttpError(500, "服务器内部错误");
   }
   return report;
+}
+
+async function tryAcquireReportGeneration(
+  env: Env,
+  userId: number,
+  reportType: "daily" | "weekly" | "monthly",
+  period: string
+): Promise<boolean> {
+  const now = nowIso();
+  const lockCutoff = new Date(Date.now() - REPORT_GENERATION_LOCK_TTL_MS).toISOString();
+  await env.DB.prepare(
+    "DELETE FROM report_generation_locks WHERE created_at < ? AND user_id = ? AND report_type = ? AND period = ?"
+  )
+    .bind(lockCutoff, userId, reportType, period)
+    .run();
+  const result = await env.DB.prepare(
+    `INSERT INTO report_generation_locks (user_id, report_type, period, created_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, report_type, period) DO NOTHING`
+  )
+    .bind(userId, reportType, period, now)
+    .run();
+  const changes = (result.meta as { changes?: number } | undefined)?.changes;
+  return typeof changes === "number" && changes > 0;
+}
+
+async function releaseReportGeneration(
+  env: Env,
+  userId: number,
+  reportType: "daily" | "weekly" | "monthly",
+  period: string
+): Promise<void> {
+  await env.DB.prepare(
+    "DELETE FROM report_generation_locks WHERE user_id = ? AND report_type = ? AND period = ?"
+  )
+    .bind(userId, reportType, period)
+    .run();
 }
 
 async function messagesForDay(env: Env, userId: number, day: string): Promise<MessageRow[]> {
@@ -736,6 +774,10 @@ ${markdown}`;
 }
 
 export async function generateDailyReport(env: Env, userId: number, day: string): Promise<ReportRow | null> {
+  if (!(await tryAcquireReportGeneration(env, userId, "daily", day))) {
+    return null;
+  }
+  try {
   const messages = await messagesForDay(env, userId, day);
   const segments = learningSegments(messages);
   const filteredSegments = studySegments(segments);
@@ -781,6 +823,9 @@ export async function generateDailyReport(env: Env, userId: number, day: string)
     rewrite_count: rewriteCount,
     related_count: 0
   });
+  } finally {
+    await releaseReportGeneration(env, userId, "daily", day);
+  }
 }
 
 async function dailyReportsBetween(env: Env, userId: number, start: string, end: string): Promise<ReportRow[]> {

@@ -156,7 +156,7 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(pdfCalls[0]?.html).toContain("mfrac");
   });
 
-  it("queues missing report PDFs when the report list is opened", async () => {
+  it("does not queue missing report PDFs when the report list is opened", async () => {
     pdfCalls.length = 0;
     const first = await loginUser("list-queues-pdf@example.com");
     first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
@@ -170,21 +170,18 @@ describe("reports, cron jobs, and PDF export", () => {
     )
       .bind(first.userId, markdownKey)
       .run();
-    const { ctx, wait } = waitUntilContext();
-
     const list = await fetchWorker(first.env, "/api/reports?report_type=daily&month=2026-06", {
       headers: { cookie: first.cookie }
-    }, undefined, ctx);
+    });
     expect(list.status).toBe(200);
-    await wait();
 
     const report = await first.env.DB.prepare(
       "SELECT html_key FROM reports WHERE user_id = ? AND report_type = 'daily' AND period = '2026-06-15'"
     )
       .bind(first.userId)
       .first<{ html_key: string | null }>();
-    expect(report?.html_key).toContain(".pdf");
-    expect(pdfCalls).toHaveLength(1);
+    expect(report?.html_key).toBeNull();
+    expect(pdfCalls).toHaveLength(0);
   });
 
   it("backfills a daily report when the user alarm was missed", async () => {
@@ -624,6 +621,74 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(secondReport.stats.message_count).toBe(2);
   });
 
+  it("deduplicates concurrent daily report generation for the same user and day", async () => {
+    const { env, userId } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    await createMessage(env, userId, "今天理解了极限存在必须左右极限相等", "2026-06-09T10:00:00.000Z");
+    let aiCalls = 0;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      aiCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const body = JSON.parse(String(init?.body || "{}")) as { messages?: Array<{ content?: string }> };
+      const prompt = body.messages?.[0]?.content || "";
+      if (prompt.includes("学习复盘信息抽取器")) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify([
+                    {
+                      subject: "数学",
+                      topic: "极限存在",
+                      question: "极限存在条件",
+                      insight: "理解了极限存在要求左右极限相等。",
+                      misconception: "",
+                      memory: "极限存在看左右极限。",
+                      value_score: 5,
+                      evidence: "今天理解了极限存在必须左右极限相等"
+                    }
+                  ])
+                }
+              }
+            ]
+          }),
+          { headers: { "content-type": "application/json" } }
+        );
+      }
+      if (prompt.includes("请审查这份学习日报是否合格")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "PASS" } }] }), {
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "# 2026-06-09 学习日报\n\n## 今天最大的收获\n- 理解了极限存在要求左右极限相等。\n\n## 今天修正的误解\n- 今日没有足够明确的误解修正记录。\n\n## 核心知识\n- 极限存在：左右极限相等。\n\n## 一句话记忆\n- 极限看趋近。\n\n## 明日建议\n- 做左右极限题。"
+              }
+            }
+          ]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+
+    try {
+      await Promise.all([generateDailyReports(env, "2026-06-09"), generateDailyReports(env, "2026-06-09")]);
+    } finally {
+      fetchMock.mockRestore();
+    }
+
+    const reports = await env.DB.prepare("SELECT COUNT(*) AS count FROM reports WHERE user_id = ? AND report_type = 'daily' AND period = ?")
+      .bind(userId, "2026-06-09")
+      .first<{ count: number }>();
+    expect(reports?.count).toBe(1);
+    expect(aiCalls).toBe(3);
+  });
+
   it("pre-renders the daily report PDF during report generation and reuses it on export", async () => {
     pdfCalls.length = 0;
     const { env, cookie, userId } = await loginUser("generated-pdf@example.com");
@@ -750,7 +815,7 @@ describe("reports, cron jobs, and PDF export", () => {
     await expect(pdf.json()).resolves.toEqual({ detail: "PDF 正在生成，请稍后重试" });
   });
 
-  it("renders and returns the browser PDF immediately when the cache is cold", async () => {
+  it("queues browser PDF rendering when the cache is cold", async () => {
     pdfCalls.length = 0;
     const first = await loginUser("formula@example.com");
     first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
@@ -770,8 +835,8 @@ describe("reports, cron jobs, and PDF export", () => {
     const { ctx, wait } = waitUntilContext();
 
     const pdf = await fetchWorker(envWithBrowser, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } }, undefined, ctx);
-    expect(pdf.status).toBe(200);
-    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
+    expect(pdf.status).toBe(503);
+    await expect(pdf.json()).resolves.toEqual({ detail: "PDF 正在生成，请稍后重试" });
     await wait();
     expect(pdfCalls).toHaveLength(1);
     expect(pdfCalls[0]?.html).toContain("katex-display");
@@ -812,7 +877,7 @@ describe("reports, cron jobs, and PDF export", () => {
     const envWithBrowser = { ...first.env, BROWSER: { fetch: async () => new Response(null) } as Fetcher };
     const { ctx, wait } = waitUntilContext();
     const firstPdf = await fetchWorker(envWithBrowser, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } }, undefined, ctx);
-    expect(firstPdf.status).toBe(200);
+    expect(firstPdf.status).toBe(503);
     await wait();
     expect(pdfCalls).toHaveLength(1);
     pdfCalls.length = 0;
@@ -874,8 +939,8 @@ describe("reports, cron jobs, and PDF export", () => {
     const { ctx, wait } = waitUntilContext();
     const pdf = await fetchWorker(first.env, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } }, undefined, ctx);
 
-    expect(pdf.status).toBe(200);
-    await expect(pdf.arrayBuffer()).resolves.toBeInstanceOf(ArrayBuffer);
+    expect(pdf.status).toBe(503);
+    await expect(pdf.json()).resolves.toEqual({ detail: "PDF 正在生成，请稍后重试" });
     await wait();
     expect(pdfCalls).toHaveLength(1);
 

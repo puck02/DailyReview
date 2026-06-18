@@ -1,9 +1,5 @@
-import { ReactNode, isValidElement, useMemo, useState } from "react";
-import ReactMarkdown, { Components } from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
+import { ReactNode, isValidElement, useEffect, useMemo, useState } from "react";
+import ReactMarkdown, { Components, Options } from "react-markdown";
 import { Check, Copy } from "lucide-react";
 
 import { normalizeMarkdownMath } from "./markdown";
@@ -12,6 +8,11 @@ type MarkdownRendererProps = {
   markdown: string;
   className: string;
   copyable?: boolean;
+};
+
+type MarkdownPlugins = {
+  markdownRemarkPlugins: Options["remarkPlugins"];
+  markdownRehypePlugins: Options["rehypePlugins"];
 };
 
 function safeMarkdownUrl(href: string) {
@@ -159,13 +160,25 @@ function copyableComponents(copyable: boolean): Components {
 export default function MarkdownRenderer({ markdown, className, copyable = false }: MarkdownRendererProps) {
   const normalizedMarkdown = normalizeMarkdownMath(markdown);
   const components = useMemo(() => copyableComponents(copyable), [copyable]);
+  const [plugins, setPlugins] = useState<MarkdownPlugins | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import("./markdownPlugins").then((loaded) => {
+      if (!cancelled) setPlugins(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className={className}>
       <ReactMarkdown
         key={normalizedMarkdown}
         components={components}
-        rehypePlugins={[rehypeKatex, [rehypeHighlight, { ignoreMissing: true, detect: true }]]}
-        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={plugins?.markdownRehypePlugins}
+        remarkPlugins={plugins?.markdownRemarkPlugins}
         skipHtml
         urlTransform={(url) => safeMarkdownUrl(url)}
       >

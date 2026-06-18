@@ -57,6 +57,23 @@ const chatRegenerateSchema = z.object({
   attachment_ids: z.array(z.number().int()).optional()
 });
 
+const MAX_CHAT_IMAGES = 4;
+
+function maxImagePayloadBytes(env: Env): number {
+  return Number.parseInt(env.MAX_UPLOAD_BYTES, 10) || 10 * 1024 * 1024;
+}
+
+function validateImagePayload(env: Env, attachmentIds: number[], imageDataUrls: string[]): void {
+  const imageCount = Math.max(attachmentIds.length, imageDataUrls.length);
+  if (imageCount > MAX_CHAT_IMAGES) {
+    throw new HttpError(400, `一次最多发送 ${MAX_CHAT_IMAGES} 张图片`);
+  }
+  const totalDataUrlBytes = imageDataUrls.reduce((sum, value) => sum + new TextEncoder().encode(value).byteLength, 0);
+  if (totalDataUrlBytes > maxImagePayloadBytes(env)) {
+    throw new HttpError(413, `图片总大小不能超过 ${Math.floor(maxImagePayloadBytes(env) / 1024 / 1024)}MB`);
+  }
+}
+
 type ChatContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };
@@ -268,6 +285,9 @@ async function streamAssistantResponse(
         }
       } catch {
         const token = "AI 服务连接失败，请稍后重试。";
+        if (parts.length) {
+          parts.push("\n\n");
+        }
         parts.push(token);
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
       }
@@ -298,6 +318,7 @@ async function streamAssistantResponse(
 async function streamChat(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = chatStreamSchema.parse(await parseJson<unknown>(request));
+  validateImagePayload(env, payload.attachment_ids, payload.image_data_urls);
   const session = await getSession(env, payload.session_id);
   if (!session || session.user_id !== user.id) {
     throw new HttpError(404, "会话不存在");

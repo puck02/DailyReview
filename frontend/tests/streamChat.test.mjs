@@ -21,3 +21,25 @@ test("streamChat parses JSON encoded multiline SSE tokens", async () => {
 
   assert.deepEqual(tokens, [token]);
 });
+
+test("streamChat forwards abort signals to fetch", async () => {
+  const body = new ReadableStream({
+    start(controller) {
+      controller.close();
+    }
+  });
+  const controller = new AbortController();
+  let receivedSignal;
+  globalThis.fetch = async (_path, init) => {
+    receivedSignal = init.signal;
+    return new Response(body, { status: 200 });
+  };
+
+  await streamChat(
+    { session_id: 1, content: "test", model: "gpt-5.4-mini", attachment_ids: [] },
+    () => undefined,
+    { signal: controller.signal }
+  );
+
+  assert.equal(receivedSignal, controller.signal);
+});

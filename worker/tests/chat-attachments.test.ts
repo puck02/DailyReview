@@ -344,6 +344,86 @@ describe("chat sessions and attachments", () => {
     expect(usage).toEqual({ user_id: 2, total_tokens: 37 });
   });
 
+  it("stores partial assistant content when an upstream stream fails after tokens", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    vi.stubGlobal("fetch", async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          const encoder = new TextEncoder();
+          if (!this.sent) {
+            this.sent = true;
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "先给出部分回答" } }] })}\n\n`));
+            return;
+          }
+          controller.error(new Error("upstream stream reset"));
+        }
+      } as UnderlyingDefaultSource<Uint8Array> & { sent?: boolean });
+      return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "中断保存", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "解释可导", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([
+      JSON.stringify("先给出部分回答"),
+      JSON.stringify("AI 服务连接失败，请稍后重试。"),
+      "[DONE]"
+    ]);
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    const stored = (await messages.json()) as Array<{ role: string; content: string }>;
+    expect(stored.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "先给出部分回答\n\nAI 服务连接失败，请稍后重试。"
+    });
+  });
+
+  it("times out stalled upstream streams and stores the failure message", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    env.AI_STREAM_TIMEOUT_MS = "25";
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "超时保存", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "解释连续", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([JSON.stringify("AI 服务连接失败，请稍后重试。"), "[DONE]"]);
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    const stored = (await messages.json()) as Array<{ role: string; content: string }>;
+    expect(stored.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "AI 服务连接失败，请稍后重试。"
+    });
+  });
+
   it("uploads and downloads a PNG attachment for its owner", async () => {
     const { env, cookie } = await loginUser();
     const form = new FormData();
@@ -568,6 +648,46 @@ describe("chat sessions and attachments", () => {
         { type: "image_url", image_url: { url: expect.stringMatching(/^data:image\/png;base64,/) } }
       ]
     });
+  });
+
+  it("rejects chat requests with too many images or oversized client image data", async () => {
+    const { env, cookie } = await loginUser();
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "图片限制", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const tooMany = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "请分析",
+        model: "gpt-5.4-mini",
+        attachment_ids: [1, 2, 3, 4, 5],
+        image_data_urls: []
+      })
+    });
+
+    expect(tooMany.status).toBe(400);
+    await expect(tooMany.json()).resolves.toEqual({ detail: "一次最多发送 4 张图片" });
+
+    const oversized = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "请分析",
+        model: "gpt-5.4-mini",
+        attachment_ids: [1],
+        image_data_urls: [`data:image/png;base64,${"a".repeat(11 * 1024 * 1024)}`]
+      })
+    });
+
+    expect(oversized.status).toBe(413);
+    await expect(oversized.json()).resolves.toEqual({ detail: "图片总大小不能超过 10MB" });
   });
 
   it("rejects invalid uploads and hides attachments from other users", async () => {

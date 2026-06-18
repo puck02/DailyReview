@@ -36,6 +36,8 @@ type AiRequestOptions = {
   allowProviderFallback?: boolean;
 };
 
+const DEFAULT_STREAM_TIMEOUT_MS = 60_000;
+
 function providerConfig(config: AiConfig, provider: keyof AiConfig["providers"]): AiProviderConfig {
   return config.providers[provider];
 }
@@ -156,6 +158,7 @@ export async function completeChatWithUsage(
 async function streamResponse(
   messages: ChatMessage[],
   model: string,
+  env: Env,
   config: AiConfig,
   provider: keyof AiConfig["providers"],
   includeUsage: boolean
@@ -164,10 +167,61 @@ async function streamResponse(
   if (includeUsage) {
     body.stream_options = { include_usage: true };
   }
-  return await fetch(chatCompletionsUrl(config, provider), {
-    method: "POST",
-    headers: authHeaders(config, provider),
-    body: JSON.stringify(body)
+  const controller = new AbortController();
+  const timeoutMs = Number.parseInt(env.AI_STREAM_TIMEOUT_MS || "", 10) || DEFAULT_STREAM_TIMEOUT_MS;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const armTimeout = () => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => controller.abort(), timeoutMs);
+  };
+  const clearStreamTimeout = () => {
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+  };
+  armTimeout();
+  let response: Response;
+  try {
+    response = await fetch(chatCompletionsUrl(config, provider), {
+      method: "POST",
+      headers: authHeaders(config, provider),
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+  } catch (error) {
+    clearStreamTimeout();
+    throw error;
+  }
+  if (!response.body) {
+    clearStreamTimeout();
+    return response;
+  }
+  const reader = response.body.getReader();
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(streamController) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          clearStreamTimeout();
+          streamController.close();
+          return;
+        }
+        armTimeout();
+        streamController.enqueue(value);
+      } catch (error) {
+        clearStreamTimeout();
+        streamController.error(error);
+      }
+    },
+    async cancel(reason) {
+      clearStreamTimeout();
+      controller.abort();
+      await reader.cancel(reason).catch(() => undefined);
+    }
+  });
+  return new Response(stream, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
   });
 }
 
@@ -213,9 +267,9 @@ export async function* streamChatCompletionWithUsage(
     if (!provider || !isProviderConfigured(config, provider)) {
       continue;
     }
-    response = await streamResponse(messages, candidate, config, provider, true);
+    response = await streamResponse(messages, candidate, _env, config, provider, true);
     if (response.status === 400) {
-      response = await streamResponse(messages, candidate, config, provider, false);
+      response = await streamResponse(messages, candidate, _env, config, provider, false);
     }
     if (response.ok && response.body) {
       selectedModel = candidate;

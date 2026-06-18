@@ -5,6 +5,7 @@ import { test } from "node:test";
 const app = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const apiSource = fs.readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 const markdownRenderer = fs.readFileSync(new URL("../src/MarkdownRenderer.tsx", import.meta.url), "utf8");
+const markdownPlugins = fs.readFileSync(new URL("../src/markdownPlugins.ts", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const packageJson = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
@@ -158,9 +159,9 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.ok(packageJson.includes("rehype-katex"));
   assert.ok(packageJson.includes("katex"));
   assert.ok(markdownRenderer.includes("ReactMarkdown"));
-  assert.ok(markdownRenderer.includes("remarkGfm"));
-  assert.ok(markdownRenderer.includes("remarkMath"));
-  assert.ok(markdownRenderer.includes("rehypeKatex"));
+  assert.ok(markdownPlugins.includes("remarkGfm"));
+  assert.ok(markdownPlugins.includes("remarkMath"));
+  assert.ok(markdownPlugins.includes("rehypeKatex"));
   assert.ok(markdownRenderer.includes("normalizeMarkdownMath"));
   assert.ok(markdownRenderer.includes("key={normalizedMarkdown}"));
   assert.ok(fs.readFileSync(new URL("../../shared/src/markdown.ts", import.meta.url), "utf8").includes("normalizeInlineCodeMath"));
@@ -192,10 +193,10 @@ test("fingerprinted static assets use immutable browser cache headers", () => {
 
 test("message code blocks use syntax highlighting in light and dark themes", () => {
   assert.ok(packageJson.includes("rehype-highlight"));
-  assert.ok(markdownRenderer.includes("import rehypeHighlight from \"rehype-highlight\";"));
-  assert.ok(markdownRenderer.includes("rehypeHighlight"));
-  assert.ok(markdownRenderer.includes("ignoreMissing: true"));
-  assert.ok(markdownRenderer.includes("detect: true"));
+  assert.ok(markdownPlugins.includes("import rehypeHighlight from \"rehype-highlight\";"));
+  assert.ok(markdownPlugins.includes("rehypeHighlight"));
+  assert.ok(markdownPlugins.includes("ignoreMissing: true"));
+  assert.ok(markdownPlugins.includes("detect: true"));
   assert.match(styles, /--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
   assert.match(styles, /\.markdown-code \.hljs-keyword[\s\S]*color:\s*var\(--syntax-keyword\);/);
@@ -330,6 +331,19 @@ test("chat scrolls to the latest message after loading and streaming updates", (
   assert.match(app, /useEffect\(\(\) => \{[\s\S]*messagesEndRef\.current\?\.scrollIntoView\(\{ block: "end" \}\);[\s\S]*\}, \[messages, messagesLoading\]\);/);
   assert.match(app, /<div[\s\S]*ref=\{messagesEndRef\}[\s\S]*className="messages-end"[\s\S]*aria-hidden="true"/);
   assert.match(styles, /\.messages-end\s*{[^}]*height:\s*1px;/s);
+});
+
+test("streaming chat batches token UI updates and aborts stale requests", () => {
+  assert.ok(app.includes("type TokenFlushController"));
+  assert.ok(app.includes("function createTokenFlushController"));
+  assert.ok(app.includes("window.requestAnimationFrame(flush)"));
+  assert.ok(app.includes("activeStreamAbortRef"));
+  assert.ok(app.includes("activeStreamAbortRef.current?.abort();"));
+  assert.ok(app.includes("tokenFlush.push"));
+  assert.ok(app.includes("tokenFlush.flush();"));
+  assert.ok(app.includes("{ signal: abortController.signal }"));
+  assert.ok(apiSource.includes("options: { signal?: AbortSignal } = {}"));
+  assert.ok(apiSource.includes("signal: options.signal"));
 });
 
 test("chat sidebar can collapse from the top-left control", () => {
@@ -712,6 +726,7 @@ test("markdown renderer dependencies are code split from the main app", () => {
   assert.doesNotMatch(app, /from "remark-math"/);
   assert.match(app, /lazy\(\(\) => import\("\.\/MarkdownRenderer"\)\)/);
   assert.match(markdownRenderer, /from "react-markdown"/);
+  assert.ok(markdownRenderer.includes('import("./markdownPlugins")'));
 });
 
 test("reports list can render before the selected report markdown finishes loading", () => {

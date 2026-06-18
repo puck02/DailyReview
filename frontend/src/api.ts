@@ -292,29 +292,33 @@ export const api = {
 
 export async function streamChat(
   payload: { session_id: number; content: string; model: string; attachment_ids: number[]; image_data_urls?: string[] },
-  onToken: (token: string) => void
+  onToken: (token: string) => void,
+  options: { signal?: AbortSignal } = {}
 ): Promise<void> {
-  await streamChatEndpoint("/api/chat/stream", payload, onToken);
+  await streamChatEndpoint("/api/chat/stream", payload, onToken, options);
 }
 
 export async function regenerateChat(
   payload: { session_id: number; assistant_message_id: number; model: string; content?: string; attachment_ids?: number[] },
-  onToken: (token: string) => void
+  onToken: (token: string) => void,
+  options: { signal?: AbortSignal } = {}
 ): Promise<void> {
-  await streamChatEndpoint("/api/chat/regenerate", payload, onToken);
+  await streamChatEndpoint("/api/chat/regenerate", payload, onToken, options);
 }
 
 async function streamChatEndpoint(
   path: string,
   payload: { session_id: number; content?: string; model: string; attachment_ids?: number[]; image_data_urls?: string[]; assistant_message_id?: number },
-  onToken: (token: string) => void
+  onToken: (token: string) => void,
+  options: { signal?: AbortSignal } = {}
 ): Promise<void> {
   const response = await fetch(path, {
     method: "POST",
     credentials: "include",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal: options.signal
   });
   if (!response.ok || !response.body) {
     const data = await response.json().catch(() => ({ detail: "发送失败" }));

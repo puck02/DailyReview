@@ -8,6 +8,10 @@ routes = [
   { pattern = "nektos.cn", custom_domain = true, enabled = true, previews_enabled = false }
 ]
 
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
 [assets]
 directory = "../frontend/dist"
 binding = "ASSETS"

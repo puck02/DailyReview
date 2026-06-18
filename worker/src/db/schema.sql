@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 CREATE INDEX IF NOT EXISTS idx_reports_user_type_period ON reports(user_id, report_type, period DESC);
 
+CREATE TABLE IF NOT EXISTS report_generation_locks (
+  user_id INTEGER NOT NULL,
+  report_type TEXT NOT NULL,
+  period TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY(user_id, report_type, period)
+);
+
 CREATE TABLE IF NOT EXISTS translation_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,

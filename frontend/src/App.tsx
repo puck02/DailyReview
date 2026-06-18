@@ -98,6 +98,11 @@ type PdfSavePickerWindow = Window &
     }) => Promise<PdfFileHandle>;
   };
 type PdfSaveTarget = { kind: "handle"; handle: PdfFileHandle } | { kind: "download" } | { kind: "cancelled" };
+type TokenFlushController = {
+  push: (token: string) => void;
+  flush: () => void;
+  cancel: () => void;
+};
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "gpt-5.5";
 const reportModels = [defaultModel, complexModel];
@@ -126,6 +131,36 @@ const openingLines = [
 
 function randomOpeningLine() {
   return openingLines[Math.floor(Math.random() * openingLines.length)];
+}
+
+function createTokenFlushController(onFlush: (text: string) => void): TokenFlushController {
+  let pending = "";
+  let frame: number | null = null;
+  const flush = () => {
+    if (frame !== null) {
+      window.cancelAnimationFrame(frame);
+      frame = null;
+    }
+    if (!pending) return;
+    const text = pending;
+    pending = "";
+    onFlush(text);
+  };
+  return {
+    push(token) {
+      pending += token;
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(flush);
+    },
+    flush,
+    cancel() {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+        frame = null;
+      }
+      pending = "";
+    }
+  };
 }
 
 function isMobileViewport() {
@@ -686,6 +721,7 @@ function ChatView({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sendLockRef = useRef(false);
   const regenerateLockRef = useRef(false);
+  const activeStreamAbortRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -834,6 +870,7 @@ function ChatView({
 
   useEffect(() => {
     return () => {
+      activeStreamAbortRef.current?.abort();
       attachmentsRef.current.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
     };
   }, []);
@@ -1044,6 +1081,16 @@ function ChatView({
     sendLockRef.current = true;
     setBusy(true);
     setError("");
+    activeStreamAbortRef.current?.abort();
+    const abortController = new AbortController();
+    activeStreamAbortRef.current = abortController;
+    const tokenFlush = createTokenFlushController((text) => {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistant.id ? { ...message, content: message.content + text } : message
+        )
+      );
+    });
     try {
       await streamChat(
         {
@@ -1053,18 +1100,18 @@ function ChatView({
           attachment_ids: readyAttachments.map((item) => item.id),
           image_data_urls: readyAttachments.map((item) => item.dataUrl).filter(Boolean)
         },
-        (token) => {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistant.id ? { ...message, content: message.content + token } : message
-            )
-          );
-        }
+        tokenFlush.push,
+        { signal: abortController.signal }
       );
+      tokenFlush.flush();
       await refreshSessions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发送失败");
+      if (!abortController.signal.aborted) {
+        setError(err instanceof Error ? err.message : "发送失败");
+      }
     } finally {
+      tokenFlush.flush();
+      if (activeStreamAbortRef.current === abortController) activeStreamAbortRef.current = null;
       sendLockRef.current = false;
       setBusy(false);
     }
@@ -1098,6 +1145,16 @@ function ChatView({
     regenerateLockRef.current = true;
     setBusy(true);
     setError("");
+    activeStreamAbortRef.current?.abort();
+    const abortController = new AbortController();
+    activeStreamAbortRef.current = abortController;
+    const tokenFlush = createTokenFlushController((text) => {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === replacement.id ? { ...message, content: message.content + text } : message
+        )
+      );
+    });
     try {
       await regenerateChat(
         {
@@ -1107,20 +1164,20 @@ function ChatView({
           content: lastUserMessage.content,
           attachment_ids: lastUserMessage.attachments.map((attachment) => attachment.id)
         },
-        (token) => {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === replacement.id ? { ...message, content: message.content + token } : message
-            )
-          );
-        }
+        tokenFlush.push,
+        { signal: abortController.signal }
       );
+      tokenFlush.flush();
       const refreshedMessages = await api.messages(active.id);
       setMessages(refreshedMessages);
       await refreshSessions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "重新生成失败");
+      if (!abortController.signal.aborted) {
+        setError(err instanceof Error ? err.message : "重新生成失败");
+      }
     } finally {
+      tokenFlush.flush();
+      if (activeStreamAbortRef.current === abortController) activeStreamAbortRef.current = null;
       regenerateLockRef.current = false;
       setBusy(false);
     }

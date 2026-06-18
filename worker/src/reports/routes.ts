@@ -4,9 +4,9 @@ import { requireUser } from "../auth/routes";
 import type { Env } from "../env";
 import { HttpError, json, route, type Route } from "../http";
 import {
-  ensureReportPdf,
   processReportPdfQueue,
   readReportPdf,
+  refreshReportPdfCache,
   reportById,
   reportContent,
   reportListItem,
@@ -32,7 +32,6 @@ async function listReports(request: Request, env: Env, ctx?: ExecutionContext): 
   const reportType = reportTypeSchema.parse(url.searchParams.get("report_type") || "daily");
   const month = url.searchParams.get("month");
   const reports = await reportsForUser(env, user.id, reportType, month);
-  ctx?.waitUntil(processReportPdfQueue(env, 5));
   return json(reports.map(reportListItem));
 }
 
@@ -59,9 +58,8 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
   if (cached) {
     return pdfResponse(cached, filename);
   }
-  const generated = await ensureReportPdf(env, report, title);
-  if (generated) {
-    return pdfResponse(generated, filename);
+  if (env.BROWSER) {
+    ctx?.waitUntil(refreshReportPdfCache(env, report, title));
   }
   return json(
     { detail: "PDF 正在生成，请稍后重试" },

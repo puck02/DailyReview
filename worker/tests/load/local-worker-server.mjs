@@ -9,6 +9,26 @@ import { build } from "esbuild";
 
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
 const bundlePath = join(tmpdir(), `dailyreview-worker-${process.pid}.mjs`);
+const cloudflareWorkersShim = {
+  name: "cloudflare-workers-shim",
+  setup(builder) {
+    builder.onResolve({ filter: /^cloudflare:workers$/ }, () => ({
+      path: "cloudflare-workers-shim",
+      namespace: "cloudflare-workers-shim"
+    }));
+    builder.onLoad({ filter: /.*/, namespace: "cloudflare-workers-shim" }, () => ({
+      loader: "js",
+      contents: `
+        export class DurableObject {
+          constructor(ctx, env) {
+            this.ctx = ctx;
+            this.env = env;
+          }
+        }
+      `
+    }));
+  }
+};
 
 class SqliteStatement {
   values = [];
@@ -128,10 +148,11 @@ async function writeWebResponse(nodeResponse, response) {
 await build({
   entryPoints: [new URL("../../src/index.ts", import.meta.url).pathname],
   bundle: true,
-  platform: "browser",
+  platform: "node",
   format: "esm",
   outfile: bundlePath,
-  logLevel: "silent"
+  logLevel: "silent",
+  plugins: [cloudflareWorkersShim]
 });
 
 const worker = (await import(pathToFileURL(bundlePath).href)).default;
