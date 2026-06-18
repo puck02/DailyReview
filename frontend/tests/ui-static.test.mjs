@@ -324,6 +324,17 @@ test("app icon is used for favicon and brand", () => {
   assert.ok(!appIcon.includes("#faae2b"));
 });
 
+test("auth screen centers the brand and shows a daily quote instead of the old hero copy", () => {
+  assert.doesNotMatch(app, /AI 学习工作台/);
+  assert.doesNotMatch(app, /用问答推进学习，用日报沉淀复盘。/);
+  assert.ok(app.includes("DAILY_QUOTES"));
+  assert.ok(app.includes("dailyQuote"));
+  assert.ok(app.includes("面朝大海，春暖花开。"));
+  assert.match(app, /<p className="auth-quote">[\s\S]*<span>\{dailyQuote\.text\}<\/span>[\s\S]*<cite>——\{dailyQuote\.source\}<\/cite>/);
+  assert.match(styles, /\.auth-brand\s*{[^}]*justify-content:\s*center;/s);
+  assert.match(styles, /\.auth-quote\s*{[^}]*text-align:\s*center;/s);
+});
+
 test("chat scrolls to the latest message after loading and streaming updates", () => {
   assert.ok(app.includes("const messagesEndRef = useRef<HTMLDivElement>(null);"));
   assert.ok(app.includes("messagesEndRef.current?.scrollIntoView"));

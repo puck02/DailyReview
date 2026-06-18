@@ -118,6 +118,16 @@ const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared"
 const aiConfigChangedEvent = "dailyreview:ai-config-changed";
 const wordCloudLaneCount = 4;
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
+const DAILY_QUOTES = [
+  { text: "面朝大海，春暖花开。", source: "海子" },
+  { text: "认识你自己。", source: "德尔斐箴言" },
+  { text: "生如夏花。", source: "泰戈尔" },
+  { text: "凡是过往，皆为序章。", source: "莎士比亚" },
+  { text: "大胆假设，小心求证。", source: "胡适" },
+  { text: "人只能自己救自己。", source: "《千与千寻》" },
+  { text: "去生活。去犯错。", source: "《灵魂奇遇记》" }
+];
+
 function preloadMarkdownRenderer() {
   void import("./MarkdownRenderer");
 }
@@ -131,6 +141,15 @@ const openingLines = [
 
 function randomOpeningLine() {
   return openingLines[Math.floor(Math.random() * openingLines.length)];
+}
+
+function dailyQuoteIndex(date = new Date()): number {
+  const dayKey = date.toISOString().slice(0, 10);
+  let hash = 0;
+  for (const char of dayKey) {
+    hash = (hash * 31 + char.charCodeAt(0)) % DAILY_QUOTES.length;
+  }
+  return hash;
 }
 
 function createTokenFlushController(onFlush: (text: string) => void): TokenFlushController {
@@ -638,6 +657,7 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const dailyQuote = useMemo(() => DAILY_QUOTES[dailyQuoteIndex()], []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -661,8 +681,10 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: User) => void }) {
           <AppIcon />
           <span>DailyReview</span>
         </div>
-        <h1>AI 学习工作台</h1>
-        <p>用问答推进学习，用日报沉淀复盘。</p>
+        <p className="auth-quote">
+          <span>{dailyQuote.text}</span>
+          <cite>——{dailyQuote.source}</cite>
+        </p>
         <form onSubmit={submit} className="auth-form">
           <label>
             邮箱

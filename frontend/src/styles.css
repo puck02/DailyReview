@@ -213,6 +213,10 @@ textarea {
   font-weight: 760;
 }
 
+.auth-brand {
+  justify-content: center;
+}
+
 .auth-panel h1 {
   margin: 24px 0 8px;
   color: var(--headline);
@@ -225,6 +229,24 @@ textarea {
 .pane-header p {
   color: var(--paragraph);
   margin: 0;
+}
+
+.auth-quote {
+  display: grid;
+  gap: 5px;
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.auth-quote span {
+  color: var(--headline);
+}
+
+.auth-quote cite {
+  color: var(--muted);
+  font-style: normal;
 }
 
 .auth-form,
