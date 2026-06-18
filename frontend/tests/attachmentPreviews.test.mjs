@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { removeAttachmentPreview } from "/tmp/dailyreview-frontend-tests/attachmentPreviews.js";
+import { removeAttachmentPreview } from "/tmp/dailyreview-frontend-tests/frontend/src/attachmentPreviews.js";
 
 test("removes one preview by attachment id", () => {
   const first = { id: 1, previewUrl: "blob:first" };

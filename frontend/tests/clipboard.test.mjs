@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { firstClipboardImage } from "/tmp/dailyreview-frontend-tests/clipboard.js";
+import { firstClipboardImage } from "/tmp/dailyreview-frontend-tests/frontend/src/clipboard.js";
 
 test("prefers image files exposed through clipboard items", () => {
   const image = new File(["image"], "screenshot.png", { type: "image/png" });

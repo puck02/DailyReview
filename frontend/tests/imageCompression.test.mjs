@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { prepareImageForUpload } from "/tmp/dailyreview-frontend-tests/imageCompression.js";
+import { prepareImageForUpload } from "/tmp/dailyreview-frontend-tests/frontend/src/imageCompression.js";
 
 const originalWindow = globalThis.window;
 const originalDocument = globalThis.document;

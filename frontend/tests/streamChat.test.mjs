@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { streamChat } from "/tmp/dailyreview-frontend-tests/api.js";
+import { streamChat } from "/tmp/dailyreview-frontend-tests/frontend/src/api.js";
 
 test("streamChat parses JSON encoded multiline SSE tokens", async () => {
   const token = "第一行\n[ e^x = 1+x+\\frac{x^2}{2}+o(x^2) ]";
