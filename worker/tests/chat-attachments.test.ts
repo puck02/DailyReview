@@ -188,6 +188,39 @@ describe("chat sessions and attachments", () => {
     expect(calls).toEqual([{ url: "https://api.deepseek.com/chat/completions", model: "deepseek-chat" }]);
   });
 
+  it("uses the configured default chat model when creating a new session", async () => {
+    const { env, cookie, adminCookie } = await loginUser();
+    const saved = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({
+        default_text_model: "deepseek-chat",
+        providers: {
+          deepseek: {
+            base_url: "https://api.deepseek.com",
+            api_key: "deepseek-key",
+            text_model: "deepseek-chat",
+            translation_model: "deepseek-chat",
+            report_model: "deepseek-chat",
+            enabled_text_models: ["deepseek-chat", "deepseek-reasoner"]
+          }
+        }
+      })
+    });
+    expect(saved.status).toBe(200);
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "默认模型", model: "gpt-5.4-mini" })
+    });
+
+    expect(sessionResponse.status).toBe(200);
+    await expect(sessionResponse.json()).resolves.toMatchObject({
+      default_model: "deepseek-chat"
+    });
+  });
+
   it("regenerates the latest assistant reply without duplicating the user message", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";

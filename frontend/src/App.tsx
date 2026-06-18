@@ -731,7 +731,7 @@ function ChatView({
 
   useEffect(() => {
     refreshSessions().catch((err) => setError(err.message));
-    loadChatModels().catch(() => {
+    loadChatModels(true).catch(() => {
       setChatModelOptions(reportModels);
       setModel(defaultModel);
     });
