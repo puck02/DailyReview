@@ -104,7 +104,7 @@ const reportModels = [defaultModel, complexModel];
 const providerNames: AiProviderName[] = ["gpt", "zhipu", "deepseek"];
 const fallbackProviderModels: Record<AiProviderName, { text: string[]; vision: string[] }> = {
   gpt: { text: reportModels, vision: reportModels },
-  zhipu: { text: ["glm-5"], vision: ["glm-4.6v-flash", "glm-4.6v"] },
+  zhipu: { text: ["glm-5"], vision: ["glm-4.6v"] },
   deepseek: { text: ["deepseek-chat", "deepseek-reasoner"], vision: [] }
 };
 const themeStorageKey = "dailyreview.theme";
@@ -684,6 +684,8 @@ function ChatView({
   const nextPendingAttachmentIdRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sendLockRef = useRef(false);
+  const regenerateLockRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -998,7 +1000,7 @@ function ChatView({
 
   async function sendMessage() {
     const content = input.trim();
-    if ((!content && !hasReadyAttachments) || busy) return;
+    if ((!content && !hasReadyAttachments) || busy || sendLockRef.current) return;
     if (uploadingCount > 0) {
       setError("图片上传中，请稍等");
       return;
@@ -1039,6 +1041,7 @@ function ChatView({
     setInput("");
     clearAttachments();
     setMessages((current) => [...current, pendingUser, assistant]);
+    sendLockRef.current = true;
     setBusy(true);
     setError("");
     try {
@@ -1062,12 +1065,13 @@ function ChatView({
     } catch (err) {
       setError(err instanceof Error ? err.message : "发送失败");
     } finally {
+      sendLockRef.current = false;
       setBusy(false);
     }
   }
 
   async function regenerateAssistantMessage(assistantMessage: Message) {
-    if (!active || busy) return;
+    if (!active || busy || regenerateLockRef.current) return;
     const assistantIndex = messages.findIndex((message) => message.id === assistantMessage.id);
     const lastUserMessage = messages
       .slice(0, assistantIndex)
@@ -1078,7 +1082,7 @@ function ChatView({
       return;
     }
     const replacement: Message = {
-      id: Date.now(),
+      id: assistantMessage.id,
       role: "assistant",
       content: "",
       model,
@@ -1091,6 +1095,7 @@ function ChatView({
       if (userIndex < 0) return [...current, replacement];
       return [...current.slice(0, userIndex + 1), replacement, ...current.slice(userIndex + 1)];
     });
+    regenerateLockRef.current = true;
     setBusy(true);
     setError("");
     try {
@@ -1110,10 +1115,13 @@ function ChatView({
           );
         }
       );
+      const refreshedMessages = await api.messages(active.id);
+      setMessages(refreshedMessages);
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "重新生成失败");
     } finally {
+      regenerateLockRef.current = false;
       setBusy(false);
     }
   }

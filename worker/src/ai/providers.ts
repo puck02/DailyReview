@@ -5,7 +5,7 @@ export const AI_PROVIDER_NAMES = ["gpt", "zhipu", "deepseek"] as const;
 export const GPT_TEXT_MODELS = ["gpt-5.4-mini", "gpt-5.5"] as const;
 export const GPT_VISION_MODELS = ["gpt-5.4-mini", "gpt-5.5"] as const;
 export const ZHIPU_TEXT_MODELS = ["glm-5"] as const;
-export const ZHIPU_VISION_MODELS = ["glm-4.6v-flash", "glm-4.6v"] as const;
+export const ZHIPU_VISION_MODELS = ["glm-4.6v"] as const;
 export const DEEPSEEK_TEXT_MODELS = ["deepseek-chat", "deepseek-reasoner"] as const;
 export const DEEPSEEK_VISION_MODELS = [] as const;
 

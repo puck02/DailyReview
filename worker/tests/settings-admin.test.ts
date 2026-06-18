@@ -70,11 +70,11 @@ function aiConfigPayload(overrides: Partial<{
         base_url: "https://open.bigmodel.cn/api/paas/v4",
         api_key: "zhipu1234567890",
         text_model: "glm-5",
-        vision_model: "glm-4.6v-flash",
+        vision_model: "glm-4.6v",
         translation_model: "glm-5",
         report_model: "glm-5",
         enabled_text_models: ["glm-5"],
-        enabled_vision_models: ["glm-4.6v-flash", "glm-4.6v"]
+        enabled_vision_models: ["glm-4.6v"]
       },
       deepseek: {
         base_url: "https://api.deepseek.com",
@@ -104,11 +104,11 @@ function aiConfigPayload(overrides: Partial<{
         base_url: "https://open.bigmodel.cn/api/paas/v4",
         api_key: "zhipu1234567890",
         text_model: "glm-5",
-        vision_model: "glm-4.6v-flash",
+        vision_model: "glm-4.6v",
         translation_model: "glm-5",
         report_model: "glm-5",
         enabled_text_models: ["glm-5"],
-        enabled_vision_models: ["glm-4.6v-flash", "glm-4.6v"],
+        enabled_vision_models: ["glm-4.6v"],
         ...(overrides.providers?.zhipu || {})
       },
       deepseek: {
@@ -317,7 +317,7 @@ describe("settings and admin routes", () => {
           has_api_key: true,
           api_key_preview: "zhipu1****7890",
           text_model: "glm-5",
-          vision_model: "glm-4.6v-flash",
+          vision_model: "glm-4.6v",
           translation_model: "glm-5",
           report_model: "glm-5"
         }
@@ -612,6 +612,30 @@ describe("settings and admin routes", () => {
     expect(config.active_provider).toBe("gpt");
     expect(config.providers.gpt.text_model).toBe("gpt-5.5");
     expect(config.providers.zhipu.text_model).toBe("glm-5");
+  });
+
+  it("normalizes old Zhipu flash vision models to glm-4.6v", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+
+    await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify(
+        aiConfigPayload({
+          providers: {
+            zhipu: {
+              vision_model: "glm-4.6v-flash",
+              enabled_vision_models: ["glm-4.6v-flash", "glm-4.6v"]
+            }
+          }
+        })
+      )
+    });
+
+    const config = await getAiConfig(env);
+    expect(config.providers.zhipu.vision_model).toBe("glm-4.6v");
+    expect(config.providers.zhipu.enabled_vision_models).toEqual(["glm-4.6v"]);
   });
 
   it("returns per-user total token usage for today and the last seven days", async () => {

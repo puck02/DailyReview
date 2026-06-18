@@ -237,6 +237,11 @@ test("assistant regenerate uses the previous user message and replaces the assis
   assert.ok(app.includes("content: lastUserMessage.content"));
   assert.ok(app.includes("attachment_ids: lastUserMessage.attachments.map((attachment) => attachment.id)"));
   assert.ok(app.includes("regenerateAssistantMessage(message)"));
+  assert.ok(app.includes("sendLockRef"));
+  assert.ok(app.includes("regenerateLockRef"));
+  assert.ok(app.includes("busy || sendLockRef.current"));
+  assert.ok(app.includes("busy || regenerateLockRef.current"));
+  assert.ok(app.includes("const refreshedMessages = await api.messages(active.id);"));
   assert.match(styles, /\.message-action-button:disabled\s*{/);
 });
 
@@ -294,7 +299,7 @@ test("composer blocks sending while image upload is still running", () => {
 
 test("composer can send ready images without typed text", () => {
   assert.ok(app.includes("const hasReadyAttachments = attachments.some((attachment) => attachment.status === \"ready\");"));
-  assert.ok(app.includes("if ((!content && !hasReadyAttachments) || busy) return;"));
+  assert.ok(app.includes("if ((!content && !hasReadyAttachments) || busy || sendLockRef.current) return;"));
   assert.ok(app.includes("const sessionTitle = content ? content.slice(0, 24) : \"图片消息\";"));
   assert.ok(app.includes("content,"));
   assert.ok(app.includes("disabled={busy || isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments)}"));
@@ -480,7 +485,7 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("翻译模型"));
   assert.ok(app.includes("日报模型"));
   assert.ok(app.includes("glm-5"));
-  assert.ok(app.includes("glm-4.6v-flash"));
+  assert.ok(app.includes("glm-4.6v"));
   assert.ok(app.includes("deepseek-chat"));
   assert.ok(app.includes("当前密钥"));
   assert.ok(app.includes("新密钥待保存"));

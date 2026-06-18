@@ -52,7 +52,9 @@ const chatStreamSchema = z.object({
 const chatRegenerateSchema = z.object({
   session_id: z.number().int(),
   assistant_message_id: z.number().int(),
-  model: z.string().default("gpt-5.4-mini")
+  model: z.string().default("gpt-5.4-mini"),
+  content: z.string().optional(),
+  attachment_ids: z.array(z.number().int()).optional()
 });
 
 type ChatContentPart =
@@ -331,21 +333,35 @@ async function regenerateChat(request: Request, env: Env): Promise<Response> {
   if (!session || session.user_id !== user.id) {
     throw new HttpError(404, "会话不存在");
   }
-  const assistantMessage = await first<MessageRow>(
+  let assistantMessage = await first<MessageRow>(
     env.DB.prepare("SELECT * FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'")
       .bind(payload.assistant_message_id, session.id)
   );
   if (!assistantMessage) {
-    throw new HttpError(404, "回复不存在");
+    const latestAssistant = await first<MessageRow>(
+      env.DB.prepare("SELECT * FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY created_at DESC, id DESC LIMIT 1").bind(
+        session.id
+      )
+    );
+    if (!latestAssistant || payload.content === undefined) {
+      throw new HttpError(404, "回复不存在");
+    }
+    assistantMessage = latestAssistant;
   }
-  const lastUserMessage = await first<MessageRow>(
-    env.DB.prepare(
-      `SELECT * FROM messages
-       WHERE session_id = ? AND role = 'user' AND (created_at < ? OR (created_at = ? AND id < ?))
-       ORDER BY created_at DESC, id DESC
-       LIMIT 1`
-    ).bind(session.id, assistantMessage.created_at, assistantMessage.created_at, assistantMessage.id)
-  );
+  const previousUserQuery = payload.content === undefined
+    ? env.DB.prepare(
+        `SELECT * FROM messages
+         WHERE session_id = ? AND role = 'user' AND (created_at < ? OR (created_at = ? AND id < ?))
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`
+      ).bind(session.id, assistantMessage.created_at, assistantMessage.created_at, assistantMessage.id)
+    : env.DB.prepare(
+        `SELECT * FROM messages
+         WHERE session_id = ? AND role = 'user' AND content = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`
+      ).bind(session.id, payload.content);
+  const lastUserMessage = await first<MessageRow>(previousUserQuery);
   if (!lastUserMessage) {
     throw new HttpError(400, "没有可重新生成的用户消息");
   }

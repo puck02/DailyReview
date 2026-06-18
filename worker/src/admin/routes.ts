@@ -37,7 +37,7 @@ const DEFAULT_GPT_TEXT_MODEL = "gpt-5.5";
 const DEFAULT_GPT_VISION_MODEL = DEFAULT_GPT_TEXT_MODEL;
 const DEFAULT_ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEFAULT_ZHIPU_TEXT_MODEL = "glm-5";
-const DEFAULT_ZHIPU_VISION_MODEL = "glm-4.6v-flash";
+const DEFAULT_ZHIPU_VISION_MODEL = "glm-4.6v";
 const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_TEXT_MODEL = "deepseek-chat";
 
@@ -168,6 +168,12 @@ function parseModelList(value: string | undefined, fallback: string[]): string[]
   }
 }
 
+function normalizeProviderModelList(provider: AiProviderName, kind: AiModelKind, models: readonly string[]): string[] {
+  return uniqueModels(
+    models.map((model) => (provider === "zhipu" && kind === "vision" && model.trim() === "glm-4.6v-flash" ? "glm-4.6v" : model))
+  );
+}
+
 function stringifyModelList(models: readonly string[]): string {
   return JSON.stringify(uniqueModels(models));
 }
@@ -186,6 +192,14 @@ function normalizeKnownModel(provider: AiProviderName, kind: AiModelKind, value:
     return fallback;
   }
   return models[0] || normalized || fallback;
+}
+
+function normalizeKnownVisionModel(provider: AiProviderName, value: string, fallback: string): string {
+  const normalized = value.trim();
+  if (provider === "zhipu" && normalized === "glm-4.6v-flash") {
+    return "glm-4.6v";
+  }
+  return normalizeKnownModel(provider, "vision", normalized, fallback);
 }
 
 function normalizeProviderModel(
@@ -268,11 +282,19 @@ function pickProviderConfig(
     settings.get(keys.base_url) || (provider === "gpt" ? settings.get(LEGACY_AI_BASE_URL_KEY) : undefined) || defaults.base_url;
   const apiKey =
     settings.get(keys.api_key) || (provider === "gpt" ? settings.get(LEGACY_AI_API_KEY_KEY) : undefined) || defaults.api_key;
-  const enabledTextModels = parseModelList(settings.get(keys.enabled_text_models), defaults.enabled_text_models);
-  const enabledVisionModels = parseModelList(settings.get(keys.enabled_vision_models), defaults.enabled_vision_models);
+  const enabledTextModels = normalizeProviderModelList(
+    provider,
+    "text",
+    parseModelList(settings.get(keys.enabled_text_models), defaults.enabled_text_models)
+  );
+  const enabledVisionModels = normalizeProviderModelList(
+    provider,
+    "vision",
+    parseModelList(settings.get(keys.enabled_vision_models), defaults.enabled_vision_models)
+  );
   const textModel = normalizeProviderModel(settings.get(keys.text_model) || legacyTextModel, enabledTextModels, legacyTextModel);
   const visionModel = normalizeProviderModel(
-    settings.get(keys.vision_model) || defaults.vision_model,
+    normalizeKnownVisionModel(provider, settings.get(keys.vision_model) || defaults.vision_model, defaults.vision_model),
     enabledVisionModels,
     defaults.vision_model,
     enabledVisionModels.length === 0
@@ -383,16 +405,25 @@ function mergeProviderConfig(
       : patch.api_key === null
         ? ""
         : patch.api_key.trim() || current.api_key;
-  const enabledTextModels = patch.enabled_text_models !== undefined ? uniqueModels(patch.enabled_text_models) : current.enabled_text_models;
+  const enabledTextModels =
+    patch.enabled_text_models !== undefined
+      ? normalizeProviderModelList(provider, "text", patch.enabled_text_models)
+      : current.enabled_text_models;
   const enabledVisionModels =
-    patch.enabled_vision_models !== undefined ? uniqueModels(patch.enabled_vision_models) : current.enabled_vision_models;
+    patch.enabled_vision_models !== undefined
+      ? normalizeProviderModelList(provider, "vision", patch.enabled_vision_models)
+      : current.enabled_vision_models;
   const text_model =
     patch.text_model !== undefined
       ? validateProviderModel(patch.text_model, enabledTextModels)
       : normalizeProviderModel(current.text_model, enabledTextModels, current.text_model);
   const vision_model =
     patch.vision_model !== undefined
-      ? validateProviderModel(patch.vision_model, enabledVisionModels, enabledVisionModels.length === 0)
+      ? validateProviderModel(
+          provider === "zhipu" && patch.vision_model.trim() === "glm-4.6v-flash" ? "glm-4.6v" : patch.vision_model,
+          enabledVisionModels,
+          enabledVisionModels.length === 0
+        )
       : normalizeProviderModel(current.vision_model, enabledVisionModels, current.vision_model, enabledVisionModels.length === 0);
   const translation_model =
     patch.translation_model !== undefined

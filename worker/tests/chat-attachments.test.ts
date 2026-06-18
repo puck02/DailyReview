@@ -265,6 +265,50 @@ describe("chat sessions and attachments", () => {
     ]);
   });
 
+  it("regenerates by user content when the assistant message id is stale", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    vi.stubGlobal("fetch", async () => {
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: "按内容重新回答" } }] })}\n\ndata: [DONE]\n\n`, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "过期回复", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'user', ?, ?, ?)")
+      .bind(session.id, "解释导数定义", "gpt-5.4-mini", "2026-06-18T10:00:00.000Z")
+      .run();
+    await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
+      .bind(session.id, "旧回答", "gpt-5.4-mini", "2026-06-18T10:00:01.000Z")
+      .run();
+
+    const regenerated = await fetchWorker(env, "/api/chat/regenerate", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        assistant_message_id: 999999,
+        model: "gpt-5.4-mini",
+        content: "解释导数定义"
+      })
+    });
+
+    expect(regenerated.status).toBe(200);
+    await expect(readSse(regenerated)).resolves.toEqual([JSON.stringify("按内容重新回答"), "[DONE]"]);
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    await expect(messages.json()).resolves.toMatchObject([
+      { role: "user", content: "解释导数定义" },
+      { role: "assistant", content: "按内容重新回答" }
+    ]);
+  });
+
   it("records total token usage returned by streaming chat completions", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";
