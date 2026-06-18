@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function loginUser(): Promise<{ env: ReturnType<typeof createTestEnv>; cookie: string }> {
+async function loginUser(): Promise<{ env: ReturnType<typeof createTestEnv>; cookie: string; adminCookie: string }> {
   const env = createTestEnv();
   await fetchWorker(env, "/api/health");
   const adminLogin = await fetchWorker(env, "/api/auth/login", {
@@ -24,7 +24,7 @@ async function loginUser(): Promise<{ env: ReturnType<typeof createTestEnv>; coo
     method: "POST",
     body: JSON.stringify({ email: "user@example.com", password: "user-password", invite_code: code })
   });
-  return { env, cookie: cookieFrom(register) };
+  return { env, cookie: cookieFrom(register), adminCookie };
 }
 
 async function readSse(response: Response): Promise<string[]> {
@@ -65,6 +65,68 @@ describe("chat sessions and attachments", () => {
       { role: "user", content: "今天学了极限" },
       { role: "assistant", content: "这是一个本地测试回答。生产环境会使用配置的 AI API。" }
     ]);
+  });
+
+  it("falls back to another opened text model when the selected provider fails", async () => {
+    const { env, cookie, adminCookie } = await loginUser();
+    const saved = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({
+        default_text_model: "gpt-5.5",
+        providers: {
+          gpt: {
+            base_url: "https://gpt.example.test/v1",
+            api_key: "gpt-key",
+            text_model: "gpt-5.5",
+            translation_model: "gpt-5.5",
+            report_model: "gpt-5.5",
+            enabled_text_models: ["gpt-5.5"]
+          },
+          deepseek: {
+            base_url: "https://api.deepseek.com",
+            api_key: "deepseek-key",
+            text_model: "deepseek-chat",
+            translation_model: "deepseek-chat",
+            report_model: "deepseek-chat",
+            enabled_text_models: ["deepseek-chat"]
+          }
+        }
+      })
+    });
+    expect(saved.status).toBe(200);
+    const calls: Array<{ url: string; model?: string }> = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body || "{}")) as { model?: string };
+      calls.push({ url: String(input), model: body.model });
+      if (String(input).startsWith("https://gpt.example.test")) {
+        return new Response(JSON.stringify({ error: "upstream down" }), { status: 503 });
+      }
+      return new Response('data: {"choices":[{"delta":{"content":"已切到备用模型"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "备用模型", model: "gpt-5.5" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "测试备用模型", model: "gpt-5.5", attachment_ids: [] })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([JSON.stringify("已切到备用模型"), "[DONE]"]);
+    expect(calls.map((call) => call.model)).toEqual(["gpt-5.5", "deepseek-chat"]);
+
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    const stored = (await messages.json()) as Array<{ role: string; model: string | null }>;
+    expect(stored.at(-1)).toMatchObject({ role: "assistant", model: "deepseek-chat" });
   });
 
   it("regenerates the latest assistant reply without duplicating the user message", async () => {

@@ -625,7 +625,7 @@ ${renderSegments(segments)}`;
   const fallback = JSON.stringify(fallbackLearningEvents(fallbackSegments, keywords));
   const model = aiReportModel(aiConfig);
   const response = await completeChatWithUsage([{ role: "user", content: prompt }], model, fallback, env, aiConfig);
-  await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+  await recordTokenUsage(env, userId, aiConfig, response.model, response.totalTokens);
   const events = safeJsonArray(response.content).map(normalizeLearningEvent).filter((event): event is LearningEvent => Boolean(event));
   return events.length ? events.slice(0, LEARNING_EVENT_LIMIT) : fallbackLearningEvents(fallbackSegments, keywords);
 }
@@ -688,7 +688,7 @@ ${eventSummary}`;
   const fallback = fallbackDailyMarkdown(day, eventSummary, keywords);
   const model = aiReportModel(aiConfig);
   const response = await completeChatWithUsage([{ role: "user", content: prompt }], model, fallback, env, aiConfig);
-  await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+  await recordTokenUsage(env, userId, aiConfig, response.model, response.totalTokens);
   return compactDailyMarkdown(response.content);
 }
 
@@ -727,7 +727,7 @@ ${markdown}`;
   const fallback = "PASS";
   const model = aiReportModel(aiConfig);
   const response = await completeChatWithUsage([{ role: "user", content: prompt }], model, fallback, env, aiConfig);
-  await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+  await recordTokenUsage(env, userId, aiConfig, response.model, response.totalTokens);
   const normalized = response.content.trim();
   if (/^PASS\b/i.test(normalized)) {
     return { status: "pass", feedback: "" };

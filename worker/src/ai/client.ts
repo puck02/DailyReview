@@ -1,10 +1,15 @@
 import type { Env } from "../env";
 import {
+  candidateModelsForRequest,
+  hasAnyConfiguredProvider,
+  isProviderConfigured,
+  modelProvider,
   resolveTextModel,
   resolveTranslationModel,
   resolveVisionModel,
   resolveReportModel,
   type AiConfig,
+  type AiModelKind,
   type AiProviderConfig
 } from "./providers";
 
@@ -18,31 +23,47 @@ export type ChatMessage = {
 export type ChatCompletionResult = {
   content: string;
   totalTokens: number | null;
+  model: string;
 };
 
 export type ChatStreamEvent = {
   content: string;
   totalTokens?: number | null;
+  model?: string;
 };
 
-function activeProviderConfig(config: AiConfig): AiProviderConfig {
-  return config.providers[config.active_provider];
+function providerConfig(config: AiConfig, provider: keyof AiConfig["providers"]): AiProviderConfig {
+  return config.providers[provider];
 }
 
-export function isAiConfigured(config: AiConfig): boolean {
-  const provider = activeProviderConfig(config);
-  return Boolean(provider.base_url && provider.api_key && provider.api_key !== "change-me");
+export function isAiConfigured(config: AiConfig, model?: string, kind: AiModelKind = "text"): boolean {
+  if (!model) {
+    return hasAnyConfiguredProvider(config);
+  }
+  const provider = modelProvider(config, model, kind);
+  return Boolean(provider && isProviderConfigured(config, provider));
 }
 
-function chatCompletionsUrl(config: AiConfig): string {
-  return `${activeProviderConfig(config).base_url.replace(/\/+$/, "")}/chat/completions`;
+function chatCompletionsUrl(config: AiConfig, provider: keyof AiConfig["providers"]): string {
+  return `${providerConfig(config, provider).base_url.replace(/\/+$/, "")}/chat/completions`;
 }
 
-function authHeaders(config: AiConfig): HeadersInit {
+function authHeaders(config: AiConfig, provider: keyof AiConfig["providers"]): HeadersInit {
   return {
-    Authorization: `Bearer ${activeProviderConfig(config).api_key}`,
+    Authorization: `Bearer ${providerConfig(config, provider).api_key}`,
     "Content-Type": "application/json"
   };
+}
+
+function messagesHaveImages(messages: ChatMessage[]): boolean {
+  return messages.some((message) =>
+    Array.isArray(message.content)
+      ? message.content.some((part) => {
+          if (!part || typeof part !== "object") return false;
+          return (part as { type?: unknown }).type === "image_url";
+        })
+      : false
+  );
 }
 
 export function safeAiErrorMessage(error: unknown): string {
@@ -69,42 +90,62 @@ export async function completeChatWithUsage(
   _env: Env,
   config: AiConfig
 ): Promise<ChatCompletionResult> {
-  if (!isAiConfigured(config)) {
-    return { content: fallback, totalTokens: null };
+  const hasImages = messagesHaveImages(messages);
+  if (!hasAnyConfiguredProvider(config)) {
+    return { content: fallback, totalTokens: null, model };
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
-  try {
-    const response = await fetch(chatCompletionsUrl(config), {
-      method: "POST",
-      headers: authHeaders(config),
-      body: JSON.stringify({ model, messages, stream: false }),
-      signal: controller.signal
-    });
-    if (!response.ok) {
-      return { content: fallback, totalTokens: null };
+  for (const candidate of candidateModelsForRequest(config, model, hasImages)) {
+    const provider = modelProvider(config, candidate, hasImages ? "vision" : "text");
+    if (!provider || !isProviderConfigured(config, provider)) {
+      continue;
     }
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: { total_tokens?: number; totalTokens?: number };
-    };
-    return {
-      content: data.choices?.[0]?.message?.content || fallback,
-      totalTokens: data.usage?.total_tokens ?? data.usage?.totalTokens ?? null
-    };
-  } finally {
-    clearTimeout(timeout);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch(chatCompletionsUrl(config, provider), {
+        method: "POST",
+        headers: authHeaders(config, provider),
+        body: JSON.stringify({ model: candidate, messages, stream: false }),
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { total_tokens?: number; totalTokens?: number };
+      };
+      const content = data.choices?.[0]?.message?.content;
+      if (content) {
+        return {
+          content,
+          totalTokens: data.usage?.total_tokens ?? data.usage?.totalTokens ?? null,
+          model: candidate
+        };
+      }
+    } catch {
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  return { content: fallback, totalTokens: null, model };
 }
 
-async function streamResponse(messages: ChatMessage[], model: string, config: AiConfig, includeUsage: boolean): Promise<Response> {
+async function streamResponse(
+  messages: ChatMessage[],
+  model: string,
+  config: AiConfig,
+  provider: keyof AiConfig["providers"],
+  includeUsage: boolean
+): Promise<Response> {
   const body: Record<string, unknown> = { model, messages, stream: true };
   if (includeUsage) {
     body.stream_options = { include_usage: true };
   }
-  return await fetch(chatCompletionsUrl(config), {
+  return await fetch(chatCompletionsUrl(config, provider), {
     method: "POST",
-    headers: authHeaders(config),
+    headers: authHeaders(config, provider),
     body: JSON.stringify(body)
   });
 }
@@ -128,17 +169,32 @@ export async function* streamChatCompletionWithUsage(
   _env: Env,
   config: AiConfig
 ): AsyncIterable<ChatStreamEvent> {
-  if (!isAiConfigured(config)) {
-    yield { content: "这是一个本地测试回答。生产环境会使用配置的 AI API。", totalTokens: null };
+  const hasImages = messagesHaveImages(messages);
+  if (!hasAnyConfiguredProvider(config)) {
+    yield { content: "这是一个本地测试回答。生产环境会使用配置的 AI API。", totalTokens: null, model };
     return;
   }
-  let response = await streamResponse(messages, model, config, true);
-  if (response.status === 400) {
-    response = await streamResponse(messages, model, config, false);
+  let selectedModel = model;
+  let response: Response | null = null;
+  for (const candidate of candidateModelsForRequest(config, model, hasImages)) {
+    const provider = modelProvider(config, candidate, hasImages ? "vision" : "text");
+    if (!provider || !isProviderConfigured(config, provider)) {
+      continue;
+    }
+    response = await streamResponse(messages, candidate, config, provider, true);
+    if (response.status === 400) {
+      response = await streamResponse(messages, candidate, config, provider, false);
+    }
+    if (response.ok && response.body) {
+      selectedModel = candidate;
+      break;
+    }
+    response = null;
   }
-  if (!response.ok || !response.body) {
-    throw new Error(`AI HTTP ${response.status}`);
+  if (!response || !response.ok || !response.body) {
+    throw new Error("AI HTTP unavailable");
   }
+  yield { content: "", model: selectedModel };
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -167,9 +223,13 @@ export async function* streamChatCompletionWithUsage(
 }
 
 export async function testAiConnection(config: AiConfig, model: string): Promise<string> {
-  const response = await fetch(chatCompletionsUrl(config), {
+  const provider = modelProvider(config, model, "text");
+  if (!provider || !isProviderConfigured(config, provider)) {
+    throw new Error("AI config incomplete");
+  }
+  const response = await fetch(chatCompletionsUrl(config, provider), {
     method: "POST",
-    headers: authHeaders(config),
+    headers: authHeaders(config, provider),
     body: JSON.stringify({ model, messages: [{ role: "user", content: "请只回复 OK" }], stream: false })
   });
   if (!response.ok) {

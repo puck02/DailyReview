@@ -249,8 +249,12 @@ async function streamAssistantResponse(
     async start(controller) {
       const parts: string[] = [];
       let totalTokens: number | null = null;
+      let actualModel = aiModel;
       try {
         for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig)) {
+          if (chunk.model) {
+            actualModel = chunk.model;
+          }
           if (typeof chunk.totalTokens === "number") {
             totalTokens = chunk.totalTokens;
           }
@@ -268,14 +272,14 @@ async function streamAssistantResponse(
       const assistantContent = parts.join("");
       if (replaceAssistantMessageId !== null) {
         await env.DB.prepare("UPDATE messages SET content = ?, model = ?, created_at = ? WHERE id = ?")
-          .bind(assistantContent, aiModel, nowIso(), replaceAssistantMessageId)
+          .bind(assistantContent, actualModel, nowIso(), replaceAssistantMessageId)
           .run();
       } else {
         await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
-          .bind(sessionId, assistantContent, aiModel, nowIso())
+          .bind(sessionId, assistantContent, actualModel, nowIso())
           .run();
       }
-      await recordTokenUsage(env, userId, aiConfig, aiModel, totalTokens);
+      await recordTokenUsage(env, userId, aiConfig, actualModel, totalTokens);
       await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();

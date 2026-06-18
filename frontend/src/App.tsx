@@ -39,6 +39,8 @@ import {
 import {
   api,
   AiConfig,
+  AiConfigPatch,
+  AiProviderName,
   AppSettings,
   Attachment,
   ChatSession,
@@ -99,8 +101,12 @@ type PdfSaveTarget = { kind: "handle"; handle: PdfFileHandle } | { kind: "downlo
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "gpt-5.5";
 const reportModels = [defaultModel, complexModel];
-const zhipuTextModels = ["glm-5"];
-const zhipuVisionModels = ["glm-4.6v-flash", "glm-4.6v"];
+const providerNames: AiProviderName[] = ["gpt", "zhipu", "deepseek"];
+const fallbackProviderModels: Record<AiProviderName, { text: string[]; vision: string[] }> = {
+  gpt: { text: reportModels, vision: reportModels },
+  zhipu: { text: ["glm-5"], vision: ["glm-4.6v-flash", "glm-4.6v"] },
+  deepseek: { text: ["deepseek-chat", "deepseek-reasoner"], vision: [] }
+};
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared";
@@ -713,7 +719,7 @@ function ChatView({
 
   async function loadChatModels() {
     const config = await api.aiModels();
-    const options = config.available_models[config.active_provider].text;
+    const options = config.text_models.length ? config.text_models : config.available_models[config.active_provider].text;
     const nextOptions = options.length ? options : [config.text_model || defaultModel];
     setChatModelOptions(nextOptions);
     setModel((current) => {
@@ -1974,20 +1980,41 @@ function AdminView() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageSummary[]>([]);
   const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
-  const [activeProvider, setActiveProvider] = useState<"gpt" | "zhipu">("gpt");
-  const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>(null);
-  const [gptBaseUrl, setGptBaseUrl] = useState("");
-  const [gptApiKey, setGptApiKey] = useState("");
-  const [gptTextModel, setGptTextModel] = useState(complexModel);
-  const [gptVisionModel, setGptVisionModel] = useState(complexModel);
-  const [gptTranslationModel, setGptTranslationModel] = useState(defaultModel);
-  const [gptReportModel, setGptReportModel] = useState(complexModel);
-  const [zhipuBaseUrl, setZhipuBaseUrl] = useState("https://open.bigmodel.cn/api/paas/v4");
-  const [zhipuApiKey, setZhipuApiKey] = useState("");
-  const [zhipuTextModel, setZhipuTextModel] = useState("glm-5");
-  const [zhipuVisionModel, setZhipuVisionModel] = useState("glm-4.6v-flash");
-  const [zhipuTranslationModel, setZhipuTranslationModel] = useState("glm-5");
-  const [zhipuReportModel, setZhipuReportModel] = useState("glm-5");
+  type ProviderFormState = {
+    baseUrl: string;
+    apiKey: string;
+    textModel: string;
+    visionModel: string;
+    translationModel: string;
+    reportModel: string;
+    enabledTextModels: string[];
+    enabledVisionModels: string[];
+    availableTextModels: string[];
+    availableVisionModels: string[];
+  };
+  const emptyProviderState = (provider: AiProviderName): ProviderFormState => ({
+    baseUrl: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4" : provider === "deepseek" ? "https://api.deepseek.com" : "",
+    apiKey: "",
+    textModel: fallbackProviderModels[provider].text[0] || "",
+    visionModel: fallbackProviderModels[provider].vision[0] || "",
+    translationModel: fallbackProviderModels[provider].text[0] || "",
+    reportModel: fallbackProviderModels[provider].text[0] || "",
+    enabledTextModels: fallbackProviderModels[provider].text,
+    enabledVisionModels: fallbackProviderModels[provider].vision,
+    availableTextModels: fallbackProviderModels[provider].text,
+    availableVisionModels: fallbackProviderModels[provider].vision
+  });
+  const [providerStates, setProviderStates] = useState<Record<AiProviderName, ProviderFormState>>(() => ({
+    gpt: emptyProviderState("gpt"),
+    zhipu: emptyProviderState("zhipu"),
+    deepseek: emptyProviderState("deepseek")
+  }));
+  const [expandedProvider, setExpandedProvider] = useState<AiProviderName | null>(null);
+  const [defaultTextModel, setDefaultTextModel] = useState(complexModel);
+  const [defaultVisionModel, setDefaultVisionModel] = useState(complexModel);
+  const [translationModel, setTranslationModel] = useState(defaultModel);
+  const [reportModel, setReportModel] = useState(complexModel);
+  const [detectingProvider, setDetectingProvider] = useState<AiProviderName | null>(null);
   const [loadingAdmin, setLoadingAdmin] = useState(true);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -1995,24 +2022,108 @@ function AdminView() {
   const [testing, setTesting] = useState(false);
   const [savingAiConfig, setSavingAiConfig] = useState(false);
 
+  function uniqueModelOptions(models: string[]) {
+    return Array.from(new Set(models.map((item) => item.trim()).filter(Boolean)));
+  }
+
+  function providerDisplayName(provider: AiProviderName) {
+    if (provider === "zhipu") return "ZHIPU";
+    if (provider === "deepseek") return "DeepSeek";
+    return "GPT";
+  }
+
+  function providerStateFromConfig(config: AiConfig, provider: AiProviderName): ProviderFormState {
+    const providerConfig = config.providers[provider];
+    const fallback = fallbackProviderModels[provider];
+    return {
+      baseUrl: providerConfig.base_url,
+      apiKey: "",
+      textModel: providerConfig.text_model,
+      visionModel: providerConfig.vision_model,
+      translationModel: providerConfig.translation_model,
+      reportModel: providerConfig.report_model,
+      enabledTextModels: providerConfig.enabled_text_models,
+      enabledVisionModels: providerConfig.enabled_vision_models,
+      availableTextModels: uniqueModelOptions([
+        ...config.available_models[provider].text,
+        ...providerConfig.enabled_text_models,
+        ...fallback.text
+      ]),
+      availableVisionModels: uniqueModelOptions([
+        ...config.available_models[provider].vision,
+        ...providerConfig.enabled_vision_models,
+        ...fallback.vision
+      ])
+    };
+  }
+
+  function applyAiConfig(config: AiConfig) {
+    setAiConfig(config);
+    setDefaultTextModel(config.text_model);
+    setDefaultVisionModel(config.vision_model);
+    setTranslationModel(config.translation_model);
+    setReportModel(config.report_model);
+    setProviderStates({
+      gpt: providerStateFromConfig(config, "gpt"),
+      zhipu: providerStateFromConfig(config, "zhipu"),
+      deepseek: providerStateFromConfig(config, "deepseek")
+    });
+  }
+
+  function updateProviderState(provider: AiProviderName, patch: Partial<ProviderFormState>) {
+    setProviderStates((current) => ({
+      ...current,
+      [provider]: {
+        ...current[provider],
+        ...patch
+      }
+    }));
+  }
+
+  function toggleModel(provider: AiProviderName, kind: "text" | "vision", model: string) {
+    setProviderStates((current) => {
+      const state = current[provider];
+      const key = kind === "text" ? "enabledTextModels" : "enabledVisionModels";
+      const enabled = state[key];
+      const nextEnabled = enabled.includes(model) ? enabled.filter((item) => item !== model) : [...enabled, model];
+      const nextState = { ...state, [key]: nextEnabled };
+      if (kind === "text" && !nextEnabled.includes(nextState.textModel)) {
+        nextState.textModel = nextEnabled[0] || "";
+        nextState.translationModel = nextEnabled.includes(nextState.translationModel) ? nextState.translationModel : nextState.textModel;
+        nextState.reportModel = nextEnabled.includes(nextState.reportModel) ? nextState.reportModel : nextState.textModel;
+      }
+      if (kind === "vision" && !nextEnabled.includes(nextState.visionModel)) {
+        nextState.visionModel = nextEnabled[0] || "";
+      }
+      return { ...current, [provider]: nextState };
+    });
+  }
+
+  const allTextModels = useMemo(
+    () => uniqueModelOptions(providerNames.flatMap((provider) => providerStates[provider].enabledTextModels)),
+    [providerStates]
+  );
+  const allVisionModels = useMemo(
+    () => uniqueModelOptions(providerNames.flatMap((provider) => providerStates[provider].enabledVisionModels)),
+    [providerStates]
+  );
+
+  useEffect(() => {
+    if (!allTextModels.length) return;
+    setDefaultTextModel((current) => (allTextModels.includes(current) ? current : allTextModels[0] || current));
+    setTranslationModel((current) => (allTextModels.includes(current) ? current : allTextModels[0] || current));
+    setReportModel((current) => (allTextModels.includes(current) ? current : allTextModels[0] || current));
+  }, [allTextModels]);
+
+  useEffect(() => {
+    setDefaultVisionModel((current) => (allVisionModels.includes(current) ? current : allVisionModels[0] || ""));
+  }, [allVisionModels]);
+
   async function refresh() {
     const [inviteItems, config, usage] = await Promise.all([api.invites(), api.aiConfig(), api.tokenUsage()]);
     setInvites(inviteItems);
     setTokenUsage(usage);
-    setAiConfig(config);
-    setActiveProvider(config.active_provider);
-    setGptBaseUrl(config.providers.gpt.base_url);
-    setGptApiKey("");
-    setGptTextModel(config.providers.gpt.text_model);
-    setGptVisionModel(config.providers.gpt.vision_model);
-    setGptTranslationModel(config.providers.gpt.translation_model);
-    setGptReportModel(config.providers.gpt.report_model);
-    setZhipuBaseUrl(config.providers.zhipu.base_url);
-    setZhipuApiKey("");
-    setZhipuTextModel(config.providers.zhipu.text_model);
-    setZhipuVisionModel(config.providers.zhipu.vision_model);
-    setZhipuTranslationModel(config.providers.zhipu.translation_model);
-    setZhipuReportModel(config.providers.zhipu.report_model);
+    applyAiConfig(config);
   }
 
   useEffect(() => {
@@ -2033,48 +2144,34 @@ function AdminView() {
 
   async function saveAiConfig(event: FormEvent) {
     event.preventDefault();
-    const previousProvider = aiConfig?.active_provider;
     try {
       setError("");
       setSaved("");
       setTestResult("");
       setSavingAiConfig(true);
+      const providers: AiConfigPatch["providers"] = {};
+      for (const provider of providerNames) {
+        const state = providerStates[provider];
+        providers[provider] = {
+          base_url: state.baseUrl,
+          api_key: state.apiKey || undefined,
+          text_model: state.textModel,
+          vision_model: state.visionModel,
+          translation_model: state.translationModel,
+          report_model: state.reportModel,
+          enabled_text_models: state.enabledTextModels,
+          enabled_vision_models: state.enabledVisionModels
+        };
+      }
       const config = await api.updateAiConfig({
-        active_provider: activeProvider,
-        providers: {
-          gpt: {
-            base_url: gptBaseUrl,
-            api_key: gptApiKey || undefined,
-            text_model: gptTextModel,
-            vision_model: gptVisionModel,
-            translation_model: gptTranslationModel,
-            report_model: gptReportModel
-          },
-          zhipu: {
-            base_url: zhipuBaseUrl,
-            api_key: zhipuApiKey || undefined,
-            text_model: zhipuTextModel,
-            vision_model: zhipuVisionModel,
-            translation_model: zhipuTranslationModel,
-            report_model: zhipuReportModel
-          }
-        }
+        default_text_model: defaultTextModel,
+        default_vision_model: defaultVisionModel,
+        translation_model: translationModel,
+        report_model: reportModel,
+        providers
       });
-      setAiConfig(config);
-      setActiveProvider(config.active_provider);
-      setGptBaseUrl(config.providers.gpt.base_url);
-      setGptApiKey("");
-      setGptTextModel(config.providers.gpt.text_model);
-      setGptVisionModel(config.providers.gpt.vision_model);
-      setGptTranslationModel(config.providers.gpt.translation_model);
-      setGptReportModel(config.providers.gpt.report_model);
-      setZhipuBaseUrl(config.providers.zhipu.base_url);
-      setZhipuApiKey("");
-      setZhipuTextModel(config.providers.zhipu.text_model);
-      setZhipuVisionModel(config.providers.zhipu.vision_model);
-      setZhipuTranslationModel(config.providers.zhipu.translation_model);
-      setZhipuReportModel(config.providers.zhipu.report_model);
-      setSaved(providerSwitchMessage(previousProvider, config.active_provider));
+      applyAiConfig(config);
+      setSaved("AI 配置已保存");
       window.dispatchEvent(new Event(aiConfigChangedEvent));
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
@@ -2089,26 +2186,26 @@ function AdminView() {
       setSaved("");
       setTestResult("");
       setTesting(true);
+      const providers: AiConfigPatch["providers"] = {};
+      for (const provider of providerNames) {
+        const state = providerStates[provider];
+        providers[provider] = {
+          base_url: state.baseUrl,
+          api_key: state.apiKey || undefined,
+          text_model: state.textModel,
+          vision_model: state.visionModel,
+          translation_model: state.translationModel,
+          report_model: state.reportModel,
+          enabled_text_models: state.enabledTextModels,
+          enabled_vision_models: state.enabledVisionModels
+        };
+      }
       const result = await api.testAiConfig({
-        active_provider: activeProvider,
-        providers: {
-          gpt: {
-            base_url: gptBaseUrl,
-            api_key: gptApiKey || undefined,
-            text_model: gptTextModel,
-            vision_model: gptVisionModel,
-            translation_model: gptTranslationModel,
-            report_model: gptReportModel
-          },
-          zhipu: {
-            base_url: zhipuBaseUrl,
-            api_key: zhipuApiKey || undefined,
-            text_model: zhipuTextModel,
-            vision_model: zhipuVisionModel,
-            translation_model: zhipuTranslationModel,
-            report_model: zhipuReportModel
-          }
-        }
+        default_text_model: defaultTextModel,
+        default_vision_model: defaultVisionModel,
+        translation_model: translationModel,
+        report_model: reportModel,
+        providers
       });
       setTestResult(result.message);
     } catch (err) {
@@ -2118,19 +2215,36 @@ function AdminView() {
     }
   }
 
-  function toggleProvider(provider: "gpt" | "zhipu") {
-    setExpandedProvider((current) => (current === provider ? null : provider));
-  }
-
-  function providerDisplayName(provider: "gpt" | "zhipu") {
-    return provider === "gpt" ? "GPT" : "ZHIPU";
-  }
-
-  function providerSwitchMessage(previousProvider: "gpt" | "zhipu" | undefined, nextProvider: "gpt" | "zhipu") {
-    if (previousProvider && previousProvider !== nextProvider) {
-      return nextProvider === "gpt" ? "已切换到 GPT" : "已切换到 ZHIPU";
+  async function discoverModels(provider: AiProviderName) {
+    const state = providerStates[provider];
+    try {
+      setError("");
+      setSaved("");
+      setTestResult("");
+      setDetectingProvider(provider);
+      const result = await api.discoverAiModels({
+        provider,
+        base_url: state.baseUrl,
+        api_key: state.apiKey || undefined
+      });
+      if (!result.ok) {
+        setTestResult(result.message);
+        return;
+      }
+      updateProviderState(provider, {
+        availableTextModels: uniqueModelOptions([...state.availableTextModels, ...result.models]),
+        availableVisionModels: uniqueModelOptions([...state.availableVisionModels, ...result.models])
+      });
+      setTestResult(result.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "检测失败");
+    } finally {
+      setDetectingProvider(null);
     }
-    return "AI 配置已保存";
+  }
+
+  function toggleProvider(provider: AiProviderName) {
+    setExpandedProvider((current) => (current === provider ? null : provider));
   }
 
   return (
@@ -2147,178 +2261,193 @@ function AdminView() {
           <div className="empty-state">正在加载 AI 配置...</div>
         ) : (
         <form className="admin-form" onSubmit={saveAiConfig}>
-          <label>
-            当前启用提供商
-            <select value={activeProvider} onChange={(event) => setActiveProvider(event.target.value as "gpt" | "zhipu")}>
-              <option value="gpt">GPT</option>
-              <option value="zhipu">ZHIPU</option>
-            </select>
-          </label>
+          <div className="admin-model-grid">
+            <label>
+              默认对话模型
+              <select value={defaultTextModel} onChange={(event) => setDefaultTextModel(event.target.value)} disabled={!allTextModels.length}>
+                {allTextModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              图片消息视觉模型
+              <select
+                value={defaultVisionModel}
+                onChange={(event) => setDefaultVisionModel(event.target.value)}
+                disabled={!allVisionModels.length}
+              >
+                {!allVisionModels.length && <option value="">未开放视觉模型</option>}
+                {allVisionModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              翻译模型
+              <select value={translationModel} onChange={(event) => setTranslationModel(event.target.value)} disabled={!allTextModels.length}>
+                {allTextModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              日报模型
+              <select value={reportModel} onChange={(event) => setReportModel(event.target.value)} disabled={!allTextModels.length}>
+                {allTextModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="provider-grid">
-            <section className="provider-card">
-              <button
-                type="button"
-                className="provider-row-button"
-                onClick={() => toggleProvider("gpt")}
-                aria-expanded={expandedProvider === "gpt"}
-              >
-                <span className="provider-row-title">
-                  <strong>GPT</strong>
-                  {activeProvider === "gpt" && <span className="provider-active-badge">当前启用</span>}
-                </span>
-                <span className="provider-row-meta">
-                  {aiConfig?.providers.gpt.api_key_preview ? `当前密钥 ${aiConfig.providers.gpt.api_key_preview}` : "密钥未配置"}
-                </span>
-                <ChevronDown size={16} />
-              </button>
-              {expandedProvider === "gpt" && (
-                <div className="provider-card-body">
-                  <label>
-                    Base URL
-                    <input value={gptBaseUrl} onChange={(event) => setGptBaseUrl(event.target.value)} required />
-                  </label>
-                  <label>
-                    API Key
-                    <input
-                      value={gptApiKey}
-                      onChange={(event) => setGptApiKey(event.target.value)}
-                      type="password"
-                      placeholder={aiConfig?.providers.gpt.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
-                    />
-                  </label>
-                  <label>
-                    文本模型
-                    <select value={gptTextModel} onChange={(event) => setGptTextModel(event.target.value)}>
-                      {reportModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    视觉模型
-                    <select value={gptVisionModel} onChange={(event) => setGptVisionModel(event.target.value)}>
-                      {reportModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    翻译模型
-                    <select value={gptTranslationModel} onChange={(event) => setGptTranslationModel(event.target.value)}>
-                      {reportModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    日报模型
-                    <select value={gptReportModel} onChange={(event) => setGptReportModel(event.target.value)}>
-                      {reportModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
-            </section>
-            <section className="provider-card">
-              <button
-                type="button"
-                className="provider-row-button"
-                onClick={() => toggleProvider("zhipu")}
-                aria-expanded={expandedProvider === "zhipu"}
-              >
-                <span className="provider-row-title">
-                  <strong>ZHIPU</strong>
-                  {activeProvider === "zhipu" && <span className="provider-active-badge">当前启用</span>}
-                </span>
-                <span className="provider-row-meta">
-                  {aiConfig?.providers.zhipu.api_key_preview ? `当前密钥 ${aiConfig.providers.zhipu.api_key_preview}` : "密钥未配置"}
-                </span>
-                <ChevronDown size={16} />
-              </button>
-              {expandedProvider === "zhipu" && (
-                <div className="provider-card-body">
-                  <label>
-                    Base URL
-                    <input value={zhipuBaseUrl} onChange={(event) => setZhipuBaseUrl(event.target.value)} required />
-                  </label>
-                  <label>
-                    API Key
-                    <input
-                      value={zhipuApiKey}
-                      onChange={(event) => setZhipuApiKey(event.target.value)}
-                      type="password"
-                      placeholder={aiConfig?.providers.zhipu.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
-                    />
-                  </label>
-                  <label>
-                    文本模型
-                    <select value={zhipuTextModel} onChange={(event) => setZhipuTextModel(event.target.value)}>
-                      {zhipuTextModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    视觉模型
-                    <select value={zhipuVisionModel} onChange={(event) => setZhipuVisionModel(event.target.value)}>
-                      {zhipuVisionModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    翻译模型
-                    <select value={zhipuTranslationModel} onChange={(event) => setZhipuTranslationModel(event.target.value)}>
-                      {zhipuTextModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    日报模型
-                    <select value={zhipuReportModel} onChange={(event) => setZhipuReportModel(event.target.value)}>
-                      {zhipuTextModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
-            </section>
+            {providerNames.map((provider) => {
+              const state = providerStates[provider];
+              const currentProviderConfig = aiConfig?.providers[provider];
+              const isActive = aiConfig?.active_provider === provider;
+              return (
+                <section className="provider-card" key={provider}>
+                  <button
+                    type="button"
+                    className="provider-row-button"
+                    onClick={() => toggleProvider(provider)}
+                    aria-expanded={expandedProvider === provider}
+                  >
+                    <span className="provider-row-title">
+                      <strong>{providerDisplayName(provider)}</strong>
+                      {isActive && <span className="provider-active-badge">默认通道</span>}
+                    </span>
+                    <span className="provider-row-meta">
+                      {currentProviderConfig?.api_key_preview ? `当前密钥 ${currentProviderConfig.api_key_preview}` : "密钥未配置"}
+                      {" · "}
+                      {state.enabledTextModels.length} 个语言模型
+                    </span>
+                    <ChevronDown size={16} />
+                  </button>
+                  {expandedProvider === provider && (
+                    <div className="provider-card-body">
+                      <label>
+                        Base URL
+                        <input value={state.baseUrl} onChange={(event) => updateProviderState(provider, { baseUrl: event.target.value })} required />
+                      </label>
+                      <label>
+                        API Key
+                        <input
+                          value={state.apiKey}
+                          onChange={(event) => updateProviderState(provider, { apiKey: event.target.value })}
+                          type="password"
+                          placeholder={currentProviderConfig?.has_api_key ? "留空则保持当前密钥" : "请输入 API Key"}
+                        />
+                      </label>
+                      <button
+                        className="secondary-button compact provider-detect-button"
+                        type="button"
+                        onClick={() => discoverModels(provider)}
+                        disabled={detectingProvider === provider}
+                      >
+                        <RefreshCw size={16} />
+                        {detectingProvider === provider ? "检测中..." : "检测上游模型"}
+                      </button>
+                      <div className="model-group">
+                        <div className="model-group-head">
+                          <span>开放语言模型</span>
+                          <strong>{state.enabledTextModels.length}</strong>
+                        </div>
+                        <div className="model-checkbox-grid">
+                          {state.availableTextModels.map((modelName) => (
+                            <label className="model-checkbox" key={`${provider}-text-${modelName}`}>
+                              <input
+                                type="checkbox"
+                                checked={state.enabledTextModels.includes(modelName)}
+                                onChange={() => toggleModel(provider, "text", modelName)}
+                              />
+                              <span>{modelName}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="model-group">
+                        <div className="model-group-head">
+                          <span>开放视觉模型</span>
+                          <strong>{state.enabledVisionModels.length}</strong>
+                        </div>
+                        <div className="model-checkbox-grid">
+                          {state.availableVisionModels.length ? (
+                            state.availableVisionModels.map((modelName) => (
+                              <label className="model-checkbox" key={`${provider}-vision-${modelName}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={state.enabledVisionModels.includes(modelName)}
+                                  onChange={() => toggleModel(provider, "vision", modelName)}
+                                />
+                                <span>{modelName}</span>
+                              </label>
+                            ))
+                          ) : (
+                            <div className="empty-state compact">暂无视觉模型候选。</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="admin-model-grid compact-grid">
+                        <label>
+                          提供商默认语言模型
+                          <select
+                            value={state.textModel}
+                            onChange={(event) => updateProviderState(provider, { textModel: event.target.value })}
+                            disabled={!state.enabledTextModels.length}
+                          >
+                            {state.enabledTextModels.map((modelName) => (
+                              <option key={modelName} value={modelName}>
+                                {modelName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          提供商默认视觉模型
+                          <select
+                            value={state.visionModel}
+                            onChange={(event) => updateProviderState(provider, { visionModel: event.target.value })}
+                            disabled={!state.enabledVisionModels.length}
+                          >
+                            {!state.enabledVisionModels.length && <option value="">未开放视觉模型</option>}
+                            {state.enabledVisionModels.map((modelName) => (
+                              <option key={modelName} value={modelName}>
+                                {modelName}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
           <div className="admin-actions">
             <span className={savingAiConfig ? "provider-switch-status is-switching" : "provider-switch-status"}>
               {savingAiConfig && <span className="provider-status-dot" />}
               {savingAiConfig
-                ? `切换中，目标 ${providerDisplayName(activeProvider)}`
-                : aiConfig?.providers[activeProvider]?.api_key_preview
-                  ? `当前启用 ${activeProvider.toUpperCase()}`
-                  : "密钥未配置"}
+                ? "保存并刷新模型中"
+                : allTextModels.length
+                  ? `已开放 ${allTextModels.length} 个语言模型`
+                  : "未开放语言模型"}
             </span>
             <div className="admin-action-buttons">
               <button className="secondary-button compact" type="button" onClick={testAiConfig} disabled={testing || savingAiConfig}>
                 {testing ? "测试中..." : "测试连接"}
               </button>
               <button className="primary-button compact" type="submit" disabled={savingAiConfig}>
-                {savingAiConfig ? "切换中..." : "保存 AI 配置"}
+                {savingAiConfig ? "保存中..." : "保存 AI 配置"}
               </button>
             </div>
           </div>

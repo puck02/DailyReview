@@ -213,7 +213,7 @@ async function generateWordDetail(
       env,
       aiConfig
     );
-    await recordTokenUsage(env, userId, aiConfig, model, response.totalTokens);
+    await recordTokenUsage(env, userId, aiConfig, response.model, response.totalTokens);
     result = response.content;
   } catch {
     result = fallback;
@@ -401,7 +401,7 @@ async function translate(request: Request, env: Env, ctx?: ExecutionContext): Pr
       env,
       aiConfig
     );
-    await recordTokenUsage(env, user.id, aiConfig, model, response.totalTokens);
+    await recordTokenUsage(env, user.id, aiConfig, response.model, response.totalTokens);
     result = response.content;
   } catch {
     result = fallback;

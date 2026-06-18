@@ -15,7 +15,11 @@ async function adminCookie(env = createTestEnv()): Promise<string> {
 }
 
 function aiConfigPayload(overrides: Partial<{
-  active_provider: "gpt" | "zhipu";
+  active_provider: "gpt" | "zhipu" | "deepseek";
+  default_text_model: string;
+  default_vision_model: string;
+  translation_model: string;
+  report_model: string;
   providers: {
     gpt: {
       base_url: string;
@@ -24,6 +28,8 @@ function aiConfigPayload(overrides: Partial<{
       vision_model: string;
       translation_model: string;
       report_model: string;
+      enabled_text_models: string[];
+      enabled_vision_models: string[];
     };
     zhipu: {
       base_url: string;
@@ -32,6 +38,18 @@ function aiConfigPayload(overrides: Partial<{
       vision_model: string;
       translation_model: string;
       report_model: string;
+      enabled_text_models: string[];
+      enabled_vision_models: string[];
+    };
+    deepseek: {
+      base_url: string;
+      api_key: string;
+      text_model: string;
+      vision_model: string;
+      translation_model: string;
+      report_model: string;
+      enabled_text_models: string[];
+      enabled_vision_models: string[];
     };
   };
 }> = {}) {
@@ -44,7 +62,9 @@ function aiConfigPayload(overrides: Partial<{
         text_model: "gpt-5.5",
         vision_model: "gpt-5.4-mini",
         translation_model: "gpt-5.4-mini",
-        report_model: "gpt-5.5"
+        report_model: "gpt-5.5",
+        enabled_text_models: ["gpt-5.4-mini", "gpt-5.5"],
+        enabled_vision_models: ["gpt-5.4-mini", "gpt-5.5"]
       },
       zhipu: {
         base_url: "https://open.bigmodel.cn/api/paas/v4",
@@ -52,7 +72,19 @@ function aiConfigPayload(overrides: Partial<{
         text_model: "glm-5",
         vision_model: "glm-4.6v-flash",
         translation_model: "glm-5",
-        report_model: "glm-5"
+        report_model: "glm-5",
+        enabled_text_models: ["glm-5"],
+        enabled_vision_models: ["glm-4.6v-flash", "glm-4.6v"]
+      },
+      deepseek: {
+        base_url: "https://api.deepseek.com",
+        api_key: "deepseek1234567890",
+        text_model: "deepseek-chat",
+        vision_model: "",
+        translation_model: "deepseek-chat",
+        report_model: "deepseek-chat",
+        enabled_text_models: ["deepseek-chat", "deepseek-reasoner"],
+        enabled_vision_models: []
       }
     },
     ...overrides,
@@ -64,6 +96,8 @@ function aiConfigPayload(overrides: Partial<{
         vision_model: "gpt-5.4-mini",
         translation_model: "gpt-5.4-mini",
         report_model: "gpt-5.5",
+        enabled_text_models: ["gpt-5.4-mini", "gpt-5.5"],
+        enabled_vision_models: ["gpt-5.4-mini", "gpt-5.5"],
         ...(overrides.providers?.gpt || {})
       },
       zhipu: {
@@ -73,7 +107,20 @@ function aiConfigPayload(overrides: Partial<{
         vision_model: "glm-4.6v-flash",
         translation_model: "glm-5",
         report_model: "glm-5",
+        enabled_text_models: ["glm-5"],
+        enabled_vision_models: ["glm-4.6v-flash", "glm-4.6v"],
         ...(overrides.providers?.zhipu || {})
+      },
+      deepseek: {
+        base_url: "https://api.deepseek.com",
+        api_key: "deepseek1234567890",
+        text_model: "deepseek-chat",
+        vision_model: "",
+        translation_model: "deepseek-chat",
+        report_model: "deepseek-chat",
+        enabled_text_models: ["deepseek-chat", "deepseek-reasoner"],
+        enabled_vision_models: [],
+        ...(overrides.providers?.deepseek || {})
       }
     }
   };
@@ -313,6 +360,97 @@ describe("settings and admin routes", () => {
     const config = await getAiConfig(env);
     expect(config.active_provider).toBe("zhipu");
     expect(config.providers.gpt.text_model).toBe("gpt-5.5");
+  });
+
+  it("saves DeepSeek and exposes only globally opened chat models", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+
+    const saved = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify(
+        aiConfigPayload({
+          default_text_model: "deepseek-chat",
+          translation_model: "deepseek-chat",
+          report_model: "deepseek-reasoner",
+          providers: {
+            gpt: {
+              enabled_text_models: ["gpt-5.5"],
+              text_model: "gpt-5.5",
+              translation_model: "gpt-5.5",
+              report_model: "gpt-5.5"
+            },
+            deepseek: {
+              base_url: "https://api.deepseek.com",
+              api_key: "deepseek1234567890",
+              enabled_text_models: ["deepseek-chat", "deepseek-reasoner"],
+              text_model: "deepseek-chat",
+              translation_model: "deepseek-chat",
+              report_model: "deepseek-reasoner"
+            }
+          }
+        })
+      )
+    });
+
+    expect(saved.status).toBe(200);
+    await expect(saved.json()).resolves.toMatchObject({
+      active_provider: "deepseek",
+      text_model: "deepseek-chat",
+      translation_model: "deepseek-chat",
+      report_model: "deepseek-reasoner",
+      providers: {
+        deepseek: {
+          base_url: "https://api.deepseek.com",
+          has_api_key: true,
+          enabled_text_models: ["deepseek-chat", "deepseek-reasoner"]
+        }
+      }
+    });
+
+    const models = await fetchWorker(env, "/api/ai-models", { headers: { cookie } });
+    expect(models.status).toBe(200);
+    await expect(models.json()).resolves.toMatchObject({
+      text_model: "deepseek-chat",
+      text_models: ["gpt-5.5", "glm-5", "deepseek-chat", "deepseek-reasoner"]
+    });
+  });
+
+  it("detects upstream provider models without exposing API keys", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      expect(String(input)).toBe("https://api.deepseek.com/models");
+      return new Response(
+        JSON.stringify({
+          data: [{ id: "deepseek-chat" }, { id: "deepseek-reasoner" }, { id: "deepseek-chat" }]
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+
+    try {
+      const response = await fetchWorker(env, "/api/admin/ai-config/models", {
+        method: "POST",
+        headers: { cookie },
+        body: JSON.stringify({
+          provider: "deepseek",
+          base_url: "https://api.deepseek.com",
+          api_key: "deepseek1234567890"
+        })
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        ok: true,
+        provider: "deepseek",
+        models: ["deepseek-chat", "deepseek-reasoner"],
+        message: "检测到 2 个模型"
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it("switches the active provider back from zhipu to gpt", async () => {

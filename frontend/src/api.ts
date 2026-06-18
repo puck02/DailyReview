@@ -57,32 +57,31 @@ export type ReportContent = ReportItem & {
   markdown: string;
 };
 
+export type AiProviderName = "gpt" | "zhipu" | "deepseek";
+
+export type AiModelSet = { text: string[]; vision: string[] };
+
+export type AiProviderConfig = {
+  base_url: string;
+  has_api_key: boolean;
+  api_key_preview: string | null;
+  text_model: string;
+  vision_model: string;
+  translation_model: string;
+  report_model: string;
+  enabled_text_models: string[];
+  enabled_vision_models: string[];
+};
+
 export type AiConfig = {
-  active_provider: "gpt" | "zhipu";
-  providers: {
-    gpt: {
-      base_url: string;
-      has_api_key: boolean;
-      api_key_preview: string | null;
-      text_model: string;
-      vision_model: string;
-      translation_model: string;
-      report_model: string;
-    };
-    zhipu: {
-      base_url: string;
-      has_api_key: boolean;
-      api_key_preview: string | null;
-      text_model: string;
-      vision_model: string;
-      translation_model: string;
-      report_model: string;
-    };
-  };
-  available_models: {
-    gpt: { text: string[]; vision: string[] };
-    zhipu: { text: string[]; vision: string[] };
-  };
+  active_provider: AiProviderName;
+  default_text_model: string;
+  default_vision_model: string;
+  providers: Record<AiProviderName, AiProviderConfig>;
+  available_models: Record<AiProviderName, AiModelSet>;
+  enabled_models: Record<AiProviderName, AiModelSet>;
+  text_models: string[];
+  vision_models: string[];
   base_url: string;
   has_api_key: boolean;
   api_key_preview: string | null;
@@ -93,15 +92,45 @@ export type AiConfig = {
 };
 
 export type AiModels = {
-  active_provider: "gpt" | "zhipu";
-  available_models: {
-    gpt: { text: string[]; vision: string[] };
-    zhipu: { text: string[]; vision: string[] };
-  };
+  active_provider: AiProviderName;
+  available_models: Record<AiProviderName, AiModelSet>;
+  enabled_models: Record<AiProviderName, AiModelSet>;
+  text_models: string[];
+  vision_models: string[];
   text_model: string;
   vision_model: string;
   translation_model: string;
   report_model: string;
+};
+
+export type AiConfigPatch = {
+  active_provider?: AiProviderName;
+  default_text_model?: string;
+  default_vision_model?: string;
+  translation_model?: string;
+  report_model?: string;
+  providers: Partial<
+    Record<
+      AiProviderName,
+      {
+        base_url?: string;
+        api_key?: string;
+        text_model?: string;
+        vision_model?: string;
+        translation_model?: string;
+        report_model?: string;
+        enabled_text_models?: string[];
+        enabled_vision_models?: string[];
+      }
+    >
+  >;
+};
+
+export type AiModelDiscovery = {
+  ok: boolean;
+  provider: AiProviderName;
+  models: string[];
+  message: string;
 };
 
 export type AiConfigTest = {
@@ -219,53 +248,18 @@ export const api = {
   },
   aiConfig: () => request<AiConfig>("/api/admin/ai-config"),
   aiModels: () => request<AiModels>("/api/ai-models"),
-  updateAiConfig: (payload: {
-    active_provider: "gpt" | "zhipu";
-    providers: {
-      gpt?: {
-        base_url?: string;
-        api_key?: string;
-        text_model?: string;
-        vision_model?: string;
-        translation_model?: string;
-        report_model?: string;
-      };
-      zhipu?: {
-        base_url?: string;
-        api_key?: string;
-        text_model?: string;
-        vision_model?: string;
-        translation_model?: string;
-        report_model?: string;
-      };
-    };
-  }) =>
+  updateAiConfig: (payload: AiConfigPatch) =>
     request<AiConfig>("/api/admin/ai-config", {
       method: "PUT",
       body: JSON.stringify(payload)
     }),
-  testAiConfig: (payload: {
-    active_provider: "gpt" | "zhipu";
-    providers: {
-      gpt?: {
-        base_url?: string;
-        api_key?: string;
-        text_model?: string;
-        vision_model?: string;
-        translation_model?: string;
-        report_model?: string;
-      };
-      zhipu?: {
-        base_url?: string;
-        api_key?: string;
-        text_model?: string;
-        vision_model?: string;
-        translation_model?: string;
-        report_model?: string;
-      };
-    };
-  }) =>
+  testAiConfig: (payload: AiConfigPatch) =>
     request<AiConfigTest>("/api/admin/ai-config/test", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  discoverAiModels: (payload: { provider: AiProviderName; base_url?: string; api_key?: string }) =>
+    request<AiModelDiscovery>("/api/admin/ai-config/models", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

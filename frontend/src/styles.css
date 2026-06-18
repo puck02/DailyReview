@@ -2022,6 +2022,16 @@ textarea:focus {
   padding: 16px;
 }
 
+.admin-model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-model-grid.compact-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .provider-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -2098,6 +2108,68 @@ textarea:focus {
   gap: 12px;
   border-top: 1px solid var(--stroke);
   padding: 14px;
+}
+
+.provider-detect-button {
+  justify-self: start;
+}
+
+.model-group {
+  display: grid;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.model-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--headline);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.model-group-head strong {
+  color: var(--muted-text);
+  font-size: 12px;
+}
+
+.model-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.model-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--paragraph);
+  background: var(--surface-soft);
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.model-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary-bg);
+}
+
+.model-checkbox span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .admin-actions {
@@ -2545,6 +2617,11 @@ textarea:focus {
     padding: 16px;
   }
 
+  .admin-model-grid,
+  .admin-model-grid.compact-grid {
+    grid-template-columns: 1fr;
+  }
+
   .settings-panel {
     height: calc(100dvh - 64px);
   }
@@ -2642,6 +2719,18 @@ textarea:focus {
   .admin-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .provider-row-button {
+    grid-template-columns: minmax(0, 1fr) 20px;
+  }
+
+  .provider-row-meta {
+    display: none;
+  }
+
+  .model-checkbox-grid {
+    grid-template-columns: 1fr;
   }
 
   .translation-actions {

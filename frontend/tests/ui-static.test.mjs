@@ -249,31 +249,32 @@ test("pending image previews share one visual surface with the composer", () => 
 });
 
 test("admin provider settings expand by clicking each provider row", () => {
-  assert.ok(app.includes('const [expandedProvider, setExpandedProvider] = useState<"gpt" | "zhipu" | null>(null);'));
+  assert.ok(app.includes("const [expandedProvider, setExpandedProvider] = useState<AiProviderName | null>(null);"));
   assert.ok(app.includes("toggleProvider"));
+  assert.ok(app.includes("providerNames.map((provider) =>"));
   assert.ok(app.includes("provider-row-button"));
   assert.ok(app.includes("provider-card-body"));
-  assert.ok(app.includes('aria-expanded={expandedProvider === "gpt"}'));
-  assert.ok(app.includes('aria-expanded={expandedProvider === "zhipu"}'));
+  assert.ok(app.includes("aria-expanded={expandedProvider === provider}"));
   assert.ok(app.includes("ChevronDown"));
   assert.match(styles, /\.provider-grid\s*{[^}]*grid-template-columns:\s*1fr;/s);
   assert.match(styles, /\.provider-row-button\s*{[^}]*display:\s*grid;/s);
   assert.match(styles, /\.provider-card-body\s*{[^}]*display:\s*grid;/s);
 });
 
-test("admin provider switching shows progress and save result", () => {
+test("admin AI config save shows progress and refreshes model choices", () => {
   assert.ok(app.includes("const [savingAiConfig, setSavingAiConfig] = useState(false);"));
-  assert.ok(app.includes("const previousProvider = aiConfig?.active_provider;"));
+  assert.ok(app.includes("const [detectingProvider, setDetectingProvider]"));
   assert.ok(app.includes("setSavingAiConfig(true);"));
-  assert.ok(app.includes("setSaved(providerSwitchMessage(previousProvider, config.active_provider));"));
-  assert.ok(app.includes("savingAiConfig ? \"切换中...\" : \"保存 AI 配置\""));
+  assert.ok(app.includes('setSaved("AI 配置已保存");'));
+  assert.ok(app.includes("savingAiConfig ? \"保存中...\" : \"保存 AI 配置\""));
   assert.ok(app.includes("disabled={savingAiConfig}"));
   assert.ok(app.includes("provider-switch-status"));
   assert.ok(app.includes("provider-status-dot"));
-  assert.ok(app.includes("已切换到 GPT"));
-  assert.ok(app.includes("已切换到 ZHIPU"));
+  assert.ok(app.includes("保存并刷新模型中"));
   assert.ok(app.includes("AI 配置已保存"));
   assert.ok(app.includes("window.dispatchEvent(new Event(aiConfigChangedEvent));"));
+  assert.ok(app.includes("api.discoverAiModels"));
+  assert.ok(app.includes("检测上游模型"));
   assert.match(styles, /\.provider-switch-status\s*{[^}]*display:\s*inline-flex;/s);
   assert.match(styles, /\.provider-status-dot\s*{[^}]*animation:\s*provider-status-pulse 900ms ease-in-out infinite;/s);
   assert.match(styles, /@keyframes provider-status-pulse\s*{/);
@@ -451,24 +452,26 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("api.aiConfig()"));
   assert.ok(app.includes("api.updateAiConfig({"));
   assert.ok(app.includes("api.testAiConfig({"));
-  assert.ok(app.includes("当前启用提供商"));
-  assert.ok(app.includes('value={activeProvider}'));
+  assert.ok(app.includes("默认对话模型"));
+  assert.ok(app.includes("图片消息视觉模型"));
+  assert.ok(app.includes("value={defaultTextModel}"));
   assert.ok(app.includes("provider-grid"));
   assert.ok(app.includes("provider-card"));
   assert.ok(app.includes("GPT"));
   assert.ok(app.includes("ZHIPU"));
+  assert.ok(app.includes("DeepSeek"));
   assert.ok(app.includes("api_key_preview"));
-  assert.ok(apiSource.includes("active_provider: \"gpt\" | \"zhipu\";"));
-  assert.ok(apiSource.includes("providers: {"));
+  assert.ok(apiSource.includes('export type AiProviderName = "gpt" | "zhipu" | "deepseek";'));
+  assert.ok(apiSource.includes("providers: Record<AiProviderName, AiProviderConfig>;"));
   assert.ok(apiSource.includes("text_model: string;"));
   assert.ok(apiSource.includes("vision_model: string;"));
   assert.ok(apiSource.includes("translation_model: string;"));
   assert.ok(apiSource.includes("report_model: string;"));
-  assert.ok(app.includes("const [activeProvider, setActiveProvider]"));
-  assert.ok(app.includes("setGptTextModel(config.providers.gpt.text_model)"));
-  assert.ok(app.includes("setZhipuTextModel(config.providers.zhipu.text_model)"));
-  assert.ok(app.includes("setGptTranslationModel(config.providers.gpt.translation_model)"));
-  assert.ok(app.includes("setZhipuReportModel(config.providers.zhipu.report_model)"));
+  assert.ok(apiSource.includes("enabled_text_models: string[];"));
+  assert.ok(apiSource.includes("enabled_vision_models: string[];"));
+  assert.ok(app.includes("providerStateFromConfig(config, \"gpt\")"));
+  assert.ok(app.includes("providerStateFromConfig(config, \"zhipu\")"));
+  assert.ok(app.includes("providerStateFromConfig(config, \"deepseek\")"));
   assert.ok(app.includes("text_model"));
   assert.ok(app.includes("vision_model"));
   assert.ok(app.includes("translation_model"));
@@ -477,15 +480,16 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("日报模型"));
   assert.ok(app.includes("glm-5"));
   assert.ok(app.includes("glm-4.6v-flash"));
+  assert.ok(app.includes("deepseek-chat"));
   assert.ok(app.includes("当前密钥"));
   assert.ok(app.includes("留空则保持当前密钥"));
   assert.ok(app.includes("测试连接"));
-  assert.ok(app.includes("setGptApiKey(\"\")"));
-  assert.ok(app.includes("setZhipuApiKey(\"\")"));
+  assert.ok(app.includes("apiKey: \"\""));
   assert.match(styles, /\.admin-form\s*{/);
   assert.match(styles, /\.admin-section\s*{/);
   assert.match(styles, /\.provider-grid\s*{/);
   assert.match(styles, /\.provider-card\s*{/);
+  assert.match(styles, /\.model-checkbox-grid\s*{/);
 });
 
 test("settings page exposes report schedule and word cloud visibility controls", () => {

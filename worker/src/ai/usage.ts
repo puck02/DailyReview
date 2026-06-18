@@ -1,6 +1,6 @@
 import { all, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
-import type { AiConfig } from "./providers";
+import { providerForAnyModel, type AiConfig } from "./providers";
 
 export type TokenUsageSummary = {
   user_id: number;
@@ -91,10 +91,11 @@ export async function recordTokenUsage(
     return;
   }
   await ensureTokenUsageTable(env);
+  const provider = providerForAnyModel(config, model) || config.active_provider;
   await env.DB.prepare(
     "INSERT INTO ai_token_usage (user_id, provider, model, total_tokens, created_at) VALUES (?, ?, ?, ?, ?)"
   )
-    .bind(userId, config.active_provider, model, Math.round(totalTokens), nowIso())
+    .bind(userId, provider, model, Math.round(totalTokens), nowIso())
     .run();
 }
 
