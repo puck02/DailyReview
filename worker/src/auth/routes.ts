@@ -31,6 +31,7 @@ type UserRow = Row & {
 };
 
 type InviteRow = Row & {
+  id: number;
   code: string;
   is_used: number;
   expires_at: string | null;
@@ -197,7 +198,7 @@ async function createInvite(request: Request, env: Env): Promise<Response> {
 async function listInvites(request: Request, env: Env): Promise<Response> {
   await requireAdmin(request, env);
   const invites = await all<InviteRow>(
-    env.DB.prepare("SELECT code, is_used, expires_at, created_at FROM invite_codes ORDER BY created_at DESC LIMIT 3")
+    env.DB.prepare("SELECT id, code, is_used, expires_at, created_at FROM invite_codes ORDER BY created_at DESC, id DESC LIMIT 3")
   );
   return json(invites.map(inviteResponse));
 }
