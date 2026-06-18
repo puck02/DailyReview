@@ -3,12 +3,10 @@ import { z } from "zod";
 import { requireUser } from "../auth/routes";
 import type { Env } from "../env";
 import { HttpError, json, route, type Route } from "../http";
-import { reportMarkdownToPdfBytes } from "./pdf";
 import {
+  ensureReportPdf,
   processReportPdfQueue,
-  readReportMarkdown,
   readReportPdf,
-  refreshReportPdfCache,
   reportById,
   reportContent,
   reportListItem,
@@ -16,6 +14,17 @@ import {
 } from "./service";
 
 const reportTypeSchema = z.enum(["daily", "weekly", "monthly"]);
+
+function pdfResponse(pdf: ArrayBuffer, filename: string): Response {
+  return new Response(pdf, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
 
 async function listReports(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const user = await requireUser(request, env);
@@ -48,25 +57,22 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
   const title = `${report.period} ${report.report_type}`;
   const cached = await readReportPdf(env, report);
   if (cached) {
-    return new Response(cached, {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff"
-      }
-    });
+    return pdfResponse(cached, filename);
   }
-  const markdown = await readReportMarkdown(env, report);
-  ctx?.waitUntil(refreshReportPdfCache(env, report, title));
-  return new Response(reportMarkdownToPdfBytes(markdown, title), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+  const generated = await ensureReportPdf(env, report, title);
+  if (generated) {
+    return pdfResponse(generated, filename);
+  }
+  return json(
+    { detail: "PDF 正在生成，请稍后重试" },
+    {
+      status: 503,
+      headers: {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff"
+      }
     }
-  });
+  );
 }
 
 export function reportRoutes(env: Env): Route[] {

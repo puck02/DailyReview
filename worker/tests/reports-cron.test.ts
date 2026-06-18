@@ -699,7 +699,7 @@ describe("reports, cron jobs, and PDF export", () => {
     await expect(monthly.json()).resolves.toMatchObject([{ report_type: "monthly", period: "2026-06" }]);
   });
 
-  it("hides reports from other users and exports a stable PDF file", async () => {
+  it("hides reports from other users and rejects low-quality PDF export without browser rendering", async () => {
     const first = await loginUser("first@example.com");
     await createMessage(first.env, first.userId, "今天复习了考研英语阅读理解的定位题", "2026-06-09T10:00:00.000Z");
     await generateDailyReports(first.env, "2026-06-09");
@@ -724,21 +724,17 @@ describe("reports, cron jobs, and PDF export", () => {
     await expect(hidden.json()).resolves.toEqual({ detail: "报告不存在" });
 
     const pdf = await fetchWorker(first.env, `/api/reports/${report.id}/pdf`, { headers: { cookie: first.cookie } });
-    expect(pdf.status).toBe(200);
-    expect(pdf.headers.get("content-type")).toBe("application/pdf");
-    expect(pdf.headers.get("content-disposition")).toContain("2026-06-09-daily.pdf");
-    const body = new Uint8Array(await pdf.arrayBuffer());
-    expect(new TextDecoder("latin1").decode(body.slice(0, 8))).toBe("%PDF-1.7");
-    expect(new TextDecoder("latin1").decode(body)).toContain("STSong-Light");
+    expect(pdf.status).toBe(503);
+    await expect(pdf.json()).resolves.toEqual({ detail: "PDF 正在生成，请稍后重试" });
   });
 
-  it("exports a quick fallback PDF and warms the browser-rendered PDF cache in the background", async () => {
+  it("renders and returns the browser PDF immediately when the cache is cold", async () => {
     pdfCalls.length = 0;
     const first = await loginUser("formula@example.com");
     first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
     await first.env.BUCKET.put(
       "reports/user-formula/daily/2026/06/2026-06-10.md",
-      "# 学习日报\n\n## 核心知识\n\n核心公式：$$\\lim_{x \\to 0}\\frac{\\sin x}{x}=1$$",
+      "# 学习日报\n\n## 核心知识\n\n不能把 \nΔy/Δx 直接等同于 \ndy/dx；更准确地说，\ndy/dx = lim_{Δx→0} Δy/Δx。",
       { httpMetadata: { contentType: "text/markdown; charset=utf-8" } }
     );
     const insert = await first.env.DB.prepare(
@@ -753,13 +749,12 @@ describe("reports, cron jobs, and PDF export", () => {
 
     const pdf = await fetchWorker(envWithBrowser, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } }, undefined, ctx);
     expect(pdf.status).toBe(200);
-    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("STSong-Light");
-    expect(pdfCalls).toHaveLength(0);
-
+    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("rendered by browser");
     await wait();
     expect(pdfCalls).toHaveLength(1);
     expect(pdfCalls[0]?.html).toContain("katex-display");
     expect(pdfCalls[0]?.html).toContain("mfrac");
+    expect(pdfCalls[0]?.html).toContain("lim");
     expect(pdfCalls[0]?.closed).toBe(true);
 
     const report = await first.env.DB.prepare("SELECT * FROM reports WHERE user_id = ? AND report_type = 'daily' AND period = ?")
@@ -807,44 +802,28 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(pdfCalls).toHaveLength(0);
   });
 
-  it("still exports a fallback PDF when cached PDF storage operations fail", async () => {
+  it("returns a clear error instead of a low-quality PDF when browser rendering is unavailable", async () => {
     pdfCalls.length = 0;
-    const first = await loginUser("cache-failure@example.com");
-    const originalBucket = first.env.BUCKET;
+    const first = await loginUser("browser-unavailable@example.com");
     const markdownKey = "reports/user-cache-failure/daily/2026/06/2026-06-15.md";
-    await originalBucket.put(markdownKey, "# 2026-06-15 学习日报\n\n## 核心知识\n\n- 可积必有界。", {
+    await first.env.BUCKET.put(markdownKey, "# 2026-06-15 学习日报\n\n## 核心知识\n\n- 可积必有界。", {
       httpMetadata: { contentType: "text/markdown; charset=utf-8" }
     });
     const insert = await first.env.DB.prepare(
       `INSERT INTO reports (user_id, report_type, period, markdown_key, html_key, stats_json, created_at)
-       VALUES (?, 'daily', '2026-06-15', ?, 'reports/user-cache-failure/daily/2026/06/2026-06-15.pdf', '{}', '2026-06-15T23:00:00.000Z')`
+       VALUES (?, 'daily', '2026-06-15', ?, NULL, '{}', '2026-06-15T23:00:00.000Z')`
     )
       .bind(first.userId, markdownKey)
       .run();
     const reportId = Number((insert.meta as { last_row_id: number }).last_row_id);
-    first.env.BROWSER = { fetch: async () => new Response(null) } as Fetcher;
-    first.env.BUCKET = {
-      ...originalBucket,
-      get: async (key) => {
-        if (String(key).endsWith(".pdf")) {
-          throw new Error("simulated cached PDF read failure");
-        }
-        return await originalBucket.get(key);
-      },
-      put: async (key, value, options) => {
-        if (String(key).endsWith(".pdf")) {
-          throw new Error("simulated cached PDF write failure");
-        }
-        return await originalBucket.put(key, value, options);
-      }
-    } as R2Bucket;
+    first.env.BROWSER = undefined;
 
     const { ctx, wait } = waitUntilContext();
     const pdf = await fetchWorker(first.env, `/api/reports/${reportId}/pdf`, { headers: { cookie: first.cookie } }, undefined, ctx);
 
-    expect(pdf.status).toBe(200);
-    expect(new TextDecoder("latin1").decode(await pdf.arrayBuffer())).toContain("STSong-Light");
+    expect(pdf.status).toBe(503);
+    await expect(pdf.json()).resolves.toEqual({ detail: "PDF 正在生成，请稍后重试" });
     await wait();
-    expect(pdfCalls).toHaveLength(1);
+    expect(pdfCalls).toHaveLength(0);
   });
 });

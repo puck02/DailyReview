@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeMarkdownMath } from "/tmp/dailyreview-frontend-tests/markdown.js";
+import { normalizeMarkdownMath } from "/tmp/dailyreview-frontend-tests/frontend/src/markdown.js";
 
 test("normalizes bare square bracket formulas into display math", () => {
   const markdown = [
@@ -77,6 +77,21 @@ test("normalizes assistant-style limit fractions and roots in code math", () => 
     normalized.includes("$$\n\\lim_{u \\to 1} \\frac{(u-1)^2}{(u-1)^2(u^2+u+1)^2}\n$$")
   );
   assert.ok(normalized.includes("$$\n\\frac{1}{(1+1+1)^2} = \\frac{1}{9}\n$$"));
+});
+
+test("normalizes bare differential and limit formulas in prose", () => {
+  const markdown = [
+    "不能把 ",
+    "Δy/Δx 直接等同于 ",
+    "dy/dx；更准确地说，",
+    "dy/dx = lim_{Δx→0} Δy/Δx。"
+  ].join("\n");
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.ok(normalized.includes("$\\frac{\\Delta y}{\\Delta x}$ 直接等同于"));
+  assert.ok(normalized.includes("$\\frac{dy}{dx}$；更准确地说，"));
+  assert.ok(normalized.includes("$\\frac{dy}{dx}$ = $\\lim_{\\Delta x \\to 0}$ $\\frac{\\Delta y}{\\Delta x}$。"));
 });
 
 test("keeps brackets inside existing display math blocks stable", () => {

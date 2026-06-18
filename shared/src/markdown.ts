@@ -146,6 +146,18 @@ function normalizeLimit(value: string): string {
   });
 }
 
+function normalizePlainMathTokens(value: string): string {
+  return value.replace(/Δ/g, "\\Delta ");
+}
+
+function stripMathPunctuation(value: string): { content: string; suffix: string } {
+  const match = value.match(/^(.+?)([.,;:，。；：、]+)?$/);
+  return {
+    content: (match?.[1] || value).trim(),
+    suffix: match?.[2] || ""
+  };
+}
+
 function splitLimitPrefix(value: string): { prefix: string; rest: string } {
   const match = value.trim().match(/^(\\lim_\{[^{}]+\})\s+(.+)$/);
   if (!match) return { prefix: "", rest: value };
@@ -153,29 +165,30 @@ function splitLimitPrefix(value: string): { prefix: string; rest: string } {
 }
 
 function normalizeFraction(value: string): string {
+  const { content, suffix } = stripMathPunctuation(value.trim());
   const parts: string[] = [];
   let cursor = 0;
-  while (cursor < value.length) {
-    const nextEquals = findTopLevelOperator(value.slice(cursor), "=");
+  while (cursor < content.length) {
+    const nextEquals = findTopLevelOperator(content.slice(cursor), "=");
     if (nextEquals === -1) {
-      parts.push(value.slice(cursor));
+      parts.push(content.slice(cursor));
       break;
     }
-    parts.push(value.slice(cursor, cursor + nextEquals));
+    parts.push(content.slice(cursor, cursor + nextEquals));
     cursor += nextEquals + 1;
   }
   if (parts.length > 1) {
-    return parts.map((part) => normalizeFraction(part)).join(" = ");
+    return `${parts.map((part) => normalizeFraction(part)).join(" = ")}${suffix}`;
   }
 
-  const { prefix, rest } = splitLimitPrefix(value);
+  const { prefix, rest } = splitLimitPrefix(content);
   const target = rest.trim();
   const slash = findTopLevelOperator(target, "/");
-  if (slash === -1) return value.trim();
+  if (slash === -1) return `${content}${suffix}`;
   const numerator = stripOuterDelimiters(target.slice(0, slash));
-  const denominator = stripOuterDelimiters(target.slice(slash + 1));
+  const denominator = stripOuterDelimiters(stripMathPunctuation(target.slice(slash + 1).trim()).content);
   const fraction = `\\frac{${normalizeFraction(numerator)}}{${normalizeFraction(denominator)}}`;
-  return prefix ? `${prefix} ${fraction}` : fraction;
+  return `${prefix ? `${prefix} ${fraction}` : fraction}${suffix}`;
 }
 
 function hasTopLevelSlash(value: string): boolean {
@@ -189,7 +202,7 @@ function shouldUseDisplayMath(value: string): boolean {
 }
 
 function normalizeAssistantMath(value: string): string {
-  const normalized = normalizeLimit(normalizeRoots(value.trim()))
+  const normalized = normalizePlainMathTokens(normalizeLimit(normalizeRoots(value.trim())))
     .replace(/→/g, " \\to ")
     .replace(/->/g, " \\to ")
     .replace(/\s+/g, " ")
@@ -198,7 +211,7 @@ function normalizeAssistantMath(value: string): string {
 }
 
 function normalizeAssistantInlineMath(value: string): string {
-  return normalizeLimit(normalizeRoots(value.trim()))
+  return normalizePlainMathTokens(normalizeLimit(normalizeRoots(value.trim())))
     .replace(/→/g, " \\to ")
     .replace(/->/g, " \\to ")
     .replace(/\s+/g, " ")
@@ -342,8 +355,41 @@ function normalizeBareSquareMath(markdown: string) {
   return result;
 }
 
+function normalizeBareMathLine(line: string): string {
+  if (line.includes("$")) return line;
+  const fractionOperand = String.raw`(?:d[A-Za-z]|Δ[A-Za-z]+|[A-Za-z]+(?:_\{[^{}]+\}|_[A-Za-z0-9]+)?)`;
+  return line.replace(
+    new RegExp(`(lim_\\{[^{}]+\\}|(?:${fractionOperand}\\s*\\/\\s*${fractionOperand}))([.,;:，。；：、]?)`, "g"),
+    (match, formula: string, suffix: string) => {
+      const normalized = escapeInlineMath(normalizeAssistantMath(formula));
+      return `$${normalized}$${suffix || ""}`;
+    }
+  );
+}
+
+function normalizeBareMath(markdown: string) {
+  let inFence = false;
+  let inDisplayMath = false;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (line.trim() === "$$") {
+        inDisplayMath = !inDisplayMath;
+        return line;
+      }
+      if (inFence || inDisplayMath) return line;
+      if (line.includes("`") || line.includes("$")) return line;
+      return normalizeBareMathLine(line);
+    })
+    .join("\n");
+}
+
 export function normalizeMarkdownMath(markdown: string) {
-  return normalizeBareSquareMath(normalizeInlineCodeMath(markdown))
+  return normalizeBareMath(normalizeBareSquareMath(normalizeInlineCodeMath(markdown)))
     .replace(/\\\[((?:.|\n)*?)\\\]/g, (_match, content: string) => `\n\n$$\n${content.trim()}\n$$\n\n`)
     .replace(/\\\(((?:.|\n)*?)\\\)/g, (_match, content: string) => `$${content.trim()}$`);
 }
