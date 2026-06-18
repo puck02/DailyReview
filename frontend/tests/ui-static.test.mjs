@@ -69,9 +69,11 @@ test("chat model picker uses the full upstream model names", () => {
   assert.ok(apiSource.includes("aiModels: () => request<AiModels>"));
   assert.match(app, /api\s*\.\s*aiModels\(\)/);
   assert.ok(app.includes("setChatModelOptions"));
-  assert.ok(app.includes("config.available_models[config.active_provider].text"));
+  assert.ok(app.includes("const options = config.text_models.length ? config.text_models : config.text_model ? [config.text_model] : [];"));
+  assert.ok(app.includes("preferConfiguredModel && nextOptions.includes(config.text_model)"));
   assert.ok(app.includes("aiConfigChangedEvent"));
   assert.ok(app.includes("loadChatModels().catch"));
+  assert.ok(app.includes("loadChatModels(true).catch"));
   assert.ok(app.includes("window.addEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
   assert.ok(app.includes("window.removeEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
   assert.match(app, /chatModelOptions\.map\(\(option\) =>/);
@@ -482,6 +484,7 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("glm-4.6v-flash"));
   assert.ok(app.includes("deepseek-chat"));
   assert.ok(app.includes("当前密钥"));
+  assert.ok(app.includes("新密钥待保存"));
   assert.ok(app.includes("留空则保持当前密钥"));
   assert.ok(app.includes("测试连接"));
   assert.ok(app.includes("apiKey: \"\""));
@@ -490,6 +493,12 @@ test("admin page can update AI config without echoing the key", () => {
   assert.match(styles, /\.provider-grid\s*{/);
   assert.match(styles, /\.provider-card\s*{/);
   assert.match(styles, /\.model-checkbox-grid\s*{/);
+});
+
+test("chat regeneration uses the currently selected model", () => {
+  assert.ok(app.includes("assistant_message_id: assistantMessage.id"));
+  assert.ok(app.includes("model,"));
+  assert.ok(!app.includes("lastUserMessage.model || model"));
 });
 
 test("settings page exposes report schedule and word cloud visibility controls", () => {

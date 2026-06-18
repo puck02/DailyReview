@@ -417,6 +417,69 @@ describe("settings and admin routes", () => {
     });
   });
 
+  it("treats DeepSeek worker secrets as a configured provider", async () => {
+    const env = createTestEnv({
+      AI_BASE_URL: "",
+      AI_API_KEY: "",
+      DEEPSEEK_API_KEY: "deepseek-env-key"
+    });
+    const cookie = await adminCookie(env);
+
+    const config = await fetchWorker(env, "/api/admin/ai-config", { headers: { cookie } });
+    expect(config.status).toBe(200);
+    await expect(config.json()).resolves.toMatchObject({
+      providers: {
+        deepseek: {
+          base_url: "https://api.deepseek.com",
+          has_api_key: true,
+          api_key_preview: "deepse****-key"
+        }
+      }
+    });
+
+    const models = await fetchWorker(env, "/api/ai-models", { headers: { cookie } });
+    expect(models.status).toBe(200);
+    await expect(models.json()).resolves.toMatchObject({
+      text_model: "deepseek-chat",
+      text_models: ["deepseek-chat", "deepseek-reasoner"],
+      enabled_models: {
+        gpt: { text: [] },
+        zhipu: { text: [] },
+        deepseek: { text: ["deepseek-chat", "deepseek-reasoner"] }
+      }
+    });
+  });
+
+  it("hides opened models from providers without API keys in the chat model list", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+
+    const saved = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify(
+        aiConfigPayload({
+          providers: {
+            zhipu: { api_key: "" },
+            deepseek: { api_key: "" }
+          }
+        })
+      )
+    });
+    expect(saved.status).toBe(200);
+
+    const models = await fetchWorker(env, "/api/ai-models", { headers: { cookie } });
+    expect(models.status).toBe(200);
+    await expect(models.json()).resolves.toMatchObject({
+      text_models: ["gpt-5.4-mini", "gpt-5.5"],
+      enabled_models: {
+        gpt: { text: ["gpt-5.4-mini", "gpt-5.5"] },
+        zhipu: { text: [] },
+        deepseek: { text: [] }
+      }
+    });
+  });
+
   it("detects upstream provider models without exposing API keys", async () => {
     const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
     const cookie = await adminCookie(env);

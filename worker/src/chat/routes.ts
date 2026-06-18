@@ -251,7 +251,7 @@ async function streamAssistantResponse(
       let totalTokens: number | null = null;
       let actualModel = aiModel;
       try {
-        for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig)) {
+        for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig, { allowProviderFallback: false })) {
           if (chunk.model) {
             actualModel = chunk.model;
           }

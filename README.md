@@ -80,6 +80,8 @@ npx wrangler d1 execute dailyreview-prod --file worker/src/db/schema.sql
 npx wrangler secret put SECRET_KEY
 npx wrangler secret put AI_BASE_URL
 npx wrangler secret put AI_API_KEY
+npx wrangler secret put ZHIPU_API_KEY
+npx wrangler secret put DEEPSEEK_API_KEY
 npx wrangler secret put ADMIN_EMAIL
 npx wrangler secret put ADMIN_INITIAL_PASSWORD
 ```

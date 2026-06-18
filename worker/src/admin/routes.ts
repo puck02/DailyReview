@@ -10,8 +10,8 @@ import {
   AI_PROVIDER_NAMES,
   configResponse,
   defaultEnabledModels,
-  enabledModelRecord,
   enabledModels,
+  isProviderConfigured,
   modelProvider,
   normalizeProviderName,
   providerModels,
@@ -213,8 +213,8 @@ function validateProviderModel(value: string, enabled: readonly string[], allowE
 function providerDefaults(provider: AiProviderName, env: Env): AiProviderConfig {
   if (provider === "zhipu") {
     return {
-      base_url: DEFAULT_ZHIPU_BASE_URL,
-      api_key: "",
+      base_url: env.ZHIPU_BASE_URL || DEFAULT_ZHIPU_BASE_URL,
+      api_key: env.ZHIPU_API_KEY || "",
       text_model: DEFAULT_ZHIPU_TEXT_MODEL,
       vision_model: DEFAULT_ZHIPU_VISION_MODEL,
       translation_model: DEFAULT_ZHIPU_TEXT_MODEL,
@@ -225,8 +225,8 @@ function providerDefaults(provider: AiProviderName, env: Env): AiProviderConfig 
   }
   if (provider === "deepseek") {
     return {
-      base_url: DEFAULT_DEEPSEEK_BASE_URL,
-      api_key: "",
+      base_url: env.DEEPSEEK_BASE_URL || DEFAULT_DEEPSEEK_BASE_URL,
+      api_key: env.DEEPSEEK_API_KEY || "",
       text_model: DEFAULT_DEEPSEEK_TEXT_MODEL,
       vision_model: "",
       translation_model: DEFAULT_DEEPSEEK_TEXT_MODEL,
@@ -449,17 +449,60 @@ function aiConfigResponse(config: AiConfig): ReturnType<typeof configResponse> {
   return configResponse(config);
 }
 
+function configuredModelRecord(config: AiConfig): Record<AiProviderName, { text: string[]; vision: string[] }> {
+  return {
+    gpt: isProviderConfigured(config, "gpt")
+      ? {
+          text: [...config.providers.gpt.enabled_text_models],
+          vision: [...config.providers.gpt.enabled_vision_models]
+        }
+      : { text: [], vision: [] },
+    zhipu: isProviderConfigured(config, "zhipu")
+      ? {
+          text: [...config.providers.zhipu.enabled_text_models],
+          vision: [...config.providers.zhipu.enabled_vision_models]
+        }
+      : { text: [], vision: [] },
+    deepseek: isProviderConfigured(config, "deepseek")
+      ? {
+          text: [...config.providers.deepseek.enabled_text_models],
+          vision: [...config.providers.deepseek.enabled_vision_models]
+        }
+      : { text: [], vision: [] }
+  };
+}
+
+function configuredModels(config: AiConfig, kind: AiModelKind): string[] {
+  const record = configuredModelRecord(config);
+  return uniqueModels(AI_PROVIDER_NAMES.flatMap((provider) => record[provider][kind]));
+}
+
+function resolveConfiguredModel(config: AiConfig, kind: AiModelKind, preferred: string): string {
+  const models = configuredModels(config, kind);
+  if (!models.length) {
+    return preferred;
+  }
+  const provider = modelProvider(config, preferred, kind);
+  if (provider && isProviderConfigured(config, provider) && models.includes(preferred)) {
+    return preferred;
+  }
+  return models[0] || preferred;
+}
+
 function aiModelsResponse(config: AiConfig): Record<string, unknown> {
+  const models = configuredModelRecord(config);
+  const textModels = configuredModels(config, "text");
+  const visionModels = configuredModels(config, "vision");
   return {
     active_provider: config.active_provider,
-    available_models: enabledModelRecord(config),
-    enabled_models: enabledModelRecord(config),
-    text_models: enabledModels(config, "text"),
-    vision_models: enabledModels(config, "vision"),
-    text_model: resolveTextModel(config),
-    vision_model: resolveVisionModel(config),
-    translation_model: resolveTranslationModel(config),
-    report_model: resolveReportModel(config)
+    available_models: models,
+    enabled_models: models,
+    text_models: textModels,
+    vision_models: visionModels,
+    text_model: resolveConfiguredModel(config, "text", resolveTextModel(config)),
+    vision_model: resolveConfiguredModel(config, "vision", resolveVisionModel(config)),
+    translation_model: resolveConfiguredModel(config, "text", resolveTranslationModel(config)),
+    report_model: resolveConfiguredModel(config, "text", resolveReportModel(config))
   };
 }
 

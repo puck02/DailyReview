@@ -717,12 +717,13 @@ function ChatView({
   const regularSessions = useMemo(() => sessions.filter((session) => !session.is_archived), [sessions]);
   const archivedSessions = useMemo(() => sessions.filter((session) => session.is_archived), [sessions]);
 
-  async function loadChatModels() {
+  async function loadChatModels(preferConfiguredModel = false) {
     const config = await api.aiModels();
-    const options = config.text_models.length ? config.text_models : config.available_models[config.active_provider].text;
+    const options = config.text_models.length ? config.text_models : config.text_model ? [config.text_model] : [];
     const nextOptions = options.length ? options : [config.text_model || defaultModel];
     setChatModelOptions(nextOptions);
     setModel((current) => {
+      if (preferConfiguredModel && nextOptions.includes(config.text_model)) return config.text_model;
       if (nextOptions.includes(current)) return current;
       return nextOptions.includes(config.text_model) ? config.text_model : nextOptions[0] || defaultModel;
     });
@@ -738,7 +739,7 @@ function ChatView({
 
   useEffect(() => {
     function handleAiConfigChanged() {
-      loadChatModels().catch(() => {
+      loadChatModels(true).catch(() => {
         setChatModelOptions(reportModels);
         setModel(defaultModel);
       });
@@ -1097,7 +1098,7 @@ function ChatView({
         {
           session_id: active.id,
           assistant_message_id: assistantMessage.id,
-          model: lastUserMessage.model || model,
+          model,
           content: lastUserMessage.content,
           attachment_ids: lastUserMessage.attachments.map((attachment) => attachment.id)
         },
@@ -2326,7 +2327,11 @@ function AdminView() {
                       {isActive && <span className="provider-active-badge">默认通道</span>}
                     </span>
                     <span className="provider-row-meta">
-                      {currentProviderConfig?.api_key_preview ? `当前密钥 ${currentProviderConfig.api_key_preview}` : "密钥未配置"}
+                      {state.apiKey
+                        ? "新密钥待保存"
+                        : currentProviderConfig?.api_key_preview
+                          ? `当前密钥 ${currentProviderConfig.api_key_preview}`
+                          : "密钥未配置"}
                       {" · "}
                       {state.enabledTextModels.length} 个语言模型
                     </span>

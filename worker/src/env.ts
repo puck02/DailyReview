@@ -7,6 +7,10 @@ export type Env = {
   SECRET_KEY: string;
   AI_BASE_URL?: string;
   AI_API_KEY?: string;
+  ZHIPU_BASE_URL?: string;
+  ZHIPU_API_KEY?: string;
+  DEEPSEEK_BASE_URL?: string;
+  DEEPSEEK_API_KEY?: string;
   AI_DEFAULT_MODEL: string;
   AI_COMPLEX_MODEL: string;
   AI_VISION_MODEL?: string;

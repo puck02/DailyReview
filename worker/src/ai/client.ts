@@ -32,6 +32,10 @@ export type ChatStreamEvent = {
   model?: string;
 };
 
+type AiRequestOptions = {
+  allowProviderFallback?: boolean;
+};
+
 function providerConfig(config: AiConfig, provider: keyof AiConfig["providers"]): AiProviderConfig {
   return config.providers[provider];
 }
@@ -66,6 +70,12 @@ function messagesHaveImages(messages: ChatMessage[]): boolean {
   );
 }
 
+function requestedProvider(config: AiConfig, model: string, hasImages: boolean): keyof AiConfig["providers"] | null {
+  const normalized = model.trim();
+  if (!normalized) return null;
+  return modelProvider(config, normalized, hasImages ? "vision" : "text");
+}
+
 export function safeAiErrorMessage(error: unknown): string {
   if (error instanceof Error && error.name === "AbortError") {
     return "连接上游服务超时";
@@ -88,13 +98,24 @@ export async function completeChatWithUsage(
   model: string,
   fallback: string,
   _env: Env,
-  config: AiConfig
+  config: AiConfig,
+  options: AiRequestOptions = {}
 ): Promise<ChatCompletionResult> {
   const hasImages = messagesHaveImages(messages);
   if (!hasAnyConfiguredProvider(config)) {
     return { content: fallback, totalTokens: null, model };
   }
-  for (const candidate of candidateModelsForRequest(config, model, hasImages)) {
+  const requested = requestedProvider(config, model, hasImages);
+  if (requested && !isProviderConfigured(config, requested)) {
+    return { content: fallback, totalTokens: null, model };
+  }
+  const candidates =
+    requested && options.allowProviderFallback === false
+      ? candidateModelsForRequest(config, model, hasImages).filter(
+          (candidate) => modelProvider(config, candidate, hasImages ? "vision" : "text") === requested
+        )
+      : candidateModelsForRequest(config, model, hasImages);
+  for (const candidate of candidates) {
     const provider = modelProvider(config, candidate, hasImages ? "vision" : "text");
     if (!provider || !isProviderConfigured(config, provider)) {
       continue;
@@ -167,16 +188,27 @@ export async function* streamChatCompletionWithUsage(
   messages: ChatMessage[],
   model: string,
   _env: Env,
-  config: AiConfig
+  config: AiConfig,
+  options: AiRequestOptions = {}
 ): AsyncIterable<ChatStreamEvent> {
   const hasImages = messagesHaveImages(messages);
   if (!hasAnyConfiguredProvider(config)) {
     yield { content: "这是一个本地测试回答。生产环境会使用配置的 AI API。", totalTokens: null, model };
     return;
   }
+  const requested = requestedProvider(config, model, hasImages);
+  if (requested && !isProviderConfigured(config, requested)) {
+    throw new Error(`AI provider ${requested} is not configured`);
+  }
   let selectedModel = model;
   let response: Response | null = null;
-  for (const candidate of candidateModelsForRequest(config, model, hasImages)) {
+  const candidates =
+    requested && options.allowProviderFallback === false
+      ? candidateModelsForRequest(config, model, hasImages).filter(
+          (candidate) => modelProvider(config, candidate, hasImages ? "vision" : "text") === requested
+        )
+      : candidateModelsForRequest(config, model, hasImages);
+  for (const candidate of candidates) {
     const provider = modelProvider(config, candidate, hasImages ? "vision" : "text");
     if (!provider || !isProviderConfigured(config, provider)) {
       continue;
