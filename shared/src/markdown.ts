@@ -50,6 +50,7 @@ function looksLikeMath(value: string) {
 function looksLikeInlineMath(value: string) {
   const content = value.trim();
   if (!looksLikeMath(content)) return false;
+  if (hasTextualSlashSeparator(content)) return false;
   if (/^(npm|pnpm|yarn|git|curl|node|npx|wrangler|docker|SELECT|INSERT|UPDATE|DELETE)\b/i.test(content)) {
     return false;
   }
@@ -164,6 +165,55 @@ function splitLimitPrefix(value: string): { prefix: string; rest: string } {
   return { prefix: match[1] || "", rest: match[2] || "" };
 }
 
+function hasCjkText(value: string): boolean {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function hasMathSyntax(value: string): boolean {
+  return /[\\^_=<>→←↔√≤≥≠∈∉⊂⊆∑∫∞±×÷Δ]/.test(value) || /\b(lim|sin|cos|tan|ln|log|sqrt|frac|sum|int|alpha|beta|gamma|theta|pi|infty|o\()\b/.test(value);
+}
+
+function hasFormulaSyntax(value: string): boolean {
+  return /[\\^_<>→←↔√≤≥≠∈∉⊂⊆∑∫∞±×÷Δ]/.test(value) || /\b(lim|sqrt|frac|sum|int|ln|log|alpha|beta|gamma|theta|pi|infty|o\()\b/.test(value);
+}
+
+function hasTextualSlashSeparator(value: string): boolean {
+  const content = stripMathPunctuation(value.trim()).content;
+  if (!content.includes("/")) return false;
+  if (hasCjkText(content)) return true;
+  if (hasFormulaSyntax(content)) return false;
+  return /\b[A-Za-z]{1,4}\s*\/\s*[A-Za-z]{1,8}\b/.test(content);
+}
+
+function isPlainSingleLetter(value: string): boolean {
+  return /^[A-Za-z]$/.test(stripMathPunctuation(value.trim()).content);
+}
+
+function isNumericExpression(value: string): boolean {
+  return /^[0-9][0-9\s+\-*/().\[\]{}^]*$/.test(value.trim());
+}
+
+function isFractionOperand(value: string): boolean {
+  const content = stripOuterDelimiters(stripMathPunctuation(value.trim()).content);
+  if (!content || hasCjkText(content)) return false;
+  if (isNumericExpression(content)) return true;
+  if (/^d[A-Za-z]$/.test(content)) return true;
+  if (/^\\?Delta\s*[A-Za-z]+$/.test(content) || /^Δ[A-Za-z]+$/.test(content)) return true;
+  if (/^[A-Za-z](?:_\{[^{}]+\}|_[A-Za-z0-9]+)?(?:\^\{[^{}]+\}|\^[A-Za-z0-9]+)?$/.test(content)) return true;
+  return hasMathSyntax(content) && !/^[A-Za-z]{2,}$/.test(content);
+}
+
+function isFractionExpression(value: string): boolean {
+  const { rest } = splitLimitPrefix(normalizeLimit(value.trim()));
+  const target = rest.trim();
+  const slash = findTopLevelOperator(target, "/");
+  if (slash === -1) return false;
+  const numerator = target.slice(0, slash);
+  const denominator = stripMathPunctuation(target.slice(slash + 1).trim()).content;
+  if (isPlainSingleLetter(numerator) && isPlainSingleLetter(denominator) && !hasMathSyntax(target)) return false;
+  return isFractionOperand(numerator) && isFractionOperand(denominator);
+}
+
 function normalizeFraction(value: string): string {
   const { content, suffix } = stripMathPunctuation(value.trim());
   const parts: string[] = [];
@@ -184,21 +234,16 @@ function normalizeFraction(value: string): string {
   const { prefix, rest } = splitLimitPrefix(content);
   const target = rest.trim();
   const slash = findTopLevelOperator(target, "/");
-  if (slash === -1) return `${content}${suffix}`;
+  if (slash === -1 || !isFractionExpression(target)) return `${content}${suffix}`;
   const numerator = stripOuterDelimiters(target.slice(0, slash));
   const denominator = stripOuterDelimiters(stripMathPunctuation(target.slice(slash + 1).trim()).content);
   const fraction = `\\frac{${normalizeFraction(numerator)}}{${normalizeFraction(denominator)}}`;
   return `${prefix ? `${prefix} ${fraction}` : fraction}${suffix}`;
 }
 
-function hasTopLevelSlash(value: string): boolean {
-  const { rest } = splitLimitPrefix(normalizeLimit(value.trim()));
-  return findTopLevelOperator(rest, "/") !== -1;
-}
-
 function shouldUseDisplayMath(value: string): boolean {
   const content = value.trim();
-  return /\blim_\{/.test(content) || hasTopLevelSlash(content);
+  return /\blim_\{/.test(content) || isFractionExpression(content);
 }
 
 function normalizeAssistantMath(value: string): string {
@@ -357,7 +402,8 @@ function normalizeBareSquareMath(markdown: string) {
 
 function normalizeBareMathLine(line: string): string {
   if (line.includes("$")) return line;
-  const fractionOperand = String.raw`(?:d[A-Za-z]|Δ[A-Za-z]+|[A-Za-z]+(?:_\{[^{}]+\}|_[A-Za-z0-9]+)?)`;
+  const variableOperand = String.raw`[A-Za-z](?:(?:_\{[^{}]+\}|_[A-Za-z0-9]+)(?:\^\{[^{}]+\}|\^[A-Za-z0-9]+)?|(?:\^\{[^{}]+\}|\^[A-Za-z0-9]+))`;
+  const fractionOperand = String.raw`(?:d[A-Za-z]|Δ[A-Za-z]+|${variableOperand})`;
   return line.replace(
     new RegExp(`(lim_\\{[^{}]+\\}|(?:${fractionOperand}\\s*\\/\\s*${fractionOperand}))([.,;:，。；：、]?)`, "g"),
     (match, formula: string, suffix: string) => {

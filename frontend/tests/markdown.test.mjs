@@ -20,6 +20,28 @@ test("keeps normal markdown links and image labels unchanged", () => {
   assert.equal(normalizeMarkdownMath(markdown), markdown);
 });
 
+test("keeps slash separators in prose unchanged", () => {
+  const markdown = [
+    "登录/注册入口都在右上角。",
+    "输入可以是中文 / English。",
+    "这个开关表示开启/关闭。",
+    "可选阅读/写作/翻译三类任务。",
+    "这个实验不是 A/B 测试。",
+    "`中文 / English`",
+    "`登录/注册`",
+    "`登录/注册 = 二选一`",
+    "`中文 / English = 输入语言`",
+    "`阅读/写作/翻译 = 任务类型`",
+    "`A/B = 两种方案`"
+  ].join("\n");
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.equal(normalized, markdown);
+  assert.doesNotMatch(normalized, /\\frac/);
+  assert.doesNotMatch(normalized, /\$/);
+});
+
 test("normalizes TeX slash delimiters", () => {
   const markdown = "\\[ \\cos x=1-\\frac{x^2}{2}+o(x^2) \\] 和 \\( E=mc^2 \\)";
 
