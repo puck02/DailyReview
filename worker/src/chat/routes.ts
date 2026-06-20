@@ -8,6 +8,7 @@ import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
 import { isAiConfigured, streamChatCompletionWithUsage, type AiConfig, type ChatMessage } from "../ai/client";
 import { aiTextModel } from "../ai/client";
+import { withMathMarkdownProtocol } from "../ai/prompting";
 import { resolveChatModel } from "../ai/providers";
 import { recordTokenUsage } from "../ai/usage";
 
@@ -344,7 +345,7 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
   const history = await historyForSession(env, session.id, aiConfig, hasImages ? userMessageId : null, payload.image_data_urls);
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history, user.id);
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id);
 }
 
 async function regenerateChat(request: Request, env: Env): Promise<Response> {
@@ -393,7 +394,7 @@ async function regenerateChat(request: Request, env: Env): Promise<Response> {
   const aiModel = resolveChatModel(aiConfig, payload.model, attachments.length > 0);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, lastUserMessage.id).run();
   const history = await historyForSession(env, session.id, aiConfig, lastUserMessage.id);
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, history, user.id, assistantMessage.id);
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, assistantMessage.id);
 }
 
 export function chatRoutes(env: Env): Route[] {

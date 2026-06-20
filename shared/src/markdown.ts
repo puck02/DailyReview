@@ -137,13 +137,13 @@ function normalizeRoots(value: string): string {
 }
 
 function normalizeLimit(value: string): string {
-  return value.replace(/\blim_\{([^{}]+)\}/g, (_match, content: string) => {
+  return value.replace(/(^|[^A-Za-z\\])\\?lim_\{([^{}]+)\}/g, (_match, prefix: string, content: string) => {
     const normalized = content
       .replace(/→/g, " \\to ")
       .replace(/->/g, " \\to ")
       .replace(/\s+/g, " ")
       .trim();
-    return `\\lim_{${normalized}}`;
+    return `${prefix}\\lim_{${normalized}}`;
   });
 }
 
@@ -350,6 +350,220 @@ function inlineCodeEnd(markdown: string, start: number): number {
   return close === -1 ? markdown.length : close + 1;
 }
 
+function transformOutsideInlineCode(line: string, transform: (segment: string) => string): string {
+  let result = "";
+  let cursor = 0;
+  while (cursor < line.length) {
+    const open = line.indexOf("`", cursor);
+    if (open === -1) {
+      result += transform(line.slice(cursor));
+      break;
+    }
+    result += transform(line.slice(cursor, open));
+    const close = line.indexOf("`", open + 1);
+    if (close === -1) {
+      result += line.slice(open);
+      break;
+    }
+    result += line.slice(open, close + 1);
+    cursor = close + 1;
+  }
+  return result;
+}
+
+function findSingleDollar(value: string, start: number): number {
+  for (let index = start; index < value.length; index += 1) {
+    if (value[index] !== "$") continue;
+    if (value[index + 1] === "$" || value[index - 1] === "$" || value[index - 1] === "\\") continue;
+    return index;
+  }
+  return -1;
+}
+
+function normalizeEscapedMarkdownMathLine(line: string): string {
+  return transformOutsideInlineCode(line, (segment) => {
+    let result = "";
+    let cursor = 0;
+    while (cursor < segment.length) {
+      const open = segment.indexOf("\\$", cursor);
+      if (open === -1) {
+        result += segment.slice(cursor);
+        break;
+      }
+      const close = findSingleDollar(segment, open + 2);
+      if (close === -1) {
+        result += segment.slice(cursor);
+        break;
+      }
+      const content = segment.slice(open + 2, close);
+      if (!looksLikeMath(content)) {
+        result += segment.slice(cursor, open + 2);
+        cursor = open + 2;
+        continue;
+      }
+      result += `${segment.slice(cursor, open)}$${content.trim()}$`;
+      cursor = close + 1;
+    }
+    return result;
+  });
+}
+
+function normalizeEscapedMarkdownMath(markdown: string): string {
+  let inFence = false;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (inFence) return line;
+      return normalizeEscapedMarkdownMathLine(line);
+    })
+    .join("\n");
+}
+
+function normalizeTexMathDelimiters(markdown: string): string {
+  let result = "";
+  let index = 0;
+  while (index < markdown.length) {
+    const lineStart = index === 0 || markdown[index - 1] === "\n";
+    const rest = markdown.slice(index);
+    if (lineStart && /^\s*(```|~~~)/.test(rest)) {
+      const end = fencedCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown.startsWith("$$", index)) {
+      const end = mathEnd(markdown, index, "$$");
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown[index] === "$") {
+      const end = mathEnd(markdown, index, "$");
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown[index] === "`") {
+      const end = inlineCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown.startsWith("\\[", index)) {
+      const close = markdown.indexOf("\\]", index + 2);
+      if (close !== -1) {
+        result += `\n\n$$\n${markdown.slice(index + 2, close).trim()}\n$$\n\n`;
+        index = close + 2;
+        continue;
+      }
+    }
+    if (markdown.startsWith("\\(", index)) {
+      const close = markdown.indexOf("\\)", index + 2);
+      if (close !== -1) {
+        result += `$${markdown.slice(index + 2, close).trim()}$`;
+        index = close + 2;
+        continue;
+      }
+    }
+    result += markdown[index];
+    index += 1;
+  }
+  return result;
+}
+
+function mathPrefixStart(value: string, open: number): number {
+  let start = open;
+  while (start > 0 && /[A-Za-z0-9\s\\()[\]{}_^+\-*/'=.]/.test(value[start - 1] || "")) {
+    start -= 1;
+  }
+  let prefix = value.slice(start, open);
+  const marker = prefix.match(/^(\s*(?:[-*+]\s+|\d+[.)]\s+))(.+)$/);
+  if (marker && looksLikeInlineMath(marker[2] || "")) {
+    start += (marker[1] || "").length;
+    prefix = marker[2] || "";
+  }
+  if (!prefix.trim() || !looksLikeInlineMath(prefix)) return open;
+  return start;
+}
+
+function readNakedLatexContinuation(value: string, start: number): { content: string; end: number } | null {
+  let index = start;
+  while (value[index] === " ") index += 1;
+  if (!/^\\(?:frac|lim|sqrt|sum|int|sin|cos|tan|ln|log)\b/.test(value.slice(index))) {
+    return null;
+  }
+  let end = index;
+  let depth = 0;
+  while (end < value.length) {
+    const char = value[end] || "";
+    if (char === "{" || char === "[" || char === "(") depth += 1;
+    if (char === "}" || char === "]" || char === ")") depth = Math.max(0, depth - 1);
+    if (depth === 0 && /[\n，。；：、]/.test(char)) break;
+    if (depth === 0 && end > index && hasCjkText(char)) break;
+    end += 1;
+  }
+  const content = value.slice(index, end).trim();
+  return content && hasFormulaSyntax(content) ? { content, end } : null;
+}
+
+function repairMixedMarkdownMathLine(line: string): string {
+  return transformOutsideInlineCode(line, (segment) => {
+    let result = "";
+    let cursor = 0;
+    while (cursor < segment.length) {
+      const open = findSingleDollar(segment, cursor);
+      if (open === -1) {
+        result += segment.slice(cursor);
+        break;
+      }
+      const close = findSingleDollar(segment, open + 1);
+      if (close === -1) {
+        result += segment.slice(cursor);
+        break;
+      }
+      const content = segment.slice(open + 1, close).trim();
+      const continuation = readNakedLatexContinuation(segment, close + 1);
+      if (!continuation || !hasFormulaSyntax(content)) {
+        result += segment.slice(cursor, close + 1);
+        cursor = close + 1;
+        continue;
+      }
+      const prefixStart = mathPrefixStart(segment, open);
+      const prefix = segment.slice(prefixStart, open);
+      const leading = prefix.match(/^\s*/)?.[0] || "";
+      const formulaPrefix = prefix.trim();
+      const formula = [formulaPrefix, content, continuation.content].filter(Boolean).join(" ");
+      result += `${segment.slice(cursor, prefixStart)}${leading}$${normalizeAssistantInlineMath(formula)}$`;
+      cursor = continuation.end;
+    }
+    return result;
+  });
+}
+
+function repairMixedMarkdownMath(markdown: string): string {
+  let inFence = false;
+  let inDisplayMath = false;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        return line;
+      }
+      if (line.trim() === "$$") {
+        inDisplayMath = !inDisplayMath;
+        return line;
+      }
+      if (inFence || inDisplayMath) return line;
+      return repairMixedMarkdownMathLine(line);
+    })
+    .join("\n");
+}
+
 function normalizeBareSquareMath(markdown: string) {
   let result = "";
   let buffer = "";
@@ -435,7 +649,6 @@ function normalizeBareMath(markdown: string) {
 }
 
 export function normalizeMarkdownMath(markdown: string) {
-  return normalizeBareMath(normalizeBareSquareMath(normalizeInlineCodeMath(markdown)))
-    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_match, content: string) => `\n\n$$\n${content.trim()}\n$$\n\n`)
-    .replace(/\\\(((?:.|\n)*?)\\\)/g, (_match, content: string) => `$${content.trim()}$`);
+  const prepared = repairMixedMarkdownMath(normalizeTexMathDelimiters(normalizeEscapedMarkdownMath(markdown)));
+  return normalizeBareMath(normalizeBareSquareMath(normalizeInlineCodeMath(prepared)));
 }

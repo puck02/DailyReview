@@ -3,6 +3,7 @@ import type { Env } from "../env";
 import { HttpError } from "../http";
 import { getAiConfig } from "../admin/routes";
 import { aiReportModel, completeChatWithUsage, isAiConfigured } from "../ai/client";
+import { withMathMarkdownProtocol } from "../ai/prompting";
 import { recordTokenUsage } from "../ai/usage";
 import { renderBrowserPdf } from "./browser-pdf";
 
@@ -725,7 +726,7 @@ ${rewriteInstruction}
 ${eventSummary}`;
   const fallback = fallbackDailyMarkdown(day, eventSummary, keywords);
   const model = aiReportModel(aiConfig);
-  const response = await completeChatWithUsage([{ role: "user", content: prompt }], model, fallback, env, aiConfig);
+  const response = await completeChatWithUsage(withMathMarkdownProtocol([{ role: "user", content: prompt }]), model, fallback, env, aiConfig);
   await recordTokenUsage(env, userId, aiConfig, response.model, response.totalTokens);
   return compactDailyMarkdown(response.content);
 }

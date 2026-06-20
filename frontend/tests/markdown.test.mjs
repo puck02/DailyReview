@@ -51,6 +51,17 @@ test("normalizes TeX slash delimiters", () => {
   assert.ok(normalized.includes("$E=mc^2$"));
 });
 
+test("repairs escaped and mixed markdown math delimiters from model output", () => {
+  const markdown = String.raw`f'(1) = \$\lim_{h \to 0}$ \frac{2f(h) - f(1)}{h}，且原式为 \( f(1+x) = 2f(x) \)。`;
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.ok(normalized.includes("$f'(1) = \\lim_{h \\to 0} \\frac{2f(h) - f(1)}{h}$，"));
+  assert.ok(normalized.includes("$f(1+x) = 2f(x)$"));
+  assert.doesNotMatch(normalized, /\\\$/);
+  assert.doesNotMatch(normalized, /\\\(/);
+});
+
 test("normalizes inline code that is actually math", () => {
   const markdown = [
     "`y_n = e^{x_n} - e^{-x_n}`",

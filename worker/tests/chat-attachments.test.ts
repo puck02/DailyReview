@@ -188,6 +188,56 @@ describe("chat sessions and attachments", () => {
     expect(calls).toEqual([{ url: "https://api.deepseek.com/chat/completions", model: "deepseek-chat" }]);
   });
 
+  it("adds a stable math markdown protocol to chat completions", async () => {
+    const { env, cookie, adminCookie } = await loginUser();
+    await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie: adminCookie },
+      body: JSON.stringify({
+        default_text_model: "gpt-5.4-mini",
+        providers: {
+          gpt: {
+            base_url: "https://gpt.example.test/v1",
+            api_key: "gpt-key",
+            text_model: "gpt-5.4-mini",
+            translation_model: "gpt-5.4-mini",
+            report_model: "gpt-5.4-mini",
+            enabled_text_models: ["gpt-5.4-mini"]
+          }
+        }
+      })
+    });
+    let requestBody: { messages?: Array<{ role: string; content: unknown }> } | null = null;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body || "{}")) as typeof requestBody;
+      return new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "公式", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "讲一下导数定义", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+
+    expect(stream.status).toBe(200);
+    await readSse(stream);
+    expect(requestBody?.messages?.at(-1)).toMatchObject({ role: "user", content: "讲一下导数定义" });
+    const protocol = requestBody?.messages?.at(-2);
+    expect(protocol?.role).toBe("system");
+    expect(String(protocol?.content)).toContain("行内公式只使用 $...$");
+    expect(String(protocol?.content)).toContain("不要使用 \\(...\\)、\\[...\\]、\\$");
+    expect(String(protocol?.content)).toContain("不要输出裸露的 \\frac");
+  });
+
   it("uses the configured default chat model when creating a new session", async () => {
     const { env, cookie, adminCookie } = await loginUser();
     const saved = await fetchWorker(env, "/api/admin/ai-config", {

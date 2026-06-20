@@ -126,7 +126,7 @@ describe("translation routes", () => {
       body: JSON.stringify({ email: "zhipu-user@example.com", password: "user-password", invite_code: code })
     });
     const cookie = cookieFrom(register);
-    let requestBody: { model?: string } | null = null;
+    let requestBody: { messages?: Array<{ role: string; content: unknown }>; model?: string } | null = null;
     const aiFetch = vi.fn(async (_input, init) => {
       requestBody = JSON.parse(String(init?.body)) as typeof requestBody;
       return new Response(
@@ -147,6 +147,11 @@ describe("translation routes", () => {
     expect(response.status).toBe(200);
     expect(aiFetch).toHaveBeenCalledOnce();
     expect(requestBody?.model).toBe("glm-5");
+    const protocol = requestBody?.messages?.[0];
+    expect(protocol?.role).toBe("system");
+    expect(String(protocol?.content)).toContain("行内公式只使用 $...$");
+    expect(String(protocol?.content)).toContain("不要输出裸露的 \\frac");
+    expect(requestBody?.messages?.at(-1)).toMatchObject({ role: "user" });
   });
 
   it("rejects text over the 2000 character limit before storing entries", async () => {

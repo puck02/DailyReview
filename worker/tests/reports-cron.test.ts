@@ -6,6 +6,14 @@ import { cookieFrom, createTestEnv, fetchWorker, MemoryReportScheduler } from ".
 
 const pdfCalls: { html: string; closed: boolean }[] = [];
 
+function promptFromMessages(
+  messages: Array<{ role?: string; content?: unknown }> | undefined,
+  marker: string
+): string {
+  const message = messages?.find((item) => item.role !== "system" && String(item.content || "").includes(marker));
+  return String(message?.content || "");
+}
+
 function waitUntilContext() {
   const promises: Promise<unknown>[] = [];
   return {
@@ -323,7 +331,7 @@ describe("reports, cron jobs, and PDF export", () => {
     });
     await createMessage(env, userId, "今天理解了极限存在必须左右极限相等，并修正了只看代入值的误解", "2026-06-09T10:00:00.000Z");
 
-    let requestBody: { model?: string; messages?: Array<{ content?: string }> } | null = null;
+    let requestBody: { model?: string; messages?: Array<{ role?: string; content?: unknown }> } | null = null;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       requestBody = JSON.parse(String(init?.body));
       return new Response(
@@ -347,7 +355,11 @@ describe("reports, cron jobs, and PDF export", () => {
     }
 
     expect(requestBody?.model).toBe("gpt-5.4-mini");
-    const prompt = requestBody?.messages?.[0]?.content || "";
+    const protocol = requestBody?.messages?.[0];
+    expect(protocol?.role).toBe("system");
+    expect(String(protocol?.content)).toContain("行内公式只使用 $...$");
+    expect(String(protocol?.content)).toContain("不要输出裸露的 \\frac");
+    const prompt = promptFromMessages(requestBody?.messages, "学习复盘");
     expect(prompt).toContain("你的任务不是总结聊天内容，而是帮助我进行一次高质量的学习复盘");
     expect(prompt).toContain("今天最大的收获");
     expect(prompt).toContain("今天修正的误解");
@@ -449,8 +461,11 @@ describe("reports, cron jobs, and PDF export", () => {
 
     const requestPrompts: string[] = [];
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }> };
-      const prompt = body.messages?.[0]?.content || "";
+      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ role?: string; content?: unknown }> };
+      const prompt =
+        promptFromMessages(body.messages, "抽取高价值学习事件") ||
+        promptFromMessages(body.messages, "审查这份学习日报") ||
+        promptFromMessages(body.messages, "学习复盘");
       requestPrompts.push(prompt);
       if (prompt.includes("抽取高价值学习事件")) {
         return new Response(
@@ -540,8 +555,11 @@ describe("reports, cron jobs, and PDF export", () => {
     const requestPrompts: string[] = [];
     let reportDraftCount = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }> };
-      const prompt = body.messages?.[0]?.content || "";
+      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ role?: string; content?: unknown }> };
+      const prompt =
+        promptFromMessages(body.messages, "抽取高价值学习事件") ||
+        promptFromMessages(body.messages, "审查这份学习日报") ||
+        promptFromMessages(body.messages, "学习复盘");
       requestPrompts.push(prompt);
       if (prompt.includes("抽取高价值学习事件")) {
         return new Response(
@@ -630,8 +648,11 @@ describe("reports, cron jobs, and PDF export", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       aiCalls += 1;
       await new Promise((resolve) => setTimeout(resolve, 20));
-      const body = JSON.parse(String(init?.body || "{}")) as { messages?: Array<{ content?: string }> };
-      const prompt = body.messages?.[0]?.content || "";
+      const body = JSON.parse(String(init?.body || "{}")) as { messages?: Array<{ role?: string; content?: unknown }> };
+      const prompt =
+        promptFromMessages(body.messages, "学习复盘信息抽取器") ||
+        promptFromMessages(body.messages, "请审查这份学习日报是否合格") ||
+        promptFromMessages(body.messages, "学习复盘");
       if (prompt.includes("学习复盘信息抽取器")) {
         return new Response(
           JSON.stringify({

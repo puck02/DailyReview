@@ -6,6 +6,7 @@ import { all, boolFromDb, boolToDb, first, insertAndReturnId, nowIso, type Row }
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
 import { aiTranslationModel, completeChatWithUsage, isAiConfigured } from "../ai/client";
+import { withMathMarkdownProtocol } from "../ai/prompting";
 import { recordTokenUsage } from "../ai/usage";
 import {
   DEFAULT_TRANSLATION_PROMPT,
@@ -204,10 +205,10 @@ async function generateWordDetail(
   try {
     const model = aiTranslationModel(aiConfig);
     const response = await completeChatWithUsage(
-      [
+      withMathMarkdownProtocol([
         { role: "system", content: await getTranslationPrompt(env, userId) },
         { role: "user", content: buildWordDetailUserPrompt(text) }
-      ],
+      ]),
       model,
       fallback,
       env,
@@ -392,10 +393,10 @@ async function translate(request: Request, env: Env, ctx?: ExecutionContext): Pr
   try {
     const model = aiTranslationModel(aiConfig);
     const response = await completeChatWithUsage(
-      [
+      withMathMarkdownProtocol([
         { role: "system", content: await getTranslationPrompt(env, user.id) },
         { role: "user", content: buildTranslationUserPrompt(text, sourceKind) }
-      ],
+      ]),
       model,
       fallback,
       env,
