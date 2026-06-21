@@ -350,6 +350,104 @@ function inlineCodeEnd(markdown: string, start: number): number {
   return close === -1 ? markdown.length : close + 1;
 }
 
+function repairOrphanDisplayMathClosers(markdown: string): string {
+  let result = "";
+  let index = 0;
+  let inDisplayMath = false;
+
+  while (index < markdown.length) {
+    const lineStart = index === 0 || markdown[index - 1] === "\n";
+    const rest = markdown.slice(index);
+    if (lineStart && /^\s*(```|~~~)/.test(rest)) {
+      const end = fencedCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown[index] === "`") {
+      const end = inlineCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown.startsWith("$$", index) && markdown[index - 1] !== "\\") {
+      const currentLine = result.slice(result.lastIndexOf("\n") + 1);
+      if (!inDisplayMath && /\\end\{[A-Za-z*]+\}\s*$/.test(currentLine)) {
+        index += 2;
+        continue;
+      }
+      inDisplayMath = !inDisplayMath;
+      result += "$$";
+      index += 2;
+      continue;
+    }
+    result += markdown[index];
+    index += 1;
+  }
+
+  return result;
+}
+
+function findDisplayMathClose(markdown: string, start: number): number {
+  let index = start + 2;
+  while (index < markdown.length) {
+    const close = markdown.indexOf("$$", index);
+    if (close === -1) return -1;
+    if (markdown[close - 1] === "\\") {
+      index = close + 2;
+      continue;
+    }
+    return close;
+  }
+  return -1;
+}
+
+function normalizeDisplayMathFenceLines(markdown: string): string {
+  let result = "";
+  let index = 0;
+
+  while (index < markdown.length) {
+    const lineStart = index === 0 || markdown[index - 1] === "\n";
+    const rest = markdown.slice(index);
+    if (lineStart && /^\s*(```|~~~)/.test(rest)) {
+      const end = fencedCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown[index] === "`") {
+      const end = inlineCodeEnd(markdown, index);
+      result += markdown.slice(index, end);
+      index = end;
+      continue;
+    }
+    if (markdown.startsWith("$$", index) && markdown[index - 1] !== "\\") {
+      const close = findDisplayMathClose(markdown, index);
+      if (close === -1) {
+        result += "$$";
+        index += 2;
+        continue;
+      }
+      const rawContent = markdown.slice(index + 2, close);
+      const content = rawContent.trim();
+      const alreadyBlock = markdown[index + 2] === "\n" && markdown[close - 1] === "\n";
+      if (content && looksLikeMath(content) && !alreadyBlock) {
+        const prefix = result.endsWith("\n") ? "" : "\n";
+        const suffix = markdown[close + 2] === "\n" ? "" : "\n";
+        result += `${prefix}$$\n${content}\n$$${suffix}`;
+      } else {
+        result += markdown.slice(index, close + 2);
+      }
+      index = close + 2;
+      continue;
+    }
+    result += markdown[index];
+    index += 1;
+  }
+
+  return result;
+}
+
 function transformOutsideInlineCode(line: string, transform: (segment: string) => string): string {
   let result = "";
   let cursor = 0;
@@ -649,6 +747,7 @@ function normalizeBareMath(markdown: string) {
 }
 
 export function normalizeMarkdownMath(markdown: string) {
-  const prepared = repairMixedMarkdownMath(normalizeTexMathDelimiters(normalizeEscapedMarkdownMath(markdown)));
+  const repaired = normalizeDisplayMathFenceLines(repairOrphanDisplayMathClosers(markdown));
+  const prepared = repairMixedMarkdownMath(normalizeTexMathDelimiters(normalizeEscapedMarkdownMath(repaired)));
   return normalizeBareMath(normalizeBareSquareMath(normalizeInlineCodeMath(prepared)));
 }

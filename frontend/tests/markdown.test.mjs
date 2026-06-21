@@ -62,6 +62,38 @@ test("repairs escaped and mixed markdown math delimiters from model output", () 
   assert.doesNotMatch(normalized, /\\\(/);
 });
 
+test("keeps later display formulas stable after an orphan display close", () => {
+  const markdown = String.raw`x^2 \sin(1/x) & \text{当 } x \neq 0 \\ 0 & \text{当 } x = 0 \end{cases}$$ **可导性验证：** $$f'(0) = \lim_{h \to 0} \frac{h^2 \sin(1/h)}{h} = 0$$ 考虑极限： $$\lim_{x \to 0} f'(x) = \lim_{x \to 0} [2x \sin(1/x) - \cos(1/x)]$$`;
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.ok(
+    normalized.includes(
+      String.raw`$$
+\lim_{x \to 0} f'(x) = \lim_{x \to 0} [2x \sin(1/x) - \cos(1/x)]
+$$`
+    )
+  );
+  assert.doesNotMatch(normalized, /\$\$\n2x \\sin\(1\/x\) - \\cos\(1\/x\)\n\$\$/);
+});
+
+test("moves multiline display math content off the dollar fence lines", () => {
+  const markdown = String.raw`考虑函数：
+$$f(x) = \begin{cases}
+x^2 \sin(1/x) & \text{当 } x \neq 0 \\
+0 & \text{当 } x = 0
+\end{cases}$$`;
+
+  const normalized = normalizeMarkdownMath(markdown);
+
+  assert.ok(normalized.includes(String.raw`$$
+f(x) = \begin{cases}`));
+  assert.ok(normalized.includes(String.raw`\end{cases}
+$$`));
+  assert.doesNotMatch(normalized, /\$\$f\(x\)/);
+  assert.doesNotMatch(normalized, /\\end\{cases\}\$\$/);
+});
+
 test("normalizes inline code that is actually math", () => {
   const markdown = [
     "`y_n = e^{x_n} - e^{-x_n}`",
