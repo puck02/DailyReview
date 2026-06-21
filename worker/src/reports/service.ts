@@ -33,6 +33,17 @@ export type ReportRow = Row & {
   created_at: string;
 };
 
+export type ReportGenerationStatusRow = Row & {
+  user_id: number;
+  report_type: "daily" | "weekly" | "monthly";
+  period: string;
+  status: "running" | "success" | "failed" | "skipped";
+  message: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+};
+
 function parseDate(day: string): Date {
   return new Date(`${day}T00:00:00.000Z`);
 }
@@ -133,6 +144,18 @@ export function reportListItem(report: ReportRow): Record<string, unknown> {
     period: report.period,
     stats: stats(report),
     created_at: report.created_at
+  };
+}
+
+export function reportGenerationStatusItem(status: ReportGenerationStatusRow): Record<string, unknown> {
+  return {
+    report_type: status.report_type,
+    period: status.period,
+    status: status.status,
+    message: status.message,
+    started_at: status.started_at,
+    finished_at: status.finished_at,
+    updated_at: status.updated_at
   };
 }
 
@@ -263,6 +286,93 @@ export async function processReportPdfQueue(env: Env, limit = 10): Promise<void>
   }
 }
 
+async function ensureReportGenerationTables(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS report_generation_locks (
+      user_id INTEGER NOT NULL,
+      report_type TEXT NOT NULL,
+      period TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY(user_id, report_type, period)
+    )`
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS report_generation_statuses (
+      user_id INTEGER NOT NULL,
+      report_type TEXT NOT NULL,
+      period TEXT NOT NULL,
+      status TEXT NOT NULL,
+      message TEXT NOT NULL DEFAULT '',
+      started_at TEXT,
+      finished_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY(user_id, report_type, period)
+    )`
+  ).run();
+  await env.DB.prepare(
+    `CREATE INDEX IF NOT EXISTS idx_report_generation_statuses_user_type_period
+     ON report_generation_statuses(user_id, report_type, period DESC)`
+  ).run();
+}
+
+function reportFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || "");
+  if (/no such table|database|d1|sql/i.test(message)) {
+    return "日报生成失败：数据库结构异常，系统会在下次定时任务重试。";
+  }
+  if (/bucket|r2|write|put|storage|file/i.test(message)) {
+    return "日报生成失败：报告文件写入失败，系统会在下次定时任务重试。";
+  }
+  if (/ai|fetch|timeout|abort|upstream/i.test(message)) {
+    return "日报生成失败：AI 服务暂时不可用，系统会在下次定时任务重试。";
+  }
+  return "日报生成失败：生成服务异常，系统会在下次定时任务重试。";
+}
+
+async function recordReportGenerationStatus(
+  env: Env,
+  userId: number,
+  reportType: "daily" | "weekly" | "monthly",
+  period: string,
+  status: ReportGenerationStatusRow["status"],
+  message: string
+): Promise<void> {
+  await ensureReportGenerationTables(env);
+  const timestamp = nowIso();
+  const startedAt = status === "running" ? timestamp : null;
+  const finishedAt = status === "running" ? null : timestamp;
+  await env.DB.prepare(
+    `INSERT INTO report_generation_statuses
+       (user_id, report_type, period, status, message, started_at, finished_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, report_type, period) DO UPDATE SET
+       status = excluded.status,
+       message = excluded.message,
+       started_at = COALESCE(excluded.started_at, report_generation_statuses.started_at),
+       finished_at = excluded.finished_at,
+       updated_at = excluded.updated_at`
+  )
+    .bind(userId, reportType, period, status, message, startedAt, finishedAt, timestamp)
+    .run();
+}
+
+export async function reportGenerationStatusesForUser(
+  env: Env,
+  userId: number,
+  reportType: "daily" | "weekly" | "monthly",
+  month: string | null
+): Promise<ReportGenerationStatusRow[]> {
+  await ensureReportGenerationTables(env);
+  let sql = "SELECT * FROM report_generation_statuses WHERE user_id = ? AND report_type = ?";
+  const values: Array<string | number> = [userId, reportType];
+  if (month) {
+    sql += " AND period LIKE ?";
+    values.push(`${month}%`);
+  }
+  sql += " ORDER BY period DESC";
+  return await all<ReportGenerationStatusRow>(env.DB.prepare(sql).bind(...values));
+}
+
 async function writeReport(
   env: Env,
   userId: number,
@@ -314,6 +424,7 @@ async function tryAcquireReportGeneration(
   reportType: "daily" | "weekly" | "monthly",
   period: string
 ): Promise<boolean> {
+  await ensureReportGenerationTables(env);
   const now = nowIso();
   const lockCutoff = new Date(Date.now() - REPORT_GENERATION_LOCK_TTL_MS).toISOString();
   await env.DB.prepare(
@@ -338,6 +449,7 @@ async function releaseReportGeneration(
   reportType: "daily" | "weekly" | "monthly",
   period: string
 ): Promise<void> {
+  await ensureReportGenerationTables(env);
   await env.DB.prepare(
     "DELETE FROM report_generation_locks WHERE user_id = ? AND report_type = ? AND period = ?"
   )
@@ -779,51 +891,59 @@ export async function generateDailyReport(env: Env, userId: number, day: string)
     return null;
   }
   try {
-  const messages = await messagesForDay(env, userId, day);
-  const segments = learningSegments(messages);
-  const filteredSegments = studySegments(segments);
-  const aiConfig = await getAiConfig(env);
-  if (!segments.length || (!filteredSegments.length && !isAiConfigured(aiConfig))) {
-    return null;
-  }
-  const filteredMessages = studyMessages(messages);
-  const conversation = renderConversation(filteredMessages.length ? filteredMessages : messages);
-  const keywords = extractKeywords(conversation);
-  const events = await extractLearningEvents(
-    env,
-    userId,
-    isAiConfigured(aiConfig) ? segments : filteredSegments,
-    filteredSegments,
-    keywords,
-    aiConfig
-  );
-  if (!events.length) {
-    return null;
-  }
-  let markdown = await aiDailyMarkdown(env, userId, day, events, keywords, aiConfig);
-  let rewriteCount = 0;
-  const review = await reviewDailyMarkdown(env, userId, day, markdown, events, aiConfig);
-  if (review.status === "rewrite") {
-    rewriteCount = 1;
-    markdown = await aiDailyMarkdown(
+    await recordReportGenerationStatus(env, userId, "daily", day, "running", "日报正在生成。");
+    const messages = await messagesForDay(env, userId, day);
+    const segments = learningSegments(messages);
+    const filteredSegments = studySegments(segments);
+    const aiConfig = await getAiConfig(env);
+    if (!segments.length || (!filteredSegments.length && !isAiConfigured(aiConfig))) {
+      await recordReportGenerationStatus(env, userId, "daily", day, "skipped", "当天没有可用于日报的学习对话。");
+      return null;
+    }
+    const filteredMessages = studyMessages(messages);
+    const conversation = renderConversation(filteredMessages.length ? filteredMessages : messages);
+    const keywords = extractKeywords(conversation);
+    const events = await extractLearningEvents(
       env,
       userId,
-      day,
-      events,
+      isAiConfigured(aiConfig) ? segments : filteredSegments,
+      filteredSegments,
       keywords,
-      aiConfig,
-      `根据以下审查意见重写日报，必须修正所有问题：${review.feedback}`
+      aiConfig
     );
-  }
-  return await writeReport(env, userId, "daily", day, markdown, {
-    message_count: filteredSegments.length || events.length,
-    raw_message_count: messages.length,
-    keywords,
-    event_count: events.length,
-    quality_review: rewriteCount ? "rewrite" : "pass",
-    rewrite_count: rewriteCount,
-    related_count: 0
-  });
+    if (!events.length) {
+      await recordReportGenerationStatus(env, userId, "daily", day, "skipped", "未抽取到高价值学习内容。");
+      return null;
+    }
+    let markdown = await aiDailyMarkdown(env, userId, day, events, keywords, aiConfig);
+    let rewriteCount = 0;
+    const review = await reviewDailyMarkdown(env, userId, day, markdown, events, aiConfig);
+    if (review.status === "rewrite") {
+      rewriteCount = 1;
+      markdown = await aiDailyMarkdown(
+        env,
+        userId,
+        day,
+        events,
+        keywords,
+        aiConfig,
+        `根据以下审查意见重写日报，必须修正所有问题：${review.feedback}`
+      );
+    }
+    const report = await writeReport(env, userId, "daily", day, markdown, {
+      message_count: filteredSegments.length || events.length,
+      raw_message_count: messages.length,
+      keywords,
+      event_count: events.length,
+      quality_review: rewriteCount ? "rewrite" : "pass",
+      rewrite_count: rewriteCount,
+      related_count: 0
+    });
+    await recordReportGenerationStatus(env, userId, "daily", day, "success", "日报已生成。");
+    return report;
+  } catch (error) {
+    await recordReportGenerationStatus(env, userId, "daily", day, "failed", reportFailureMessage(error));
+    throw error;
   } finally {
     await releaseReportGeneration(env, userId, "daily", day);
   }

@@ -57,6 +57,16 @@ export type ReportContent = ReportItem & {
   markdown: string;
 };
 
+export type ReportGenerationStatus = {
+  report_type: ReportItem["report_type"];
+  period: string;
+  status: "running" | "success" | "failed" | "skipped";
+  message: string;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+};
+
 export type AiProviderName = "gpt" | "zhipu" | "deepseek";
 
 export type AiModelSet = { text: string[]; vision: string[] };
@@ -238,6 +248,8 @@ export const api = {
   },
   reports: (reportType: ReportItem["report_type"], month: string) =>
     request<ReportItem[]>(`/api/reports?report_type=${reportType}&month=${month}`),
+  reportGenerationStatuses: (reportType: ReportItem["report_type"], month: string) =>
+    request<ReportGenerationStatus[]>(`/api/reports/generation-status?report_type=${reportType}&month=${month}`),
   report: (id: number) => request<ReportContent>(`/api/reports/${id}`),
   reportPdf: async (id: number): Promise<Blob> => {
     const response = await fetch(`/api/reports/${id}/pdf`, { credentials: "include", cache: "no-store" });

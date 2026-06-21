@@ -47,6 +47,7 @@ import {
   Invite,
   Message,
   ReportContent,
+  ReportGenerationStatus,
   ReportItem,
   TokenUsageSummary,
   TranslationEntry,
@@ -275,6 +276,19 @@ function MarkdownPreview({ markdown }: { markdown: string }) {
       <MarkdownRenderer markdown={markdown} className="markdown-preview" />
     </Suspense>
   );
+}
+
+function reportGenerationTitle(status: ReportGenerationStatus, reportTypeLabel: string): string {
+  if (status.status === "running") return reportTypeLabel === "日报" ? "日报正在生成" : `${reportTypeLabel}正在生成`;
+  if (status.status === "failed") return reportTypeLabel === "日报" ? "日报生成失败" : `${reportTypeLabel}生成失败`;
+  return `${reportTypeLabel}未生成`;
+}
+
+function reportGenerationMessage(status: ReportGenerationStatus): string {
+  if (status.message) return status.message;
+  if (status.status === "running") return "生成完成后会自动出现在报告列表中。";
+  if (status.status === "failed") return "系统会在下一次定时任务重试。";
+  return "当天没有足够的学习内容生成报告。";
 }
 
 function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
@@ -1504,6 +1518,7 @@ function ReportsView() {
   const [type, setType] = useState<ReportItem["report_type"]>("daily");
   const [items, setItems] = useState<ReportItem[]>([]);
   const [active, setActive] = useState<ReportContent | null>(null);
+  const [generationStatuses, setGenerationStatuses] = useState<ReportGenerationStatus[]>([]);
   const [reportsLoading, setReportsLoading] = useState(true);
   const [reportContentLoading, setReportContentLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -1527,11 +1542,14 @@ function ReportsView() {
     setReportsLoading(true);
     setReportContentLoading(true);
     setReportError("");
-    api
-      .reports(type, month)
-      .then(async (reports) => {
+    Promise.all([
+      api.reports(type, month),
+      api.reportGenerationStatuses(type, month).catch(() => [] as ReportGenerationStatus[])
+    ])
+      .then(async ([reports, statuses]) => {
         if (listRequestId !== reportListRequestRef.current) return;
         setItems(reports);
+        setGenerationStatuses(statuses);
         if (!reports[0]) {
           setActive(null);
           setReportsLoading(false);
@@ -1545,6 +1563,7 @@ function ReportsView() {
       .catch((err) => {
         if (listRequestId !== reportListRequestRef.current) return;
         setItems([]);
+        setGenerationStatuses([]);
         setActive(null);
         setReportError(err instanceof Error ? err.message : "报告加载失败");
       })
@@ -1558,6 +1577,10 @@ function ReportsView() {
     [items]
   );
   const reportTypeLabel = type === "daily" ? "日报" : type === "weekly" ? "周报" : "月报";
+  const latestGenerationStatus = useMemo(
+    () => generationStatuses.find((status) => status.status === "running") || generationStatuses.find((status) => status.status !== "success") || null,
+    [generationStatuses]
+  );
 
   function exportReportPdf() {
     if (!active || exportingPdf) return;
@@ -1627,6 +1650,15 @@ function ReportsView() {
         ))}
       </section>
       <section className="report-content">
+        {latestGenerationStatus ? (
+          <div className={`report-generation-status is-${latestGenerationStatus.status}`}>
+            {latestGenerationStatus.status === "running" ? <span className="report-status-spinner" aria-hidden="true" /> : null}
+            <div>
+              <strong>{reportGenerationTitle(latestGenerationStatus, reportTypeLabel)}</strong>
+              <span>{reportGenerationMessage(latestGenerationStatus)}</span>
+            </div>
+          </div>
+        ) : null}
         {reportError && <div className="form-error report-export-error">{reportError}</div>}
         {reportContentLoading && !active ? (
           <div className="empty-state">正在加载报告内容...</div>

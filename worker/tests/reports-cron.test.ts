@@ -256,6 +256,50 @@ describe("reports, cron jobs, and PDF export", () => {
     await expect(list.json()).resolves.toMatchObject([{ period: "2026-06-12" }]);
   });
 
+  it("auto-creates the report generation lock table when it is missing", async () => {
+    const { env, cookie, userId } = await loginUser();
+    await env.DB.prepare("DROP TABLE report_generation_locks").run();
+    await createMessage(env, userId, "今天复习了考研英语长难句和 derivative 的用法", "2026-06-09T10:00:00.000Z");
+
+    await generateDailyReports(env, "2026-06-09");
+
+    const lockTable = await env.DB.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'report_generation_locks'"
+    ).first<{ name: string }>();
+    expect(lockTable?.name).toBe("report_generation_locks");
+    const list = await fetchWorker(env, "/api/reports?report_type=daily&month=2026-06", { headers: { cookie } });
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject([{ period: "2026-06-09" }]);
+  });
+
+  it("exposes failed daily report generation status to the current user", async () => {
+    const { env, cookie, userId } = await loginUser("report-status@example.com");
+    await createMessage(env, userId, "今天理解了极限存在必须左右极限相等", "2026-06-09T10:00:00.000Z");
+    const originalBucket = env.BUCKET;
+    env.BUCKET = {
+      ...originalBucket,
+      put: async () => {
+        throw new Error("simulated report write failure");
+      }
+    } as R2Bucket;
+
+    await expect(generateDailyReports(env, "2026-06-09")).rejects.toThrow("simulated report write failure");
+
+    const response = await fetchWorker(env, "/api/reports/generation-status?report_type=daily&month=2026-06", {
+      headers: { cookie }
+    });
+    expect(response.status).toBe(200);
+    const statuses = (await response.json()) as Array<{ period: string; status: string; message: string; updated_at: string }>;
+    expect(statuses).toMatchObject([
+      {
+        period: "2026-06-09",
+        status: "failed",
+        message: "日报生成失败：报告文件写入失败，系统会在下次定时任务重试。"
+      }
+    ]);
+    expect(statuses[0]?.updated_at).toEqual(expect.any(String));
+  });
+
   it("continues hourly daily report backfill when one user fails", async () => {
     const { env, cookie: failingCookie, adminCookie, userId: failingUserId } = await loginUser("failing@example.com");
     const healthyUser = await registerUser(env, adminCookie, "healthy@example.com");

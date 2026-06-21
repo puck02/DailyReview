@@ -9,6 +9,8 @@ import {
   refreshReportPdfCache,
   reportById,
   reportContent,
+  reportGenerationStatusItem,
+  reportGenerationStatusesForUser,
   reportListItem,
   reportsForUser
 } from "./service";
@@ -33,6 +35,15 @@ async function listReports(request: Request, env: Env, ctx?: ExecutionContext): 
   const month = url.searchParams.get("month");
   const reports = await reportsForUser(env, user.id, reportType, month);
   return json(reports.map(reportListItem));
+}
+
+async function listReportGenerationStatuses(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const url = new URL(request.url);
+  const reportType = reportTypeSchema.parse(url.searchParams.get("report_type") || "daily");
+  const month = url.searchParams.get("month");
+  const statuses = await reportGenerationStatusesForUser(env, user.id, reportType, month);
+  return json(statuses.map(reportGenerationStatusItem));
 }
 
 async function getReport(request: Request, env: Env, params: Record<string, string>): Promise<Response> {
@@ -76,6 +87,7 @@ async function getReportPdf(request: Request, env: Env, params: Record<string, s
 export function reportRoutes(env: Env): Route[] {
   return [
     route("GET", "/api/reports", (request, params, ctx) => listReports(request, env, ctx)),
+    route("GET", "/api/reports/generation-status", (request) => listReportGenerationStatuses(request, env)),
     route("GET", "/api/reports/:report_id/pdf", (request, params, ctx) => getReportPdf(request, env, params, ctx)),
     route("GET", "/api/reports/:report_id", (request, params, ctx) => getReport(request, env, params))
   ];

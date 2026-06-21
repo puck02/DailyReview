@@ -74,6 +74,20 @@ CREATE TABLE IF NOT EXISTS report_generation_locks (
   PRIMARY KEY(user_id, report_type, period)
 );
 
+CREATE TABLE IF NOT EXISTS report_generation_statuses (
+  user_id INTEGER NOT NULL,
+  report_type TEXT NOT NULL,
+  period TEXT NOT NULL,
+  status TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  started_at TEXT,
+  finished_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY(user_id, report_type, period)
+);
+CREATE INDEX IF NOT EXISTS idx_report_generation_statuses_user_type_period
+  ON report_generation_statuses(user_id, report_type, period DESC);
+
 CREATE TABLE IF NOT EXISTS translation_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,

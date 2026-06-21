@@ -748,6 +748,21 @@ test("reports list can render before the selected report markdown finishes loadi
   assert.ok(app.includes("reportContentCacheRef.current.set(content.id, content)"));
 });
 
+test("reports page surfaces background generation status", () => {
+  assert.ok(apiSource.includes("ReportGenerationStatus"));
+  assert.ok(apiSource.includes("reportGenerationStatuses"));
+  assert.ok(apiSource.includes("/api/reports/generation-status"));
+  assert.ok(app.includes("const [generationStatuses, setGenerationStatuses]"));
+  assert.ok(app.includes("latestGenerationStatus"));
+  assert.ok(app.includes("report-generation-status"));
+  assert.ok(app.includes("report-status-spinner"));
+  assert.ok(app.includes("日报正在生成"));
+  assert.ok(app.includes("日报生成失败"));
+  assert.match(styles, /\.report-generation-status\s*{/);
+  assert.match(styles, /\.report-status-spinner\s*{[^}]*animation:\s*report-status-spin/);
+  assert.match(styles, /@keyframes report-status-spin\s*{/);
+});
+
 test("PDF export opens the save picker before downloading the backend-rendered PDF", () => {
   const exportFunction = app.slice(app.indexOf("function exportReportPdf()"), app.indexOf("async function selectReport"));
   assert.ok(exportFunction.includes("api.reportPdf(reportId)"));

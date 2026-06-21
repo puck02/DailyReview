@@ -861,6 +861,10 @@ textarea:focus {
     opacity: 1;
     transform: scale(1);
   }
+
+  .report-status-spinner {
+    animation: none;
+  }
 }
 
 .message-attachments {
@@ -1395,6 +1399,61 @@ textarea:focus {
 .report-content {
   overflow-y: auto;
   padding: 24px;
+}
+
+.report-generation-status {
+  max-width: 860px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 14px;
+  padding: 13px 14px;
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-left: 4px solid var(--stroke-strong);
+  border-radius: 14px;
+}
+
+.report-generation-status.is-failed {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  border-left-color: var(--syntax-keyword);
+}
+
+.report-generation-status.is-running {
+  border-left-color: var(--headline);
+}
+
+.report-generation-status div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.report-generation-status strong {
+  color: var(--headline);
+  font-size: 14px;
+}
+
+.report-generation-status span {
+  color: var(--muted-text);
+  font-size: 13px;
+}
+
+.report-status-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--stroke);
+  border-top-color: var(--headline);
+  border-radius: 50%;
+  animation: report-status-spin 800ms linear infinite;
+}
+
+@keyframes report-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .translation-panel {
