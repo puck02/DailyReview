@@ -11,6 +11,7 @@ export type ScreenshotMark = {
   startY: number;
   endX: number;
   endY: number;
+  strokeWidth?: number;
 };
 
 export type ScreenshotExportOptions = {
@@ -25,6 +26,7 @@ const defaultMaxBytes = 600 * 1024;
 const defaultMaxDimension = 1280;
 const defaultMinDimension = 640;
 const defaultQualities = [0.74, 0.66, 0.58, 0.5, 0.44];
+const defaultStrokeWidth = 3;
 const webpType = "image/webp";
 const jpegType = "image/jpeg";
 
@@ -47,6 +49,11 @@ function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number): P
   });
 }
 
+function scaledStrokeWidth(mark: ScreenshotMark, scale: number) {
+  const strokeWidth = safeNumber(mark.strokeWidth ?? defaultStrokeWidth, defaultStrokeWidth);
+  return Math.max(0.75, strokeWidth * scale);
+}
+
 async function encodeCanvas(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   const webp = await canvasBlob(canvas, webpType, quality);
   if (webp && webp.type === webpType) return webp;
@@ -64,6 +71,7 @@ function drawArrow(context: CanvasRenderingContext2D, mark: ScreenshotMark, crop
   const length = Math.hypot(endX - startX, endY - startY);
   const headLength = clamp(length * 0.22, 12, 28);
 
+  context.lineWidth = scaledStrokeWidth(mark, scale);
   context.beginPath();
   context.moveTo(startX, startY);
   context.lineTo(endX, endY);
@@ -81,6 +89,7 @@ function drawRect(context: CanvasRenderingContext2D, mark: ScreenshotMark, crop:
   const top = (Math.min(mark.startY, mark.endY) - crop.y) * scale;
   const width = Math.abs(mark.endX - mark.startX) * scale;
   const height = Math.abs(mark.endY - mark.startY) * scale;
+  context.lineWidth = scaledStrokeWidth(mark, scale);
   context.strokeRect(left, top, width, height);
 }
 
@@ -102,7 +111,6 @@ function renderScreenshotCanvas(
 
   context.strokeStyle = "#ff3b30";
   context.fillStyle = "#ff3b30";
-  context.lineWidth = clamp(3 * scale, 2, 5);
   context.lineCap = "round";
   context.lineJoin = "round";
 

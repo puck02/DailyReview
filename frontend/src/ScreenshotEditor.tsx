@@ -1,5 +1,5 @@
 import { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, Check, Crop, RotateCcw, Square, X } from "lucide-react";
+import { ArrowUpRight, Check, Crop, RotateCcw, SlidersHorizontal, Square, X } from "lucide-react";
 import {
   ScreenshotCropRect,
   ScreenshotMark,
@@ -22,6 +22,9 @@ type ScreenshotEditorProps = {
 };
 
 const minimumDragDistance = 8;
+const defaultStrokeWidth = 3;
+const minimumStrokeWidth = 1;
+const maximumStrokeWidth = 8;
 
 function rectFromPoints(start: ScreenshotPoint, end: ScreenshotPoint): ScreenshotCropRect {
   return {
@@ -45,14 +48,15 @@ function dragDistance(draft: ScreenshotDraft) {
   return Math.hypot(draft.current.x - draft.start.x, draft.current.y - draft.start.y);
 }
 
-function markFromDraft(draft: ScreenshotDraft): ScreenshotMark | null {
+function markFromDraft(draft: ScreenshotDraft, strokeWidth: number): ScreenshotMark | null {
   if (draft.tool === "crop") return null;
   return {
     kind: draft.tool === "arrow" ? "arrow" : "rect",
     startX: draft.start.x,
     startY: draft.start.y,
     endX: draft.current.x,
-    endY: draft.current.y
+    endY: draft.current.y,
+    strokeWidth
   };
 }
 
@@ -90,13 +94,14 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
   const [crop, setCrop] = useState<ScreenshotCropRect>(() => ({ x: 0, y: 0, width: sourceWidth, height: sourceHeight }));
   const [marks, setMarks] = useState<ScreenshotMark[]>([]);
   const [draft, setDraft] = useState<ScreenshotDraft | null>(null);
+  const [strokeWidth, setStrokeWidth] = useState(defaultStrokeWidth);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const activeCrop =
     draft?.tool === "crop"
       ? clampCropRect(rectFromPoints(draft.start, draft.current), sourceWidth, sourceHeight)
       : crop;
-  const previewMark = draft && draft.tool !== "crop" && dragDistance(draft) >= minimumDragDistance ? markFromDraft(draft) : null;
+  const previewMark = draft && draft.tool !== "crop" && dragDistance(draft) >= minimumDragDistance ? markFromDraft(draft, strokeWidth) : null;
   const shownMarks = previewMark ? [...marks, previewMark] : marks;
   const overlayRects = cropOverlayRects(activeCrop, sourceWidth, sourceHeight);
   const stageStyle = {
@@ -142,7 +147,7 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
       setCrop(clampCropRect(rectFromPoints(nextDraft.start, nextDraft.current), sourceWidth, sourceHeight));
       return;
     }
-    const mark = markFromDraft(nextDraft);
+    const mark = markFromDraft(nextDraft, strokeWidth);
     if (mark) setMarks((current) => [...current, mark]);
   }
 
@@ -177,6 +182,19 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
             <ToolButton active={tool === "rect"} title="画方框" onClick={() => setTool("rect")}>
               <Square size={18} />
             </ToolButton>
+          </div>
+          <div className="screenshot-thickness-control" title="线条粗细">
+            <SlidersHorizontal size={17} />
+            <input
+              type="range"
+              min={minimumStrokeWidth}
+              max={maximumStrokeWidth}
+              step={1}
+              value={strokeWidth}
+              onChange={(event) => setStrokeWidth(Number(event.currentTarget.value))}
+              aria-label="线条粗细"
+            />
+            <span className="screenshot-thickness-value">{strokeWidth}px</span>
           </div>
           <div className="screenshot-toolbar-actions">
             <button
@@ -228,6 +246,7 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
                   y1={mark.startY}
                   x2={mark.endX}
                   y2={mark.endY}
+                  strokeWidth={mark.strokeWidth ?? defaultStrokeWidth}
                   markerEnd="url(#screenshot-arrow-head)"
                 />
               ) : (
@@ -238,6 +257,7 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
                   y={Math.min(mark.startY, mark.endY)}
                   width={Math.abs(mark.endX - mark.startX)}
                   height={Math.abs(mark.endY - mark.startY)}
+                  strokeWidth={mark.strokeWidth ?? defaultStrokeWidth}
                 />
               )
             )}

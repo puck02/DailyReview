@@ -105,6 +105,31 @@ test("exportEditedScreenshot lowers quality until the file is below the byte tar
   assert(canvases[0].operations.filter((operation) => operation[0] === "lineTo").length >= 3);
 });
 
+test("exportEditedScreenshot uses each mark stroke width when drawing annotations", async () => {
+  const { canvases } = createCanvasFactory(() => 120_000);
+  const source = { width: 800, height: 400 };
+
+  await exportEditedScreenshot(
+    source,
+    { x: 0, y: 0, width: 400, height: 200 },
+    [
+      { kind: "arrow", startX: 20, startY: 20, endX: 120, endY: 100, strokeWidth: 6 },
+      { kind: "rect", startX: 140, startY: 40, endX: 220, endY: 120, strokeWidth: 2 }
+    ],
+    {
+      maxBytes: 200_000,
+      maxDimension: 400,
+      qualities: [0.72],
+      name: "stroke.webp"
+    }
+  );
+
+  assert.deepEqual(
+    canvases[0].operations.filter((operation) => operation[0] === "lineWidth").map((operation) => operation[1]),
+    [6, 2]
+  );
+});
+
 test("exportEditedScreenshot refuses to return an image that still exceeds the byte target", async () => {
   createCanvasFactory(() => 900_000);
   const source = { width: 1600, height: 900 };

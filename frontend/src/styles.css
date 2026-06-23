@@ -1382,12 +1382,14 @@ textarea:focus {
 
 .screenshot-editor-toolbar,
 .screenshot-toolbar-actions,
-.screenshot-tool-group {
+.screenshot-tool-group,
+.screenshot-thickness-control {
   display: flex;
   align-items: center;
 }
 
 .screenshot-editor-toolbar {
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
 }
@@ -1401,6 +1403,38 @@ textarea:focus {
 
 .screenshot-toolbar-actions {
   gap: 8px;
+}
+
+.screenshot-thickness-control {
+  min-width: 182px;
+  gap: 8px;
+  padding: 6px 10px;
+  color: var(--muted-text);
+  background: var(--button-surface-hover);
+  border-radius: 16px;
+}
+
+.screenshot-thickness-control input[type="range"] {
+  width: 96px;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  accent-color: var(--headline);
+}
+
+.screenshot-thickness-control input[type="range"]:focus {
+  background: transparent;
+  box-shadow: none;
+}
+
+.screenshot-thickness-value {
+  width: 32px;
+  color: var(--headline);
+  font-size: 12px;
+  font-weight: 680;
+  text-align: right;
 }
 
 .screenshot-tool,
@@ -1502,8 +1536,7 @@ textarea:focus {
 .screenshot-mark {
   fill: transparent;
   stroke: #ff3b30;
-  stroke-width: 5;
-  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
 }
 
 .screenshot-mark-arrow {
@@ -2885,6 +2918,15 @@ textarea:focus {
   .screenshot-editor-toolbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .screenshot-thickness-control {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .screenshot-thickness-control input[type="range"] {
+    flex: 1;
   }
 
   .screenshot-toolbar-actions {
