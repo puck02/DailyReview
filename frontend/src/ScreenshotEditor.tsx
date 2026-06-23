@@ -156,7 +156,7 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
     setError("");
     try {
       const file = await exportEditedScreenshot(sourceCanvas, crop, marks, {
-        maxBytes: 600 * 1024,
+        maxBytes: 200 * 1024,
         maxDimension: 1280,
         name: `screenshot-${Date.now()}.webp`
       });

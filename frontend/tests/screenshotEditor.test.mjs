@@ -9,3 +9,7 @@ test("screenshot editor exposes a thickness slider for annotation width", () => 
   assert.match(source, /screenshot-thickness-control/);
   assert.match(source, /strokeWidth/);
 });
+
+test("screenshot editor exports screenshots under the 200KB upload target", () => {
+  assert.match(source, /maxBytes:\s*200 \* 1024/);
+});
