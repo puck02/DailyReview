@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   CalendarDays,
+  Camera,
   Check,
   Archive,
   ArchiveRestore,
@@ -57,6 +58,7 @@ import {
 } from "./api";
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
+import { ScreenshotEditor } from "./ScreenshotEditor";
 import appIconUrl from "./assets/app-icon.svg?url";
 import { prepareImageForUpload } from "./imageCompression";
 import "katex/dist/katex.min.css";
@@ -226,6 +228,45 @@ async function copyMarkdownText(text: string) {
   const copied = document.execCommand("copy");
   textarea.remove();
   return copied;
+}
+
+function isScreenshotCancel(error: unknown) {
+  return error instanceof DOMException && ["AbortError", "NotAllowedError", "SecurityError"].includes(error.name);
+}
+
+async function captureScreenCanvas(): Promise<HTMLCanvasElement> {
+  const getDisplayMedia = navigator.mediaDevices?.getDisplayMedia?.bind(navigator.mediaDevices);
+  if (!getDisplayMedia) {
+    throw new Error("当前浏览器不支持网页截图，请使用 Chrome 或 Edge 桌面版");
+  }
+
+  const stream = await getDisplayMedia({
+    video: { cursor: "always" } as MediaTrackConstraints,
+    audio: false
+  });
+  try {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("截图读取失败，请重新截图"));
+      video.srcObject = stream;
+    });
+    await video.play();
+    if (!video.videoWidth || !video.videoHeight) {
+      throw new Error("截图读取失败，请重新截图");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("当前浏览器无法处理截图");
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } finally {
+    stream.getTracks().forEach((track) => track.stop());
+  }
 }
 
 function MessageActions({
@@ -746,6 +787,7 @@ function ChatView({
   const [model, setModel] = useState(defaultModel);
   const [chatModelOptions, setChatModelOptions] = useState(reportModels);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [screenshotCanvas, setScreenshotCanvas] = useState<HTMLCanvasElement | null>(null);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const activeRef = useRef<ChatSession | null>(null);
   const draftSessionActiveRef = useRef(false);
@@ -760,6 +802,7 @@ function ChatView({
   const activeStreamAbortRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
+  const [capturingScreenshot, setCapturingScreenshot] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1071,6 +1114,26 @@ function ChatView({
     if (file) uploadFile(file).catch((err) => setError(err.message));
   }
 
+  async function handleScreenshotCapture() {
+    if (busy || isUploading || capturingScreenshot) return;
+    setCapturingScreenshot(true);
+    setError("");
+    try {
+      setScreenshotCanvas(await captureScreenCanvas());
+    } catch (err) {
+      if (!isScreenshotCancel(err)) {
+        setError(err instanceof Error ? err.message : "截图失败，请重试");
+      }
+    } finally {
+      setCapturingScreenshot(false);
+    }
+  }
+
+  function handleScreenshotConfirm(file: File) {
+    setScreenshotCanvas(null);
+    uploadFile(file).catch((err) => setError(err.message));
+  }
+
   async function sendMessage() {
     const content = input.trim();
     if ((!content && !hasReadyAttachments) || busy || sendLockRef.current) return;
@@ -1228,6 +1291,7 @@ function ChatView({
 
   const isEmptyChat = !messagesLoading && messages.length === 0;
   const isUploading = uploadingCount > 0;
+  const screenshotDisabled = isUploading || busy || capturingScreenshot;
   const hasReadyAttachments = attachments.some((attachment) => attachment.status === "ready");
   const hasFailedAttachments = attachments.some((attachment) => attachment.status === "failed");
   const composer = (
@@ -1280,6 +1344,16 @@ function ChatView({
             <ImagePlus size={18} />
             <input type="file" accept="image/*" hidden onChange={handleFileSelect} disabled={isUploading || busy} />
           </label>
+          <button
+            type="button"
+            className={`icon-button ${screenshotDisabled ? "disabled" : ""}`}
+            onClick={handleScreenshotCapture}
+            disabled={screenshotDisabled}
+            title="截图"
+            aria-label="截图"
+          >
+            <Camera size={18} />
+          </button>
           <textarea
             ref={textareaRef}
             value={input}
@@ -1298,6 +1372,13 @@ function ChatView({
 
   return (
     <div className={sidebarOpen ? "workspace" : "workspace sidebar-collapsed"}>
+      {screenshotCanvas && (
+        <ScreenshotEditor
+          sourceCanvas={screenshotCanvas}
+          onCancel={() => setScreenshotCanvas(null)}
+          onConfirm={handleScreenshotConfirm}
+        />
+      )}
       {sidebarOpen && (
         <button
           type="button"
