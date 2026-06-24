@@ -130,6 +130,29 @@ test("exportEditedScreenshot uses each mark stroke width when drawing annotation
   );
 });
 
+test("exportEditedScreenshot draws straight line annotations without a rectangle or arrow head", async () => {
+  const { canvases } = createCanvasFactory(() => 90_000);
+  const source = { width: 400, height: 240 };
+
+  await exportEditedScreenshot(
+    source,
+    { x: 0, y: 0, width: 400, height: 240 },
+    [{ kind: "line", startX: 30, startY: 44, endX: 180, endY: 120, strokeWidth: 4 }],
+    {
+      maxBytes: 200_000,
+      maxDimension: 400,
+      qualities: [0.72],
+      name: "line.webp"
+    }
+  );
+
+  const operations = canvases[0].operations;
+  assert(operations.some((operation) => operation[0] === "moveTo" && operation[1] === 30 && operation[2] === 44));
+  assert(operations.some((operation) => operation[0] === "lineTo" && operation[1] === 180 && operation[2] === 120));
+  assert(!operations.some((operation) => operation[0] === "strokeRect"));
+  assert.equal(operations.filter((operation) => operation[0] === "lineTo").length, 1);
+});
+
 test("exportEditedScreenshot refuses to return an image that still exceeds the byte target", async () => {
   createCanvasFactory(() => 900_000);
   const source = { width: 1600, height: 900 };

@@ -6,7 +6,7 @@ export type ScreenshotCropRect = {
 };
 
 export type ScreenshotMark = {
-  kind: "arrow" | "rect";
+  kind: "arrow" | "rect" | "line";
   startX: number;
   startY: number;
   endX: number;
@@ -84,6 +84,18 @@ function drawArrow(context: CanvasRenderingContext2D, mark: ScreenshotMark, crop
   context.fill();
 }
 
+function drawLine(context: CanvasRenderingContext2D, mark: ScreenshotMark, crop: ScreenshotCropRect, scale: number) {
+  const startX = (mark.startX - crop.x) * scale;
+  const startY = (mark.startY - crop.y) * scale;
+  const endX = (mark.endX - crop.x) * scale;
+  const endY = (mark.endY - crop.y) * scale;
+  context.lineWidth = scaledStrokeWidth(mark, scale);
+  context.beginPath();
+  context.moveTo(startX, startY);
+  context.lineTo(endX, endY);
+  context.stroke();
+}
+
 function drawRect(context: CanvasRenderingContext2D, mark: ScreenshotMark, crop: ScreenshotCropRect, scale: number) {
   const left = (Math.min(mark.startX, mark.endX) - crop.x) * scale;
   const top = (Math.min(mark.startY, mark.endY) - crop.y) * scale;
@@ -116,6 +128,7 @@ function renderScreenshotCanvas(
 
   for (const mark of marks) {
     if (mark.kind === "arrow") drawArrow(context, mark, crop, scale);
+    else if (mark.kind === "line") drawLine(context, mark, crop, scale);
     else drawRect(context, mark, crop, scale);
   }
 

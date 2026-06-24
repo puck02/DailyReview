@@ -1,5 +1,5 @@
 import { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, Check, Crop, RotateCcw, SlidersHorizontal, Square, X } from "lucide-react";
+import { ArrowUpRight, Check, Crop, Minus, RotateCcw, SlidersHorizontal, Square, X } from "lucide-react";
 import {
   ScreenshotCropRect,
   ScreenshotMark,
@@ -7,7 +7,7 @@ import {
   exportEditedScreenshot
 } from "./screenshotExport";
 
-type ScreenshotTool = "crop" | "arrow" | "rect";
+type ScreenshotTool = "crop" | "arrow" | "rect" | "line";
 type ScreenshotPoint = { x: number; y: number };
 type ScreenshotDraft = {
   tool: ScreenshotTool;
@@ -51,7 +51,7 @@ function dragDistance(draft: ScreenshotDraft) {
 function markFromDraft(draft: ScreenshotDraft, strokeWidth: number): ScreenshotMark | null {
   if (draft.tool === "crop") return null;
   return {
-    kind: draft.tool === "arrow" ? "arrow" : "rect",
+    kind: draft.tool === "arrow" ? "arrow" : draft.tool === "line" ? "line" : "rect",
     startX: draft.start.x,
     startY: draft.start.y,
     endX: draft.current.x,
@@ -182,6 +182,9 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
             <ToolButton active={tool === "rect"} title="画方框" onClick={() => setTool("rect")}>
               <Square size={18} />
             </ToolButton>
+            <ToolButton active={tool === "line"} title="画直线" onClick={() => setTool("line")}>
+              <Minus size={18} />
+            </ToolButton>
           </div>
           <div className="screenshot-thickness-control" title="线条粗细">
             <SlidersHorizontal size={17} />
@@ -237,19 +240,35 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
               <rect key={index} className="screenshot-crop-shade" x={rect.x} y={rect.y} width={rect.width} height={rect.height} />
             ))}
             <rect className="screenshot-crop-rect" x={activeCrop.x} y={activeCrop.y} width={activeCrop.width} height={activeCrop.height} />
-            {shownMarks.map((mark, index) =>
-              mark.kind === "arrow" ? (
-                <line
-                  key={index}
-                  className="screenshot-mark screenshot-mark-arrow"
-                  x1={mark.startX}
-                  y1={mark.startY}
-                  x2={mark.endX}
-                  y2={mark.endY}
-                  strokeWidth={mark.strokeWidth ?? defaultStrokeWidth}
-                  markerEnd="url(#screenshot-arrow-head)"
-                />
-              ) : (
+            {shownMarks.map((mark, index) => {
+              if (mark.kind === "arrow") {
+                return (
+                  <line
+                    key={index}
+                    className="screenshot-mark screenshot-mark-arrow"
+                    x1={mark.startX}
+                    y1={mark.startY}
+                    x2={mark.endX}
+                    y2={mark.endY}
+                    strokeWidth={mark.strokeWidth ?? defaultStrokeWidth}
+                    markerEnd="url(#screenshot-arrow-head)"
+                  />
+                );
+              }
+              if (mark.kind === "line") {
+                return (
+                  <line
+                    key={index}
+                    className="screenshot-mark screenshot-mark-line"
+                    x1={mark.startX}
+                    y1={mark.startY}
+                    x2={mark.endX}
+                    y2={mark.endY}
+                    strokeWidth={mark.strokeWidth ?? defaultStrokeWidth}
+                  />
+                );
+              }
+              return (
                 <rect
                   key={index}
                   className="screenshot-mark"
@@ -259,8 +278,8 @@ export function ScreenshotEditor({ sourceCanvas, onCancel, onConfirm }: Screensh
                   height={Math.abs(mark.endY - mark.startY)}
                   strokeWidth={mark.strokeWidth ?? defaultStrokeWidth}
                 />
-              )
-            )}
+              );
+            })}
           </svg>
         </div>
       </div>
