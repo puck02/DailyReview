@@ -34,6 +34,7 @@ export type ChatStreamEvent = {
 
 type AiRequestOptions = {
   allowProviderFallback?: boolean;
+  signal?: AbortSignal;
 };
 
 const DEFAULT_STREAM_TIMEOUT_MS = 60_000;
@@ -161,7 +162,8 @@ async function streamResponse(
   env: Env,
   config: AiConfig,
   provider: keyof AiConfig["providers"],
-  includeUsage: boolean
+  includeUsage: boolean,
+  requestSignal?: AbortSignal
 ): Promise<Response> {
   const body: Record<string, unknown> = { model, messages, stream: true };
   if (includeUsage) {
@@ -178,7 +180,14 @@ async function streamResponse(
     if (timeout) clearTimeout(timeout);
     timeout = null;
   };
+  const abortFromRequest = () => controller.abort(requestSignal?.reason);
   armTimeout();
+  if (requestSignal?.aborted) {
+    clearStreamTimeout();
+    controller.abort(requestSignal.reason);
+  } else {
+    requestSignal?.addEventListener("abort", abortFromRequest, { once: true });
+  }
   let response: Response;
   try {
     response = await fetch(chatCompletionsUrl(config, provider), {
@@ -189,10 +198,12 @@ async function streamResponse(
     });
   } catch (error) {
     clearStreamTimeout();
+    requestSignal?.removeEventListener("abort", abortFromRequest);
     throw error;
   }
   if (!response.body) {
     clearStreamTimeout();
+    requestSignal?.removeEventListener("abort", abortFromRequest);
     return response;
   }
   const reader = response.body.getReader();
@@ -202,6 +213,7 @@ async function streamResponse(
         const { done, value } = await reader.read();
         if (done) {
           clearStreamTimeout();
+          requestSignal?.removeEventListener("abort", abortFromRequest);
           streamController.close();
           return;
         }
@@ -209,11 +221,13 @@ async function streamResponse(
         streamController.enqueue(value);
       } catch (error) {
         clearStreamTimeout();
+        requestSignal?.removeEventListener("abort", abortFromRequest);
         streamController.error(error);
       }
     },
     async cancel(reason) {
       clearStreamTimeout();
+      requestSignal?.removeEventListener("abort", abortFromRequest);
       controller.abort();
       await reader.cancel(reason).catch(() => undefined);
     }
@@ -267,14 +281,16 @@ export async function* streamChatCompletionWithUsage(
     if (!provider || !isProviderConfigured(config, provider)) {
       continue;
     }
-    response = await streamResponse(messages, candidate, _env, config, provider, true);
+    response = await streamResponse(messages, candidate, _env, config, provider, true, options.signal);
     if (response.status === 400) {
-      response = await streamResponse(messages, candidate, _env, config, provider, false);
+      await response.body?.cancel().catch(() => undefined);
+      response = await streamResponse(messages, candidate, _env, config, provider, false, options.signal);
     }
     if (response.ok && response.body) {
       selectedModel = candidate;
       break;
     }
+    await response.body?.cancel().catch(() => undefined);
     response = null;
   }
   if (!response || !response.ok || !response.body) {

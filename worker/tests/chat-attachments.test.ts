@@ -474,6 +474,38 @@ describe("chat sessions and attachments", () => {
     });
   });
 
+  it("aborts the upstream AI request when the chat request is aborted", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    const requestAbort = new AbortController();
+    let upstreamAborted = false;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      init?.signal?.addEventListener("abort", () => {
+        upstreamAborted = true;
+      });
+      return await new Promise<Response>(() => undefined);
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "中断上游", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      signal: requestAbort.signal,
+      body: JSON.stringify({ session_id: session.id, content: "解释中断", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+
+    expect(stream.status).toBe(200);
+    requestAbort.abort();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(upstreamAborted).toBe(true);
+  });
+
   it("uploads and downloads a PNG attachment for its owner", async () => {
     const { env, cookie } = await loginUser();
     const form = new FormData();
@@ -698,6 +730,67 @@ describe("chat sessions and attachments", () => {
         { type: "image_url", image_url: { url: expect.stringMatching(/^data:image\/png;base64,/) } }
       ]
     });
+  });
+
+  it("reuses stored image context for text-only follow-up messages", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    const requestBodies: Array<{ model?: string; messages?: Array<{ role: string; content: unknown }> }> = [];
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBodies.push(JSON.parse(String(init?.body || "{}")) as (typeof requestBodies)[number]);
+      const reply = requestBodies.length === 1 ? "先看图" : "继续分析";
+      return new Response(`data: {"choices":[{"delta":{"content":"${reply}"}}]}\n\ndata: [DONE]\n\n`, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "图片上下文", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7])], { type: "image/png" }), "first.png");
+    const upload = await fetchWorker(env, "/api/attachments", { method: "POST", headers: { cookie }, body: form });
+    const attachment = (await upload.json()) as { id: number };
+
+    const firstStream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "记住这张图",
+        model: "gpt-5.4-mini",
+        attachment_ids: [attachment.id],
+        image_data_urls: ["data:image/png;base64,client-prepared-first"]
+      })
+    });
+    expect(firstStream.status).toBe(200);
+    await expect(readSse(firstStream)).resolves.toEqual([JSON.stringify("先看图"), "[DONE]"]);
+
+    const secondStream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "继续根据刚才那张图回答",
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    expect(secondStream.status).toBe(200);
+    await expect(readSse(secondStream)).resolves.toEqual([JSON.stringify("继续分析"), "[DONE]"]);
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[1].model).toBe("gpt-5.4-mini");
+    expect(requestBodies[1].messages?.find((message) => message.role === "system" && String(message.content).includes("图片记忆"))).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("记住这张图")
+    });
+    expect(requestBodies[1].messages?.find((message) => message.role === "user" && message.content === "继续根据刚才那张图回答")).toBeTruthy();
   });
 
   it("rejects chat requests with too many images or oversized client image data", async () => {

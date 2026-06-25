@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
   user_id INTEGER NOT NULL,
   title TEXT NOT NULL DEFAULT '新会话',
   default_model TEXT NOT NULL DEFAULT 'gpt-5.4-mini',
+  image_context TEXT NOT NULL DEFAULT '',
   is_archived INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

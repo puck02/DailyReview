@@ -299,7 +299,7 @@ test("composer blocks sending while image upload is still running", () => {
   assert.ok(app.includes("请先删除上传失败的图片"));
   assert.ok(app.includes("上传中"));
   assert.ok(app.includes("hasFailedAttachments"));
-  assert.ok(app.includes("disabled={busy || isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments)}"));
+  assert.ok(app.includes("disabled={!busy && (isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments))}"));
   assert.ok(app.includes("aria-disabled={isUploading || busy}"));
   assert.match(styles, /\.icon-button\.disabled\s*{/);
 });
@@ -309,7 +309,7 @@ test("composer can send ready images without typed text", () => {
   assert.ok(app.includes("if ((!content && !hasReadyAttachments) || busy || sendLockRef.current) return;"));
   assert.ok(app.includes("const sessionTitle = content ? content.slice(0, 24) : \"图片消息\";"));
   assert.ok(app.includes("content,"));
-  assert.ok(app.includes("disabled={busy || isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments)}"));
+  assert.ok(app.includes("disabled={!busy && (isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments))}"));
 });
 
 test("app icon is used for favicon and brand", () => {
@@ -350,6 +350,12 @@ test("streaming chat batches token UI updates and aborts stale requests", () => 
   assert.ok(app.includes("window.requestAnimationFrame(flush)"));
   assert.ok(app.includes("activeStreamAbortRef"));
   assert.ok(app.includes("activeStreamAbortRef.current?.abort();"));
+  assert.ok(app.includes("function stopGenerating()"));
+  assert.ok(app.includes('aria-label={busy ? "中断回复" : "发送"}'));
+  assert.ok(app.includes('title={busy ? "中断回复" : "发送"}'));
+  assert.ok(app.includes("onClick={busy ? stopGenerating : sendMessage}"));
+  assert.ok(app.includes("disabled={!busy && (isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments))}"));
+  assert.ok(app.includes("{busy ? <Square size={18} /> : <Send size={18} />}"));
   assert.ok(app.includes("tokenFlush.push"));
   assert.ok(app.includes("tokenFlush.flush();"));
   assert.ok(app.includes("{ signal: abortController.signal }"));

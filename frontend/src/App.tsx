@@ -31,6 +31,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Square,
   FileText,
   Settings,
   Sun,
@@ -1134,6 +1135,14 @@ function ChatView({
     uploadFile(file).catch((err) => setError(err.message));
   }
 
+  function stopGenerating() {
+    activeStreamAbortRef.current?.abort();
+    activeStreamAbortRef.current = null;
+    sendLockRef.current = false;
+    regenerateLockRef.current = false;
+    setBusy(false);
+  }
+
   async function sendMessage() {
     const content = input.trim();
     if ((!content && !hasReadyAttachments) || busy || sendLockRef.current) return;
@@ -1210,9 +1219,11 @@ function ChatView({
       }
     } finally {
       tokenFlush.flush();
-      if (activeStreamAbortRef.current === abortController) activeStreamAbortRef.current = null;
-      sendLockRef.current = false;
-      setBusy(false);
+      if (activeStreamAbortRef.current === abortController) {
+        activeStreamAbortRef.current = null;
+        sendLockRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -1276,9 +1287,11 @@ function ChatView({
       }
     } finally {
       tokenFlush.flush();
-      if (activeStreamAbortRef.current === abortController) activeStreamAbortRef.current = null;
-      regenerateLockRef.current = false;
-      setBusy(false);
+      if (activeStreamAbortRef.current === abortController) {
+        activeStreamAbortRef.current = null;
+        regenerateLockRef.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -1362,8 +1375,14 @@ function ChatView({
             placeholder="输入问题，或直接粘贴图片..."
             rows={1}
           />
-          <button className="send-button" onClick={sendMessage} disabled={busy || isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments)}>
-            <Send size={18} />
+          <button
+            className={busy ? "send-button stop-button" : "send-button"}
+            onClick={busy ? stopGenerating : sendMessage}
+            disabled={!busy && (isUploading || hasFailedAttachments || (!input.trim() && !hasReadyAttachments))}
+            aria-label={busy ? "中断回复" : "发送"}
+            title={busy ? "中断回复" : "发送"}
+          >
+            {busy ? <Square size={18} /> : <Send size={18} />}
           </button>
         </div>
       </div>

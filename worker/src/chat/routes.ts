@@ -17,6 +17,7 @@ type SessionRow = Row & {
   user_id: number;
   title: string;
   default_model: string;
+  image_context: string;
   is_archived: number;
   created_at: string;
   updated_at: string;
@@ -59,6 +60,22 @@ const chatRegenerateSchema = z.object({
 });
 
 const MAX_CHAT_IMAGES = 4;
+const IMAGE_CONTEXT_SYSTEM_PREFIX = "图片记忆：";
+const MAX_IMAGE_CONTEXT_CHARS = 12000;
+const imageContextReadyDatabases = new WeakSet<D1Database>();
+
+async function ensureChatSessionImageContextColumn(env: Env): Promise<void> {
+  if (imageContextReadyDatabases.has(env.DB)) return;
+  try {
+    await env.DB.prepare("ALTER TABLE chat_sessions ADD COLUMN image_context TEXT NOT NULL DEFAULT ''").run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/duplicate column|already exists/i.test(message)) {
+      throw error;
+    }
+  }
+  imageContextReadyDatabases.add(env.DB);
+}
 
 function maxImagePayloadBytes(env: Env): number {
   return Number.parseInt(env.MAX_UPLOAD_BYTES, 10) || 10 * 1024 * 1024;
@@ -91,6 +108,7 @@ function sessionResponse(session: SessionRow): Record<string, unknown> {
 }
 
 async function getSession(env: Env, id: number): Promise<SessionRow | null> {
+  await ensureChatSessionImageContextColumn(env);
   return await first<SessionRow>(env.DB.prepare("SELECT * FROM chat_sessions WHERE id = ?").bind(id));
 }
 
@@ -114,6 +132,7 @@ async function createSession(request: Request, env: Env): Promise<Response> {
 
 async function listSessions(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
+  await ensureChatSessionImageContextColumn(env);
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const sessions = await all<SessionRow>(
     env.DB.prepare(
@@ -230,21 +249,26 @@ async function contentWithAttachments(
 
 async function historyForSession(
   env: Env,
-  sessionId: number,
+  session: SessionRow,
   aiConfig: AiConfig,
   imageMessageId: number | null,
   imageDataUrls: string[] = []
 ): Promise<ChatMessage[]> {
   const messages = await all<MessageRow>(
-    env.DB.prepare("SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC").bind(sessionId)
+    env.DB.prepare("SELECT id, role, content FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC").bind(session.id)
   );
+  const history: ChatMessage[] = [];
+  const imageContext = session.image_context.trim();
+  if (imageContext) {
+    history.push({ role: "system", content: `${IMAGE_CONTEXT_SYSTEM_PREFIX}\n${imageContext}` });
+  }
   if (!imageMessageId || !isAiConfigured(aiConfig)) {
-    return messages.map((message) => ({ role: message.role, content: message.content }));
+    history.push(...messages.map((message) => ({ role: message.role, content: message.content })));
+    return history;
   }
   const attachments = await all<AttachmentRow>(
     env.DB.prepare("SELECT * FROM attachments WHERE message_id = ? ORDER BY id ASC").bind(imageMessageId)
   );
-  const history: ChatMessage[] = [];
   for (const message of messages) {
     if (message.id === imageMessageId && attachments.length > 0) {
       history.push({ role: message.role, content: await contentWithAttachments(env, message.content, attachments, imageDataUrls) });
@@ -255,6 +279,39 @@ async function historyForSession(
   return history;
 }
 
+function appendImageContext(current: string, entry: string): string {
+  const next = [current.trim(), entry.trim()].filter(Boolean).join("\n\n---\n\n");
+  if (next.length <= MAX_IMAGE_CONTEXT_CHARS) return next;
+  return next.slice(next.length - MAX_IMAGE_CONTEXT_CHARS);
+}
+
+async function appendSessionImageContext(
+  env: Env,
+  sessionId: number,
+  userContent: string,
+  assistantContent: string
+): Promise<void> {
+  const answer = assistantContent.trim();
+  if (!answer) return;
+  const prompt = userContent.trim() || "请分析这张图片";
+  const entry = `用户问题：${prompt}\n视觉模型回答：${answer}`;
+  const row = await first<{ image_context: string }>(
+    env.DB.prepare("SELECT image_context FROM chat_sessions WHERE id = ?").bind(sessionId)
+  );
+  const next = appendImageContext(row?.image_context || "", entry);
+  await env.DB.prepare("UPDATE chat_sessions SET image_context = ? WHERE id = ?").bind(next, sessionId).run();
+}
+
+function isRequestAbort(error: unknown, signal?: AbortSignal): boolean {
+  return Boolean(signal?.aborted) || (error instanceof Error && error.name === "AbortError" && Boolean(signal?.aborted));
+}
+
+type StreamAssistantOptions = {
+  replaceAssistantMessageId?: number | null;
+  requestSignal?: AbortSignal;
+  imageContextUserContent?: string | null;
+};
+
 async function streamAssistantResponse(
   env: Env,
   sessionId: number,
@@ -262,16 +319,30 @@ async function streamAssistantResponse(
   aiModel: string,
   history: ChatMessage[],
   userId: number,
-  replaceAssistantMessageId: number | null = null
+  options: StreamAssistantOptions = {}
 ): Promise<Response> {
+  const replaceAssistantMessageId = options.replaceAssistantMessageId ?? null;
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const parts: string[] = [];
       let totalTokens: number | null = null;
       let actualModel = aiModel;
+      let failed = false;
+      let abortedByRequest = false;
+      const enqueue = (value: string) => {
+        try {
+          controller.enqueue(encoder.encode(value));
+        } catch {
+          return false;
+        }
+        return true;
+      };
       try {
-        for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig, { allowProviderFallback: false })) {
+        for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig, {
+          allowProviderFallback: false,
+          ...(options.requestSignal ? { signal: options.requestSignal } : {})
+        })) {
           if (chunk.model) {
             actualModel = chunk.model;
           }
@@ -282,30 +353,43 @@ async function streamAssistantResponse(
             continue;
           }
           parts.push(chunk.content);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk.content)}\n\n`));
+          enqueue(`data: ${JSON.stringify(chunk.content)}\n\n`);
         }
-      } catch {
-        const token = "AI 服务连接失败，请稍后重试。";
-        if (parts.length) {
-          parts.push("\n\n");
+      } catch (error) {
+        abortedByRequest = isRequestAbort(error, options.requestSignal);
+        if (!abortedByRequest) {
+          failed = true;
+          const token = "AI 服务连接失败，请稍后重试。";
+          if (parts.length) {
+            parts.push("\n\n");
+          }
+          parts.push(token);
+          enqueue(`data: ${JSON.stringify(token)}\n\n`);
         }
-        parts.push(token);
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(token)}\n\n`));
       }
       const assistantContent = parts.join("");
-      if (replaceAssistantMessageId !== null) {
-        await env.DB.prepare("UPDATE messages SET content = ?, model = ?, created_at = ? WHERE id = ?")
-          .bind(assistantContent, actualModel, nowIso(), replaceAssistantMessageId)
-          .run();
-      } else {
-        await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
-          .bind(sessionId, assistantContent, actualModel, nowIso())
-          .run();
+      if (assistantContent) {
+        if (replaceAssistantMessageId !== null) {
+          await env.DB.prepare("UPDATE messages SET content = ?, model = ?, created_at = ? WHERE id = ?")
+            .bind(assistantContent, actualModel, nowIso(), replaceAssistantMessageId)
+            .run();
+        } else {
+          await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
+            .bind(sessionId, assistantContent, actualModel, nowIso())
+            .run();
+        }
+        if (options.imageContextUserContent && !failed && !abortedByRequest) {
+          await appendSessionImageContext(env, sessionId, options.imageContextUserContent, assistantContent);
+        }
       }
       await recordTokenUsage(env, userId, aiConfig, actualModel, totalTokens);
       await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
+      enqueue("data: [DONE]\n\n");
+      try {
+        controller.close();
+      } catch {
+        // The browser may already have closed the response after an explicit abort.
+      }
     }
   });
   return new Response(stream, {
@@ -344,8 +428,12 @@ async function streamChat(request: Request, env: Env): Promise<Response> {
   const hasImages = payload.attachment_ids.length > 0 || payload.image_data_urls.length > 0;
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
-  const history = await historyForSession(env, session.id, aiConfig, hasImages ? userMessageId : null, payload.image_data_urls);
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id);
+  const history = await historyForSession(env, session, aiConfig, hasImages ? userMessageId : null, payload.image_data_urls);
+  const streamOptions: StreamAssistantOptions = {
+    requestSignal: request.signal,
+    ...(hasImages ? { imageContextUserContent: payload.content } : {})
+  };
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, streamOptions);
 }
 
 async function regenerateChat(request: Request, env: Env): Promise<Response> {
@@ -391,10 +479,16 @@ async function regenerateChat(request: Request, env: Env): Promise<Response> {
   const attachments = await all<AttachmentRow>(
     env.DB.prepare("SELECT * FROM attachments WHERE message_id = ? ORDER BY id ASC").bind(lastUserMessage.id)
   );
-  const aiModel = resolveChatModel(aiConfig, payload.model, attachments.length > 0);
+  const hasImages = attachments.length > 0;
+  const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, lastUserMessage.id).run();
-  const history = await historyForSession(env, session.id, aiConfig, lastUserMessage.id);
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, assistantMessage.id);
+  const history = await historyForSession(env, session, aiConfig, hasImages ? lastUserMessage.id : null);
+  const streamOptions: StreamAssistantOptions = {
+    replaceAssistantMessageId: assistantMessage.id,
+    requestSignal: request.signal,
+    ...(hasImages ? { imageContextUserContent: lastUserMessage.content } : {})
+  };
+  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, streamOptions);
 }
 
 export function chatRoutes(env: Env): Route[] {

@@ -6,6 +6,7 @@ describe("D1 schema", () => {
   it("declares core tables and performance indexes", () => {
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS users");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS chat_sessions");
+    expect(schema).toContain("image_context TEXT NOT NULL DEFAULT ''");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS reports");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS ai_token_usage");
     expect(schema).toContain("idx_chat_sessions_user_archived_updated");
