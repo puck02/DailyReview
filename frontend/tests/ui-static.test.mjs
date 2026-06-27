@@ -207,6 +207,10 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.doesNotMatch(app, /后台只保存 OCR 和客观描述/);
   assert.doesNotMatch(app, /不显示给练习者/);
   assert.doesNotMatch(app, /保存后会自动同步到后端/);
+  assert.match(app, /const essayWordCount =/);
+  assert.match(app, /countEssayWords\(/);
+  assert.match(styles, /\.essay-editor\s*{[^}]*font-family:\s*"Comic Sans MS"/s);
+  assert.match(styles, /\.essay-editor-shell\s*{[^}]*width:\s*min\(100%,\s*760px\);[^}]*justify-self:\s*center;/s);
   assert.match(styles, /\.essay-pane\s*{/);
   assert.match(styles, /\.essay-editor\s*{/);
   assert.match(styles, /\.essay-suggestion-rail\s*{/);

@@ -414,6 +414,10 @@ function compactCloudLabel(text: string) {
   return value.length > 28 ? `${value.slice(0, 28)}...` : value;
 }
 
+function countEssayWords(text: string) {
+  return text.match(/[A-Za-z][A-Za-z'-]*/g)?.length || 0;
+}
+
 function labelsForTranslationEntry(entry: TranslationEntry) {
   const source = entry.source_text.trim().replace(/\s+/g, " ");
   if (!source) return [];
@@ -2444,6 +2448,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const hasTopicImage = Boolean(selectedAttachment);
   const topicImagePreview = topicImageFile?.previewUrl || selectedAttachment?.url || "";
   const topicStatus = topicImageFile?.status === "failed" ? "失败" : topicImageFile ? "上传中" : hasTopicImage ? "已上传" : "未上传";
+  const essayWordCount = useMemo(() => countEssayWords(draft), [draft]);
 
   return (
     <div className={sidebarOpen ? "essay-pane" : "essay-pane sidebar-collapsed"}>
@@ -2594,7 +2599,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
                 <strong>{saving ? "保存中" : suggesting ? "补全中" : "就绪"}</strong>
               </div>
               <div className="essay-editor-meta">
-                <span>{draft.length} 字</span>
+                <span>{essayWordCount} 词</span>
                 <span>{model}</span>
               </div>
             </div>

@@ -1812,6 +1812,8 @@ textarea:focus {
 }
 
 .essay-editor-shell {
+  width: min(100%, 760px);
+  justify-self: center;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -1867,10 +1869,11 @@ textarea:focus {
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  padding: 24px 30px;
-  font-family: Georgia, "Times New Roman", serif;
+  padding: 24px 30px 24px 68px;
+  font-family: "Comic Sans MS", "Bradley Hand", "Segoe Print", "Chalkboard SE", "Comic Sans", cursive;
   font-size: 18px;
   line-height: 35px;
+  text-align: left;
 }
 
 .essay-editor:focus {
@@ -3353,9 +3356,9 @@ textarea:focus {
   }
 
   .essay-editor {
-    padding: 18px 16px;
+    padding: 18px 16px 18px 56px;
     font-size: 16px;
-    line-height: 32px;
+    line-height: 35px;
   }
 
   .essay-editor-footer {
