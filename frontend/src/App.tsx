@@ -2018,7 +2018,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   );
 }
 
-function EssayView() {
+function EssayView({ isActive }: { isActive: boolean }) {
   const [sessions, setSessions] = useState<EssaySession[]>([]);
   const [active, setActive] = useState<EssaySession | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport());
@@ -2026,7 +2026,6 @@ function EssayView() {
   const [saving, setSaving] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
-  const [titleDraft, setTitleDraft] = useState("");
   const [draft, setDraft] = useState("");
   const [model, setModel] = useState(defaultModel);
   const [essayModelOptions, setEssayModelOptions] = useState(reportModels);
@@ -2044,11 +2043,9 @@ function EssayView() {
   const activeRef = useRef<EssaySession | null>(null);
   const topicFileInputRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef("");
-  const titleDraftRef = useRef("");
   const modelRef = useRef(model);
   const creatingSessionRef = useRef<Promise<EssaySession> | null>(null);
   const pendingCreateDraftRef = useRef("");
-  const pendingCreateTitleRef = useRef("");
   const topicImageFileRef = useRef<PendingAttachment | null>(null);
 
   useEffect(() => {
@@ -2058,10 +2055,6 @@ function EssayView() {
   useEffect(() => {
     draftRef.current = draft;
   }, [draft]);
-
-  useEffect(() => {
-    titleDraftRef.current = titleDraft;
-  }, [titleDraft]);
 
   useEffect(() => {
     modelRef.current = model;
@@ -2107,7 +2100,6 @@ function EssayView() {
         if (updated) {
           activeRef.current = updated;
           setActive(updated);
-          setTitleDraft(updated.title);
           setDraft(updated.draft_text);
           setModel(updated.default_model || modelRef.current);
           setSelectedAttachment(updated.topic_attachment);
@@ -2121,7 +2113,6 @@ function EssayView() {
       if (!activeRef.current && items[0]) {
         activeRef.current = items[0];
         setActive(items[0]);
-        setTitleDraft(items[0].title);
         setDraft(items[0].draft_text);
         setModel(items[0].default_model || modelRef.current);
         setSelectedAttachment(items[0].topic_attachment);
@@ -2141,7 +2132,6 @@ function EssayView() {
 
   useEffect(() => {
     if (!active) return;
-    setTitleDraft(active.title);
     setDraft(active.draft_text);
     setModel(active.default_model);
     setSelectedAttachment(active.topic_attachment);
@@ -2154,7 +2144,6 @@ function EssayView() {
   useEffect(() => {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     if (!active) return;
-    const nextTitle = titleDraft.trim() || "考研英语作文";
     const nextDraft = draft;
     const nextModel = model;
     saveTimerRef.current = window.setTimeout(async () => {
@@ -2163,13 +2152,11 @@ function EssayView() {
       setError("");
       try {
         const updated = await api.updateEssaySession(activeRef.current.id, {
-          title: nextTitle,
           draft_text: nextDraft,
           model: nextModel
         });
         const localUpdated = {
           ...updated,
-          title: titleDraftRef.current.trim() || updated.title,
           draft_text: draftRef.current,
           default_model: modelRef.current
         };
@@ -2195,7 +2182,7 @@ function EssayView() {
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [active?.id, titleDraft, draft, model]);
+  }, [active?.id, draft, model]);
 
   useEffect(() => {
     if (suggestTimerRef.current) window.clearTimeout(suggestTimerRef.current);
@@ -2241,20 +2228,16 @@ function EssayView() {
     return () => window.removeEventListener("resize", closeOnResize);
   }, [active]);
 
-  async function createEssaySession(initialDraft = draftRef.current, initialTitle = titleDraft.trim()) {
+  async function createEssaySession(initialDraft = draftRef.current) {
     pendingCreateDraftRef.current = initialDraft;
-    pendingCreateTitleRef.current = initialTitle;
     if (creatingSessionRef.current) return creatingSessionRef.current;
     const createPromise = (async () => {
       const created = await api.createEssaySession({
-        title: pendingCreateTitleRef.current || "考研英语作文",
         model: modelRef.current
       });
       const draftToSave = pendingCreateDraftRef.current;
-      const titleToSave = pendingCreateTitleRef.current || (draftToSave.trim() ? draftToSave.trim().slice(0, 32) : created.title);
-      if (!draftToSave && titleToSave === created.title) return created;
+      if (!draftToSave) return created;
       return await api.updateEssaySession(created.id, {
-        title: titleToSave,
         draft_text: draftToSave,
         model: modelRef.current
       });
@@ -2265,14 +2248,12 @@ function EssayView() {
       const created = await createPromise;
       const localCreated = {
         ...created,
-        title: titleDraftRef.current.trim() || created.title,
         draft_text: draftRef.current || created.draft_text,
         default_model: modelRef.current || created.default_model
       };
       setSessions((current) => [localCreated, ...current.filter((item) => item.id !== created.id)]);
       activeRef.current = localCreated;
       setActive(localCreated);
-      setTitleDraft(localCreated.title);
       setDraft(localCreated.draft_text);
       setModel(localCreated.default_model || model);
       setSelectedAttachment(localCreated.topic_attachment);
@@ -2298,7 +2279,6 @@ function EssayView() {
     });
     activeRef.current = session;
     setActive(session);
-    setTitleDraft(session.title);
     setDraft(session.draft_text);
     setModel(session.default_model);
     setSelectedAttachment(session.topic_attachment);
@@ -2325,7 +2305,6 @@ function EssayView() {
           if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
           return null;
         });
-        setTitleDraft(next.title);
         setDraft(next.draft_text);
         setModel(next.default_model);
         setSelectedAttachment(next.topic_attachment);
@@ -2334,7 +2313,6 @@ function EssayView() {
           objective_description: next.objective_description
         });
       } else {
-        setTitleDraft("");
         setDraft("");
         setImageContextPreview({ ocr_text: "", objective_description: "" });
         setSelectedAttachment(null);
@@ -2356,7 +2334,6 @@ function EssayView() {
     if (!current) return;
     api
       .updateEssaySession(current.id, {
-        title: titleDraft.trim() || current.title,
         draft_text: draftRef.current,
         model: modelRef.current,
         clear_topic_image: true
@@ -2369,10 +2346,7 @@ function EssayView() {
       .catch((err) => setError(err instanceof Error ? err.message : "题图移除失败"));
   }
 
-  function handleTopicImagePick(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
+  async function uploadTopicImage(file: File) {
     const previewUrl = URL.createObjectURL(file);
     const localId = Date.now();
     const pending: PendingAttachment = {
@@ -2390,49 +2364,68 @@ function EssayView() {
       if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
       return pending;
     });
-    void (async () => {
-      try {
-        const prepared = await prepareImageForUpload(file);
-        const uploaded = await api.upload(prepared.file);
-        setTopicImageFile((current) =>
-          current && current.id === localId
-            ? { ...uploaded, previewUrl, dataUrl: prepared.dataUrl, name: pending.name, status: "ready" }
-            : current
-        );
-        const session = activeRef.current || (await createEssaySession(draftRef.current, titleDraft.trim()));
-        const updated = await api.essayImageContext(session.id, uploaded.id);
-        setSessions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-        activeRef.current = updated;
-        setActive(updated);
-        setTitleDraft(updated.title);
-        setDraft(updated.draft_text);
-        setModel(updated.default_model);
-        setSelectedAttachment(updated.topic_attachment);
-        setImageContextPreview({
-          ocr_text: updated.ocr_text,
-          objective_description: updated.objective_description
-        });
-        setTopicImageFile((current) => {
-          if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-          return null;
-        });
-        setSuggestions([]);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "图片上传失败";
-        setError(message);
-        setTopicImageFile((current) =>
-          current && current.id === localId
-            ? { ...current, status: "failed", error: message }
-            : current
-        );
-      }
-    })();
+    try {
+      setError("");
+      const prepared = await prepareImageForUpload(file);
+      const uploaded = await api.upload(prepared.file);
+      setTopicImageFile((current) =>
+        current && current.id === localId
+          ? { ...uploaded, previewUrl, dataUrl: prepared.dataUrl, name: pending.name, status: "ready" }
+          : current
+      );
+      const session = activeRef.current || (await createEssaySession(draftRef.current));
+      const updated = await api.essayImageContext(session.id, uploaded.id);
+      setSessions((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      activeRef.current = updated;
+      setActive(updated);
+      setDraft(updated.draft_text);
+      setModel(updated.default_model);
+      setSelectedAttachment(updated.topic_attachment);
+      setImageContextPreview({
+        ocr_text: updated.ocr_text,
+        objective_description: updated.objective_description
+      });
+      setTopicImageFile((current) => {
+        if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+        return null;
+      });
+      setSuggestions([]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "图片上传失败";
+      setError(message);
+      setTopicImageFile((current) =>
+        current && current.id === localId
+          ? { ...current, status: "failed", error: message }
+          : current
+      );
+    }
   }
 
+  function handleTopicImagePick(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    uploadTopicImage(file).catch((err) => setError(err instanceof Error ? err.message : "图片上传失败"));
+  }
+
+  useEffect(() => {
+    if (!isActive) return;
+    function handleTopicImagePaste(event: globalThis.ClipboardEvent) {
+      const file = firstClipboardImage(event.clipboardData);
+      if (!file) return;
+
+      event.preventDefault();
+      uploadTopicImage(file).catch((err) => setError(err instanceof Error ? err.message : "图片上传失败"));
+    }
+
+    document.addEventListener("paste", handleTopicImagePaste);
+    return () => document.removeEventListener("paste", handleTopicImagePaste);
+  }, [isActive]);
+
   const currentSuggestions = suggestions.slice(0, 3);
-  const activeTitle = active?.title || "新作文";
   const hasTopicImage = Boolean(selectedAttachment);
   const topicImagePreview = topicImageFile?.previewUrl || selectedAttachment?.url || "";
+  const topicStatus = topicImageFile?.status === "failed" ? "失败" : topicImageFile ? "上传中" : hasTopicImage ? "已上传" : "未上传";
 
   return (
     <div className={sidebarOpen ? "essay-pane" : "essay-pane sidebar-collapsed"}>
@@ -2466,7 +2459,6 @@ function EssayView() {
               <Plus size={16} />
               新作文
             </button>
-            <p className="session-retention-note">上传题图后，后台会自动抽取 OCR 和纯客观描述，不显示给练习者。</p>
             <div className="session-sections">
               <div className="session-section session-section-main">
                 <div className="session-section-head">
@@ -2516,7 +2508,6 @@ function EssayView() {
             </button>
             <div>
               <h2>考研英语作文</h2>
-              <p>{activeTitle}</p>
             </div>
           </div>
           <div className="pane-actions essay-pane-actions">
@@ -2544,13 +2535,13 @@ function EssayView() {
           <section className="essay-topic-card">
             <div className="essay-topic-head">
               <span>题图</span>
-              <strong>{hasTopicImage ? "已绑定" : "未上传"}</strong>
+              <strong>{topicStatus}</strong>
             </div>
             <div className="essay-topic-preview">
               {topicImagePreview ? (
                 <img src={topicImagePreview} alt="作文题目图片" />
               ) : (
-                <div className="essay-topic-placeholder">上传题图或直接截图，后台只保存 OCR 和客观描述。</div>
+                <div className="essay-topic-placeholder">选择或粘贴题图</div>
               )}
             </div>
             <div className="essay-topic-actions">
@@ -2569,11 +2560,11 @@ function EssayView() {
             <div className="essay-context-list">
               <div>
                 <span>OCR</span>
-                <p>{imageContextPreview.ocr_text ? "已加入后台上下文" : "等待图片解析"}</p>
+                <p>{imageContextPreview.ocr_text ? "已加入上下文" : "等待解析"}</p>
               </div>
               <div>
                 <span>客观描述</span>
-                <p>{imageContextPreview.objective_description ? "已加入后台上下文" : "等待图片解析"}</p>
+                <p>{imageContextPreview.objective_description ? "已加入上下文" : "等待解析"}</p>
               </div>
             </div>
           </section>
@@ -2581,8 +2572,8 @@ function EssayView() {
           <section className="essay-editor-shell">
             <div className="essay-editor-toolbar">
               <div>
-                <span>写作正文</span>
-                <strong>{saving ? "正在保存..." : suggesting ? "正在补全..." : "停顿后自动给出补全建议"}</strong>
+                <span>正文</span>
+                <strong>{saving ? "保存中" : suggesting ? "补全中" : "就绪"}</strong>
               </div>
               <div className="essay-editor-meta">
                 <span>{draft.length} 字</span>
@@ -2595,21 +2586,16 @@ function EssayView() {
               onChange={(event) => {
                 setDraft(event.target.value);
                 if (!active) {
-                  createEssaySession(event.target.value, titleDraft.trim()).catch((err) =>
+                  createEssaySession(event.target.value).catch((err) =>
                     setError(err instanceof Error ? err.message : "创建作文会话失败")
                   );
                 }
               }}
-              placeholder="开始输入作文。停顿片刻后，右侧会出现补全建议。"
+              placeholder="输入正文"
             />
             <div className="essay-editor-footer">
-              <label className="essay-title-field">
-                <span>标题</span>
-                <input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="作文标题" />
-              </label>
               <div className="essay-status-line">
-                <span>{error || (suggesting ? "正在生成补全" : "保存后会自动同步到后端")}</span>
-                <strong>{saving ? "保存中" : suggesting ? "处理中" : "就绪"}</strong>
+                <span>{error || (saving ? "保存中" : suggesting ? "补全中" : "已保存")}</span>
               </div>
             </div>
           </section>
@@ -2640,7 +2626,7 @@ function EssayView() {
                 ))}
               </div>
             ) : (
-              <div className="essay-suggestion-empty">先输入一小段，再停顿一下。</div>
+              <div className="essay-suggestion-empty">等待停顿</div>
             )}
           </aside>
         </div>
@@ -3541,7 +3527,7 @@ export default function App() {
           {visitedViews.has("translate") && <TranslationView wordCloudEnabled={appSettings?.word_cloud_enabled ?? true} />}
         </div>
         <div style={{ display: view === "essay" ? "contents" : "none" }}>
-          {visitedViews.has("essay") && <EssayView />}
+          {visitedViews.has("essay") && <EssayView isActive={view === "essay"} />}
         </div>
         <div style={{ display: view === "reports" ? "contents" : "none" }}>
           {visitedViews.has("reports") && <ReportsView />}
