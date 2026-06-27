@@ -791,6 +791,7 @@ function ChatView({
   const [input, setInput] = useState("");
   const [model, setModel] = useState(defaultModel);
   const [chatModelOptions, setChatModelOptions] = useState(reportModels);
+  const [chatDefaultModel, setChatDefaultModel] = useState(defaultModel);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [screenshotCanvas, setScreenshotCanvas] = useState<HTMLCanvasElement | null>(null);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
@@ -812,7 +813,7 @@ function ChatView({
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState("");
   const [openingLine, setOpeningLine] = useState(randomOpeningLine);
-  const preferredChatModel = chatModelOptions.includes(defaultModel) ? defaultModel : chatModelOptions[0] || defaultModel;
+  const preferredChatModel = chatDefaultModel || chatModelOptions[0] || defaultModel;
 
   async function refreshSessions() {
     const requestId = ++sessionLoadRequestRef.current;
@@ -844,11 +845,12 @@ function ChatView({
     const config = await api.aiModels();
     const options = config.text_models.length ? config.text_models : config.text_model ? [config.text_model] : [];
     const nextOptions = options.length ? options : [config.text_model || defaultModel];
+    const nextDefault = config.text_model || nextOptions[0] || defaultModel;
     setChatModelOptions(nextOptions);
+    setChatDefaultModel(nextDefault);
     setModel((current) => {
-      if (nextOptions.includes(defaultModel)) return defaultModel;
-      if (nextOptions.includes(current)) return current;
-      return nextOptions[0] || defaultModel;
+      if (current && current !== defaultModel && nextOptions.includes(current)) return current;
+      return nextDefault;
     });
   }
 
@@ -856,6 +858,7 @@ function ChatView({
     refreshSessions().catch((err) => setError(err.message));
     loadChatModels().catch(() => {
       setChatModelOptions(reportModels);
+      setChatDefaultModel(defaultModel);
       setModel(defaultModel);
     });
   }, []);
@@ -864,6 +867,7 @@ function ChatView({
     function handleAiConfigChanged() {
       loadChatModels().catch(() => {
         setChatModelOptions(reportModels);
+        setChatDefaultModel(defaultModel);
         setModel(defaultModel);
       });
     }

@@ -70,14 +70,17 @@ test("chat model picker uses the full upstream model names", () => {
   assert.ok(apiSource.includes("aiModels: () => request<AiModels>"));
   assert.match(app, /api\s*\.\s*aiModels\(\)/);
   assert.ok(app.includes("setChatModelOptions"));
+  assert.ok(app.includes("setChatDefaultModel"));
   assert.ok(app.includes("const options = config.text_models.length ? config.text_models : config.text_model ? [config.text_model] : [];"));
-  assert.ok(app.includes("if (nextOptions.includes(defaultModel)) return defaultModel;"));
+  assert.ok(app.includes("const nextDefault = config.text_model || nextOptions[0] || defaultModel;"));
+  assert.ok(app.includes("setChatDefaultModel(nextDefault);"));
+  assert.doesNotMatch(app, /if \(nextOptions\.includes\(defaultModel\)\) return defaultModel;/);
   assert.ok(app.includes("aiConfigChangedEvent"));
   assert.equal(app.match(/loadChatModels\(\)\.catch/g)?.length, 2);
   assert.doesNotMatch(app, /loadChatModels\(true\)\.catch/g);
   assert.ok(app.includes("window.addEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
   assert.ok(app.includes("window.removeEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
-  assert.ok(app.includes("const preferredChatModel = chatModelOptions.includes(defaultModel) ? defaultModel : chatModelOptions[0] || defaultModel;"));
+  assert.ok(app.includes("const preferredChatModel = chatDefaultModel || chatModelOptions[0] || defaultModel;"));
   assert.match(app, /chatModelOptions\.map\(\(option\) =>/);
 });
 
