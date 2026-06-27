@@ -71,11 +71,13 @@ test("chat model picker uses the full upstream model names", () => {
   assert.match(app, /api\s*\.\s*aiModels\(\)/);
   assert.ok(app.includes("setChatModelOptions"));
   assert.ok(app.includes("const options = config.text_models.length ? config.text_models : config.text_model ? [config.text_model] : [];"));
-  assert.ok(app.includes("preferConfiguredModel && nextOptions.includes(config.text_model)"));
+  assert.ok(app.includes("if (nextOptions.includes(defaultModel)) return defaultModel;"));
   assert.ok(app.includes("aiConfigChangedEvent"));
-  assert.equal(app.match(/loadChatModels\(true\)\.catch/g)?.length, 2);
+  assert.equal(app.match(/loadChatModels\(\)\.catch/g)?.length, 2);
+  assert.doesNotMatch(app, /loadChatModels\(true\)\.catch/g);
   assert.ok(app.includes("window.addEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
   assert.ok(app.includes("window.removeEventListener(aiConfigChangedEvent, handleAiConfigChanged);"));
+  assert.ok(app.includes("const preferredChatModel = chatModelOptions.includes(defaultModel) ? defaultModel : chatModelOptions[0] || defaultModel;"));
   assert.match(app, /chatModelOptions\.map\(\(option\) =>/);
 });
 
@@ -448,7 +450,8 @@ test("new chat stays local until the first message is sent", () => {
   assert.ok(app.includes("const [draftSessionActive, setDraftSessionActive]"));
   assert.match(app, /async function newSession\(\)\s*{[\s\S]*setDraftSessionActive\(true\);[\s\S]*setActive\(null\);[\s\S]*setMessages\(\[\]\);/);
   assert.doesNotMatch(app, /async function newSession\(\)\s*{[\s\S]*api\.createSession\("新会话", model\)/);
-  assert.match(app, /if \(!session\)\s*{[\s\S]*const sessionTitle = content \? content\.slice\(0,\s*24\) : "图片消息";[\s\S]*api\.createSession\(sessionTitle,\s*model\)/);
+  assert.ok(app.includes("if (isActive) newSession();"));
+  assert.match(app, /useEffect\(\(\) => \{\s*if \(isActive\) newSession\(\);/);
 });
 
 test("draft chat first message skips the initial history reload while streaming", () => {

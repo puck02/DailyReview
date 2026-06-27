@@ -812,6 +812,7 @@ function ChatView({
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState("");
   const [openingLine, setOpeningLine] = useState(randomOpeningLine);
+  const preferredChatModel = chatModelOptions.includes(defaultModel) ? defaultModel : chatModelOptions[0] || defaultModel;
 
   async function refreshSessions() {
     const requestId = ++sessionLoadRequestRef.current;
@@ -839,21 +840,21 @@ function ChatView({
   const regularSessions = useMemo(() => sessions.filter((session) => !session.is_archived), [sessions]);
   const archivedSessions = useMemo(() => sessions.filter((session) => session.is_archived), [sessions]);
 
-  async function loadChatModels(preferConfiguredModel = false) {
+  async function loadChatModels() {
     const config = await api.aiModels();
     const options = config.text_models.length ? config.text_models : config.text_model ? [config.text_model] : [];
     const nextOptions = options.length ? options : [config.text_model || defaultModel];
     setChatModelOptions(nextOptions);
     setModel((current) => {
-      if (preferConfiguredModel && nextOptions.includes(config.text_model)) return config.text_model;
+      if (nextOptions.includes(defaultModel)) return defaultModel;
       if (nextOptions.includes(current)) return current;
-      return nextOptions.includes(config.text_model) ? config.text_model : nextOptions[0] || defaultModel;
+      return nextOptions[0] || defaultModel;
     });
   }
 
   useEffect(() => {
     refreshSessions().catch((err) => setError(err.message));
-    loadChatModels(true).catch(() => {
+    loadChatModels().catch(() => {
       setChatModelOptions(reportModels);
       setModel(defaultModel);
     });
@@ -861,7 +862,7 @@ function ChatView({
 
   useEffect(() => {
     function handleAiConfigChanged() {
-      loadChatModels(true).catch(() => {
+      loadChatModels().catch(() => {
         setChatModelOptions(reportModels);
         setModel(defaultModel);
       });
@@ -973,6 +974,10 @@ function ChatView({
     return () => document.removeEventListener("paste", handleDocumentPaste);
   }, [isActive]);
 
+  useEffect(() => {
+    if (isActive) newSession();
+  }, [isActive]);
+
   async function newSession() {
     setDraftSessionActive(true);
     draftSessionActiveRef.current = true;
@@ -984,6 +989,7 @@ function ChatView({
     clearAttachments();
     setError("");
     setOpeningLine(randomOpeningLine());
+    setModel(preferredChatModel);
     if (isMobileViewport()) setSidebarOpen(false);
   }
 
@@ -1160,19 +1166,10 @@ function ChatView({
     }
     const readyAttachments = attachments.filter((attachment) => attachment.status === "ready");
     let session = active;
-    if (!session) {
-      const sessionTitle = content ? content.slice(0, 24) : "图片消息";
-      const createdSession = await api.createSession(sessionTitle, model);
-      session = createdSession;
-      setDraftSessionActive(false);
-      draftSessionActiveRef.current = false;
-      activeRef.current = createdSession;
-      skipNextMessageLoadSessionIdRef.current = createdSession.id;
-      setActive(createdSession);
-      setSessions((current) => [createdSession, ...current.filter((item) => item.id !== createdSession.id)]);
-    }
+    const pendingUserId = Date.now();
+    const pendingAssistantId = pendingUserId + 1;
     const pendingUser: Message = {
-      id: Date.now(),
+      id: pendingUserId,
       role: "user",
       content,
       model,
@@ -1180,7 +1177,7 @@ function ChatView({
       attachments: readyAttachments
     };
     const assistant: Message = {
-      id: Date.now() + 1,
+      id: pendingAssistantId,
       role: "assistant",
       content: "",
       model,
@@ -1188,7 +1185,6 @@ function ChatView({
       attachments: []
     };
     setInput("");
-    clearAttachments();
     setMessages((current) => [...current, pendingUser, assistant]);
     sendLockRef.current = true;
     setBusy(true);
@@ -1204,6 +1200,18 @@ function ChatView({
       );
     });
     try {
+      if (!session) {
+        const sessionTitle = content ? content.slice(0, 24) : "图片消息";
+        const createdSession = await api.createSession(sessionTitle, model);
+        session = createdSession;
+        setDraftSessionActive(false);
+        draftSessionActiveRef.current = false;
+        activeRef.current = createdSession;
+        skipNextMessageLoadSessionIdRef.current = createdSession.id;
+        setActive(createdSession);
+        setSessions((current) => [createdSession, ...current.filter((item) => item.id !== createdSession.id)]);
+      }
+      clearAttachments();
       await streamChat(
         {
           session_id: session.id,
@@ -1218,6 +1226,12 @@ function ChatView({
       tokenFlush.flush();
       await refreshSessions();
     } catch (err) {
+      if (!session) {
+        setMessages((current) =>
+          current.filter((message) => message.id !== pendingUserId && message.id !== pendingAssistantId)
+        );
+        setInput(content);
+      }
       if (!abortController.signal.aborted) {
         setError(err instanceof Error ? err.message : "发送失败");
       }
