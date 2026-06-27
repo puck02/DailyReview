@@ -186,6 +186,29 @@ test("visited app views stay mounted and heavy markdown renderer is prefetched f
   assert.match(styles, /\.app-content\s*{[^}]*min-width:\s*0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
 });
 
+test("essay writing view renders a dedicated workspace and suggestion rail", () => {
+  assert.ok(app.includes('type View = "chat" | "translate" | "essay" | "reports" | "admin" | "settings";'));
+  assert.ok(app.includes('aria-label="作文"'));
+  assert.ok(app.includes("NotebookPen"));
+  assert.match(app, /visitedViews\.has\("essay"\) && <EssayView \/>/);
+  assert.ok(app.includes("essay-editor"));
+  assert.ok(app.includes("essay-suggestion-rail"));
+  assert.ok(app.includes("essay-topic-card"));
+  assert.match(styles, /\.essay-pane\s*{/);
+  assert.match(styles, /\.essay-editor\s*{/);
+  assert.match(styles, /\.essay-suggestion-rail\s*{/);
+});
+
+test("essay api surface serializes session, image context, and suggestion requests", () => {
+  assert.ok(apiSource.includes('essaySessions: () => request<EssaySession[]>("/api/essay/sessions")'));
+  assert.ok(apiSource.includes('createEssaySession: (payload: { title?: string; model?: string })'));
+  assert.ok(apiSource.includes('updateEssaySession: (sessionId: number, payload: { title?: string; draft_text?: string; model?: string; clear_topic_image?: boolean })'));
+  assert.ok(apiSource.includes('deleteEssaySession: (sessionId: number)'));
+  assert.ok(apiSource.includes("essayImageContext: (sessionId: number, attachmentId: number)"));
+  assert.ok(apiSource.includes("essaySuggest: ("));
+  assert.ok(apiSource.includes('request<{ suggestions: EssaySuggestion[] }>("/api/essay/suggest"'));
+});
+
 test("fingerprinted static assets use immutable browser cache headers", () => {
   assert.match(headersFile, /\/assets\/\*/);
   assert.match(headersFile, /Cache-Control:\s*public,\s*max-age=31556952,\s*immutable/);
@@ -543,7 +566,7 @@ test("chat regeneration uses the currently selected model", () => {
 });
 
 test("settings page exposes report schedule and word cloud visibility controls", () => {
-  assert.ok(app.includes('type View = "chat" | "translate" | "reports" | "admin" | "settings";'));
+  assert.ok(app.includes('type View = "chat" | "translate" | "essay" | "reports" | "admin" | "settings";'));
   assert.ok(app.includes("Settings"));
   assert.ok(app.includes('aria-label="设置"'));
   assert.ok(app.includes('title="设置"'));
@@ -578,7 +601,7 @@ test("settings page exposes report schedule and word cloud visibility controls",
 });
 
 test("translation panel is a designed first-stage tool with editable prompt", () => {
-  assert.ok(app.includes('type View = "chat" | "translate" | "reports" | "admin" | "settings";'));
+  assert.ok(app.includes('type View = "chat" | "translate" | "essay" | "reports" | "admin" | "settings";'));
   assert.ok(app.includes("TranslationView"));
   assert.ok(app.includes("Languages"));
   assert.ok(app.includes("api.translate("));

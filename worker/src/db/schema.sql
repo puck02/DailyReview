@@ -31,6 +31,20 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated ON chat_sessions(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_archived_updated ON chat_sessions(user_id, is_archived, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS essay_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  title TEXT NOT NULL DEFAULT '考研英语作文',
+  default_model TEXT NOT NULL DEFAULT 'gpt-5.4-mini',
+  draft_text TEXT NOT NULL DEFAULT '',
+  topic_attachment_id INTEGER,
+  ocr_text TEXT NOT NULL DEFAULT '',
+  objective_description TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_essay_sessions_user_updated ON essay_sessions(user_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id INTEGER NOT NULL,

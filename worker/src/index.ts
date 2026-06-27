@@ -3,6 +3,7 @@ import { adminRoutes } from "./admin/routes";
 import { attachmentRoutes } from "./attachments/routes";
 import { ensureInitialAdmin, authRoutes } from "./auth/routes";
 import { chatRoutes } from "./chat/routes";
+import { essayRoutes } from "./essay/routes";
 import { dispatch, errorResponse, json } from "./http";
 import { runScheduledJobs } from "./cron/jobs";
 import { reportRoutes } from "./reports/routes";
@@ -34,6 +35,7 @@ async function handleApi(request: Request, env: Env, ctx?: ExecutionContext): Pr
       ...adminRoutes(env),
       ...attachmentRoutes(env),
       ...chatRoutes(env),
+      ...essayRoutes(env),
       ...translationRoutes(env),
       ...reportRoutes(env)
     ],

@@ -22,6 +22,26 @@ export type Message = {
   attachments: Attachment[];
 };
 
+export type EssaySession = {
+  id: number;
+  title: string;
+  default_model: string;
+  draft_text: string;
+  has_topic_image: boolean;
+  topic_attachment: Attachment | null;
+  ocr_text: string;
+  objective_description: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EssaySuggestion = {
+  kind: "word" | "sentence";
+  text: string;
+  reason: string;
+  confidence: number;
+};
+
 export type Attachment = {
   id: number;
   mime_type: string;
@@ -224,6 +244,35 @@ export const api = {
       body: JSON.stringify({ archived })
     }),
   messages: (sessionId: number) => request<Message[]>(`/api/sessions/${sessionId}/messages`),
+  essaySessions: () => request<EssaySession[]>("/api/essay/sessions"),
+  createEssaySession: (payload: { title?: string; model?: string }) =>
+    request<EssaySession>("/api/essay/sessions", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  updateEssaySession: (sessionId: number, payload: { title?: string; draft_text?: string; model?: string; clear_topic_image?: boolean }) =>
+    request<EssaySession>(`/api/essay/sessions/${sessionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  deleteEssaySession: (sessionId: number) =>
+    request<{ status: string }>(`/api/essay/sessions/${sessionId}`, {
+      method: "DELETE"
+    }),
+  essayImageContext: (sessionId: number, attachmentId: number) =>
+    request<EssaySession>(`/api/essay/sessions/${sessionId}/image-context`, {
+      method: "POST",
+      body: JSON.stringify({ attachment_id: attachmentId })
+    }),
+  essaySuggest: (
+    payload: { session_id: number; content: string; model?: string },
+    init?: RequestInit
+  ) =>
+    request<{ suggestions: EssaySuggestion[] }>("/api/essay/suggest", {
+      ...init,
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   upload: async (file: File): Promise<Attachment> => {
     const form = new FormData();
     form.append("file", file);
