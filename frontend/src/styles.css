@@ -1817,14 +1817,6 @@ textarea:focus {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  background:
-    linear-gradient(var(--surface), var(--surface)),
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent 35px,
-      color-mix(in srgb, var(--stroke) 54%, transparent) 36px
-    );
 }
 
 .essay-editor-toolbar {
@@ -1869,7 +1861,7 @@ textarea:focus {
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  padding: 24px 30px 24px 68px;
+  padding: 13px 30px 20px 68px;
   font-family: "Comic Sans MS", "Bradley Hand", "Segoe Print", "Chalkboard SE", "Comic Sans", cursive;
   font-size: 18px;
   line-height: 35px;
@@ -3356,7 +3348,7 @@ textarea:focus {
   }
 
   .essay-editor {
-    padding: 18px 16px 18px 56px;
+    padding: 13px 16px 18px 56px;
     font-size: 16px;
     line-height: 35px;
   }
