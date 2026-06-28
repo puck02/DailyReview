@@ -213,6 +213,8 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.match(styles, /\.essay-editor-shell\s*{[^}]*width:\s*min\(100%,\s*760px\);[^}]*justify-self:\s*center;/s);
   assert.doesNotMatch(styles, /\.essay-editor-shell\s*{[^}]*repeating-linear-gradient/s);
   assert.match(styles, /\.essay-editor\s*{[^}]*background:\s*[\s\S]*repeating-linear-gradient/s);
+  assert.match(styles, /\.essay-editor\s*{[^}]*background-position-y:\s*1px;/s);
+  assert.match(styles, /\.essay-editor:focus\s*{[^}]*background-position-y:\s*1px;/s);
   assert.match(styles, /\.essay-pane\s*{/);
   assert.match(styles, /\.essay-editor\s*{/);
   assert.match(styles, /\.essay-suggestion-rail\s*{/);
