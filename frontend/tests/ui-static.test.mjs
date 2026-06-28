@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const app = fs.readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const apiSource = fs.readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+const handwritingPad = fs.readFileSync(new URL("../src/HandwritingPad.tsx", import.meta.url), "utf8");
 const markdownRenderer = fs.readFileSync(new URL("../src/MarkdownRenderer.tsx", import.meta.url), "utf8");
 const markdownPlugins = fs.readFileSync(new URL("../src/markdownPlugins.ts", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
@@ -143,6 +144,21 @@ test("pending image previews are removable above the composer", () => {
   assert.match(styles, /\.attachment-upload-overlay\s*{[^}]*position:\s*absolute;/s);
   assert.match(styles, /\.attachment-upload-spinner\s*{[^}]*animation:\s*attachment-spin 820ms linear infinite;/s);
   assert.match(styles, /@keyframes attachment-spin\s*{/);
+});
+
+test("chat composer opens a pressure-sensitive handwriting pad", () => {
+  assert.ok(app.includes('import { HandwritingPad } from "./HandwritingPad";'));
+  assert.ok(app.includes("PencilLine"));
+  assert.ok(app.includes("const [handwritingOpen, setHandwritingOpen] = useState(false);"));
+  assert.ok(app.includes("handleHandwritingConfirm"));
+  assert.match(app, /<HandwritingPad[\s\S]*onConfirm=\{handleHandwritingConfirm\}/);
+  assert.match(app, /aria-label="写字板"/);
+  assert.match(app, /title="写字板"/);
+  assert.match(app, /disabled=\{handwritingDisabled\}/);
+  assert.match(handwritingPad, /try\s*{\s*event\.currentTarget\.setPointerCapture\(event\.pointerId\);\s*}\s*catch/);
+  assert.match(styles, /\.handwriting-pad-backdrop\s*{/);
+  assert.match(styles, /\.handwriting-canvas\s*{[^}]*touch-action:\s*none;/s);
+  assert.match(styles, /\.handwriting-tool\s*{/);
 });
 
 test("sent messages render image thumbnails and markdown content", () => {

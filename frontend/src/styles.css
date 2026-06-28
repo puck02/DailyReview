@@ -1299,7 +1299,7 @@ textarea:focus {
 
 .composer-row {
   display: grid;
-  grid-template-columns: 42px 42px minmax(0, 1fr) 46px;
+  grid-template-columns: 42px 42px 42px minmax(0, 1fr) 46px;
   gap: 10px;
   align-items: center;
   padding: 12px;
@@ -1353,6 +1353,123 @@ textarea:focus {
 .composer textarea:focus {
   background: transparent;
   box-shadow: none;
+}
+
+.handwriting-pad-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 82;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.56);
+}
+
+.handwriting-pad-panel {
+  width: calc(100dvw - 24px);
+  height: calc(100dvh - 24px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  overflow: hidden;
+  background: var(--surface-solid);
+  border: 1px solid var(--stroke);
+  border-radius: 22px;
+  box-shadow: var(--shadow-pop);
+}
+
+.handwriting-pad-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.handwriting-tool-group,
+.handwriting-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.handwriting-tool,
+.handwriting-action,
+.handwriting-confirm {
+  min-width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--headline);
+  background: var(--button-surface);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  padding: 0 12px;
+  font-weight: 720;
+}
+
+.handwriting-tool {
+  width: 40px;
+  padding: 0;
+}
+
+.handwriting-tool.active,
+.handwriting-confirm {
+  color: var(--primary-text);
+  background: var(--primary-bg);
+  border-color: var(--primary-bg);
+}
+
+.handwriting-tool:disabled,
+.handwriting-action:disabled,
+.handwriting-confirm:disabled {
+  opacity: 0.48;
+  cursor: default;
+}
+
+.handwriting-pressure-control {
+  width: min(300px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+  color: var(--headline);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.handwriting-pressure-control input[type="range"] {
+  width: 100%;
+}
+
+.handwriting-error {
+  color: var(--headline);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+  border-radius: 12px;
+  padding: 9px 11px;
+  font-size: 13px;
+}
+
+.handwriting-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 39px,
+      color-mix(in srgb, var(--stroke) 46%, transparent) 40px
+    ),
+    var(--surface-solid);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  touch-action: none;
+  cursor: crosshair;
 }
 
 .screenshot-editor-backdrop {
@@ -3221,7 +3338,7 @@ textarea:focus {
   }
 
   .composer-row {
-    grid-template-columns: 40px 40px minmax(0, 1fr) 42px;
+    grid-template-columns: 40px 40px 40px minmax(0, 1fr) 42px;
     gap: 8px;
     padding: 9px;
     border-radius: 23px;
@@ -3367,7 +3484,7 @@ textarea:focus {
   }
 
   .composer-row {
-    grid-template-columns: 38px 38px minmax(0, 1fr) 40px;
+    grid-template-columns: 38px 38px 38px minmax(0, 1fr) 40px;
     gap: 6px;
   }
 

@@ -29,6 +29,7 @@ import {
   PanelLeftOpen,
   LogOut,
   MessageSquareText,
+  PencilLine,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -63,6 +64,7 @@ import {
 } from "./api";
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
+import { HandwritingPad } from "./HandwritingPad";
 import { ScreenshotEditor } from "./ScreenshotEditor";
 import appIconUrl from "./assets/app-icon.svg?url";
 import { prepareImageForUpload } from "./imageCompression";
@@ -798,6 +800,7 @@ function ChatView({
   const [chatDefaultModel, setChatDefaultModel] = useState(defaultModel);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [screenshotCanvas, setScreenshotCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [handwritingOpen, setHandwritingOpen] = useState(false);
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const activeRef = useRef<ChatSession | null>(null);
   const draftSessionActiveRef = useRef(false);
@@ -1153,6 +1156,11 @@ function ChatView({
     uploadFile(file).catch((err) => setError(err.message));
   }
 
+  function handleHandwritingConfirm(file: File) {
+    setHandwritingOpen(false);
+    uploadFile(file).catch((err) => setError(err.message));
+  }
+
   function stopGenerating() {
     activeStreamAbortRef.current?.abort();
     activeStreamAbortRef.current = null;
@@ -1331,6 +1339,7 @@ function ChatView({
   const isEmptyChat = !messagesLoading && messages.length === 0;
   const isUploading = uploadingCount > 0;
   const screenshotDisabled = isUploading || busy || capturingScreenshot;
+  const handwritingDisabled = isUploading || busy;
   const hasReadyAttachments = attachments.some((attachment) => attachment.status === "ready");
   const hasFailedAttachments = attachments.some((attachment) => attachment.status === "failed");
   const composer = (
@@ -1385,6 +1394,16 @@ function ChatView({
           </label>
           <button
             type="button"
+            className={`icon-button ${handwritingDisabled ? "disabled" : ""}`}
+            onClick={() => setHandwritingOpen(true)}
+            disabled={handwritingDisabled}
+            title="写字板"
+            aria-label="写字板"
+          >
+            <PencilLine size={18} />
+          </button>
+          <button
+            type="button"
             className={`icon-button ${screenshotDisabled ? "disabled" : ""}`}
             onClick={handleScreenshotCapture}
             disabled={screenshotDisabled}
@@ -1424,6 +1443,7 @@ function ChatView({
           onConfirm={handleScreenshotConfirm}
         />
       )}
+      {handwritingOpen && <HandwritingPad onCancel={() => setHandwritingOpen(false)} onConfirm={handleHandwritingConfirm} />}
       {sidebarOpen && (
         <button
           type="button"
