@@ -41,7 +41,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   const [strokes, setStrokes] = useState<HandwritingPoint[][]>([]);
   const [tool, setTool] = useState<PadTool>("pen");
   const [penOnlyMode, setPenOnlyMode] = useState(false);
-  const [strokeMax, setStrokeMax] = useState(6);
+  const [strokeMax, setStrokeMax] = useState(4);
   const [canvasSize, setCanvasSize] = useState({ width: fallbackPadWidth, height: fallbackPadHeight });
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
@@ -269,6 +269,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
         <canvas
           ref={canvasRef}
           className="handwriting-canvas"
+          onContextMenu={(event) => event.preventDefault()}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={finishStroke}

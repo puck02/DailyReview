@@ -69,7 +69,7 @@ export function handwritingStrokeWidth(
   const safeMax = Math.max(safeMin, maxWidth);
   if (!Number.isFinite(pressure)) return (safeMin + safeMax) / 2;
   const normalized = clamp(pressure, 0, 1);
-  return safeMin + Math.pow(normalized, 0.7) * (safeMax - safeMin);
+  return safeMin + Math.pow(normalized, 1.35) * (safeMax - safeMin);
 }
 
 export function addHandwritingPoint(points: HandwritingPoint[], input: HandwritingInputPoint): HandwritingPoint[] {
