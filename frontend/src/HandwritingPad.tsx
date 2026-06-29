@@ -41,7 +41,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   const [strokes, setStrokes] = useState<HandwritingPoint[][]>([]);
   const [tool, setTool] = useState<PadTool>("pen");
   const [penOnlyMode, setPenOnlyMode] = useState(false);
-  const [strokeMax, setStrokeMax] = useState(12);
+  const [strokeMax, setStrokeMax] = useState(6);
   const [canvasSize, setCanvasSize] = useState({ width: fallbackPadWidth, height: fallbackPadHeight });
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
