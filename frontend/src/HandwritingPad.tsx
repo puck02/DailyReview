@@ -18,20 +18,32 @@ type PadTool = "pen" | "eraser";
 
 const fallbackPadWidth = 1180;
 const fallbackPadHeight = 760;
-const minStrokeWidth = 2;
+const minStrokeWidth = 1.25;
 const maxStrokeWidth = 16;
 
-function pointFromEvent(event: ReactPointerEvent<HTMLCanvasElement>): HandwritingPoint {
-  const rect = event.currentTarget.getBoundingClientRect();
+type PointerInputEvent = Pick<PointerEvent, "clientX" | "clientY" | "pointerType" | "pressure" | "timeStamp">;
+
+function pointFromPointerEvent(canvas: HTMLCanvasElement, event: PointerInputEvent, points: HandwritingPoint[] = []): HandwritingPoint {
+  const rect = canvas.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
-  return addHandwritingPoint([], {
+  const nextPoints = addHandwritingPoint(points, {
     x,
     y,
     pressure: event.pressure,
     pointerType: event.pointerType,
     time: event.timeStamp
-  })[0];
+  });
+  return nextPoints[nextPoints.length - 1];
+}
+
+function pointFromEvent(event: ReactPointerEvent<HTMLCanvasElement>, points: HandwritingPoint[] = []): HandwritingPoint {
+  return pointFromPointerEvent(event.currentTarget, event.nativeEvent, points);
+}
+
+function coalescedPointerEvents(event: ReactPointerEvent<HTMLCanvasElement>) {
+  const events = event.nativeEvent.getCoalescedEvents?.();
+  return events && events.length ? events : [event.nativeEvent];
 }
 
 export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
@@ -187,14 +199,36 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
     }
   }
 
-  function drawLiveSegment(context: CanvasRenderingContext2D, previous: HandwritingPoint, current: HandwritingPoint, maxWidth: number) {
+  function drawLiveSegment(context: CanvasRenderingContext2D, points: HandwritingPoint[], maxWidth: number) {
+    if (!points.length) return;
     context.strokeStyle = "#111111";
     context.lineCap = "round";
     context.lineJoin = "round";
+    if (points.length === 1) {
+      drawStroke(context, points, maxWidth);
+      return;
+    }
+    if (points.length === 2) {
+      const previous = points[0];
+      const current = points[1];
+      context.beginPath();
+      context.lineWidth = handwritingStrokeWidth(current.pressure, minStrokeWidth, maxWidth);
+      context.moveTo(previous.x, previous.y);
+      context.lineTo(current.x, current.y);
+      context.stroke();
+      return;
+    }
+    const previousPrevious = points[points.length - 3];
+    const previous = points[points.length - 2];
+    const current = points[points.length - 1];
+    const startX = (previousPrevious.x + previous.x) / 2;
+    const startY = (previousPrevious.y + previous.y) / 2;
+    const endX = (previous.x + current.x) / 2;
+    const endY = (previous.y + current.y) / 2;
     context.beginPath();
-    context.lineWidth = handwritingStrokeWidth(current.pressure, minStrokeWidth, maxWidth);
-    context.moveTo(previous.x, previous.y);
-    context.lineTo(current.x, current.y);
+    context.lineWidth = handwritingStrokeWidth(previous.pressure, minStrokeWidth, maxWidth);
+    context.moveTo(startX, startY);
+    context.quadraticCurveTo(previous.x, previous.y, endX, endY);
     context.stroke();
   }
 
@@ -221,17 +255,19 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
     if (exporting || !isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType, penOnlyMode)) return;
     event.preventDefault();
-    const point = pointFromEvent(event);
+    const pointerEvents = coalescedPointerEvents(event);
     if (tool === "eraser") {
       if (event.buttons !== 1) return;
-      eraseAtPoint(point, false);
+      for (const pointerEvent of pointerEvents) eraseAtPoint(pointFromPointerEvent(event.currentTarget, pointerEvent), false);
       return;
     }
     if (!activeStrokeRef.current.length) return;
-    const previous = activeStrokeRef.current[activeStrokeRef.current.length - 1];
-    activeStrokeRef.current.push(point);
     const context = canvasRef.current?.getContext("2d");
-    if (context) drawLiveSegment(context, previous, point, strokeMax);
+    if (!context) return;
+    for (const pointerEvent of pointerEvents) {
+      activeStrokeRef.current.push(pointFromPointerEvent(event.currentTarget, pointerEvent, activeStrokeRef.current));
+      drawLiveSegment(context, activeStrokeRef.current, strokeMax);
+    }
   }
 
   function finishStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
