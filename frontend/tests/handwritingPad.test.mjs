@@ -67,7 +67,9 @@ function createCanvasFactory(resolveSize = 80_000) {
 test("handwritingStrokeWidth maps Apple Pencil pressure into a usable width range", () => {
   assert.equal(handwritingStrokeWidth(0, 2, 10), 2);
   assert.equal(handwritingStrokeWidth(1, 2, 10), 10);
+  assert(handwritingStrokeWidth(0.2, 2, 10) < 5);
   assert(handwritingStrokeWidth(0.5, 2, 10) > 7);
+  assert(handwritingStrokeWidth(0.8, 2, 10) > 9.4);
   assert.equal(handwritingStrokeWidth(Number.NaN, 2, 10), 6);
 });
 
@@ -83,7 +85,7 @@ test("addHandwritingPoint smooths short noisy Apple Pencil movement and pressure
   assert.equal(stroke.length, 2);
   assert(stroke[1].x > 10 && stroke[1].x < 13);
   assert(stroke[1].y > 10 && stroke[1].y < 12);
-  assert(stroke[1].pressure > 0.2 && stroke[1].pressure < 1);
+  assert(stroke[1].pressure > 0.9 && stroke[1].pressure < 1);
 });
 
 test("addHandwritingPoint falls back when non-pen input has no pressure", () => {
@@ -140,6 +142,6 @@ test("exportHandwritingImage renders pressure-sensitive strokes to a webp attach
   assert(canvases[0].operations.some((operation) => operation[0] === "quadraticCurveTo"));
   assert.deepEqual(
     canvases[0].operations.filter((operation) => operation[0] === "lineWidth").map((operation) => operation[1]),
-    [19.101259946155565, 24]
+    [19.385828507188236, 24]
   );
 });
