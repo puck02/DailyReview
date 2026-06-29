@@ -37,6 +37,14 @@ function safePressure(value: number, pointerType = "") {
   return pointerType === "pen" ? 0 : fallbackPressure;
 }
 
+export function isHandwritingPenInput(pointerType: string) {
+  return pointerType === "pen";
+}
+
+export function isActiveHandwritingPointer(activePointerId: number | null, pointerId: number, pointerType: string) {
+  return isHandwritingPenInput(pointerType) && activePointerId === pointerId;
+}
+
 function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob), type, quality);

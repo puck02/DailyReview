@@ -3,7 +3,9 @@ import { afterEach, test } from "node:test";
 import {
   addHandwritingPoint,
   exportHandwritingImage,
-  handwritingStrokeWidth
+  isActiveHandwritingPointer,
+  handwritingStrokeWidth,
+  isHandwritingPenInput
 } from "/tmp/dailyreview-frontend-tests/frontend/src/handwritingPad.js";
 
 const originalDocument = globalThis.document;
@@ -72,6 +74,20 @@ test("addHandwritingPoint falls back when non-pen input has no pressure", () => 
   const stroke = addHandwritingPoint([], { x: 12, y: 18, pressure: 0, pointerType: "touch", time: 7 });
 
   assert.deepEqual(stroke, [{ x: 12, y: 18, pressure: 0.5, time: 7 }]);
+});
+
+test("isHandwritingPenInput only accepts Apple Pencil style pen input", () => {
+  assert.equal(isHandwritingPenInput("pen"), true);
+  assert.equal(isHandwritingPenInput("touch"), false);
+  assert.equal(isHandwritingPenInput("mouse"), false);
+  assert.equal(isHandwritingPenInput(""), false);
+});
+
+test("isActiveHandwritingPointer keeps palm touches from affecting the active Pencil stroke", () => {
+  assert.equal(isActiveHandwritingPointer(7, 7, "pen"), true);
+  assert.equal(isActiveHandwritingPointer(7, 8, "pen"), false);
+  assert.equal(isActiveHandwritingPointer(7, 8, "touch"), false);
+  assert.equal(isActiveHandwritingPointer(null, 7, "pen"), false);
 });
 
 test("exportHandwritingImage renders pressure-sensitive strokes to a webp attachment file", async () => {

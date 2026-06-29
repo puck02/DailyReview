@@ -4,7 +4,9 @@ import {
   HandwritingPoint,
   addHandwritingPoint,
   exportHandwritingImage,
-  handwritingStrokeWidth
+  handwritingStrokeWidth,
+  isActiveHandwritingPointer,
+  isHandwritingPenInput
 } from "./handwritingPad";
 
 type HandwritingPadProps = {
@@ -35,6 +37,7 @@ function pointFromEvent(event: ReactPointerEvent<HTMLCanvasElement>): Handwritin
 export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeStrokeRef = useRef<HandwritingPoint[]>([]);
+  const activePointerIdRef = useRef<number | null>(null);
   const [strokes, setStrokes] = useState<HandwritingPoint[][]>([]);
   const [tool, setTool] = useState<PadTool>("pen");
   const [strokeMax, setStrokeMax] = useState(12);
@@ -104,7 +107,8 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
 
   function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
-    if (exporting) return;
+    if (exporting || !isHandwritingPenInput(event.pointerType)) return;
+    activePointerIdRef.current = event.pointerId;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
@@ -121,7 +125,8 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
-    if (exporting) return;
+    if (exporting || !isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType)) return;
+    event.preventDefault();
     const point = pointFromEvent(event);
     if (tool === "eraser") {
       if (event.buttons !== 1) return;
@@ -139,7 +144,10 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
     setStrokes((current) => [...current.slice(0, -1), activeStrokeRef.current]);
   }
 
-  function finishStroke() {
+  function finishStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (!isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType)) return;
+    event.preventDefault();
+    activePointerIdRef.current = null;
     if (tool === "eraser") return;
     const stroke = activeStrokeRef.current;
     activeStrokeRef.current = [];
