@@ -1,12 +1,12 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { Check, Eraser, Pencil, RotateCcw, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { Check, Eraser, Pencil, RotateCcw, ShieldCheck, SlidersHorizontal, Trash2, X } from "lucide-react";
 import {
   HandwritingPoint,
   addHandwritingPoint,
   exportHandwritingImage,
   handwritingStrokeWidth,
   isActiveHandwritingPointer,
-  isHandwritingPenInput
+  isHandwritingInputAllowed
 } from "./handwritingPad";
 
 type HandwritingPadProps = {
@@ -40,6 +40,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   const activePointerIdRef = useRef<number | null>(null);
   const [strokes, setStrokes] = useState<HandwritingPoint[][]>([]);
   const [tool, setTool] = useState<PadTool>("pen");
+  const [penOnlyMode, setPenOnlyMode] = useState(false);
   const [strokeMax, setStrokeMax] = useState(12);
   const [canvasSize, setCanvasSize] = useState({ width: fallbackPadWidth, height: fallbackPadHeight });
   const [exporting, setExporting] = useState(false);
@@ -107,7 +108,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
 
   function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
-    if (exporting || !isHandwritingPenInput(event.pointerType)) return;
+    if (exporting || !isHandwritingInputAllowed(event.pointerType, penOnlyMode)) return;
     activePointerIdRef.current = event.pointerId;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -125,7 +126,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
-    if (exporting || !isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType)) return;
+    if (exporting || !isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType, penOnlyMode)) return;
     event.preventDefault();
     const point = pointFromEvent(event);
     if (tool === "eraser") {
@@ -145,7 +146,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   }
 
   function finishStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
-    if (!isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType)) return;
+    if (!isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType, penOnlyMode)) return;
     event.preventDefault();
     activePointerIdRef.current = null;
     if (tool === "eraser") return;
@@ -199,6 +200,19 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
               title="橡皮"
             >
               <Eraser size={18} />
+            </button>
+            <button
+              type="button"
+              className={penOnlyMode ? "handwriting-tool active" : "handwriting-tool"}
+              onClick={() => {
+                activePointerIdRef.current = null;
+                activeStrokeRef.current = [];
+                setPenOnlyMode((current) => !current);
+              }}
+              aria-label="仅笔模式"
+              title="仅笔模式"
+            >
+              <ShieldCheck size={18} />
             </button>
           </div>
           <label className="handwriting-pressure-control" title="笔画上限">

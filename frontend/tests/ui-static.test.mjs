@@ -155,6 +155,8 @@ test("chat composer opens a pressure-sensitive handwriting pad", () => {
   assert.match(app, /aria-label="写字板"/);
   assert.match(app, /title="写字板"/);
   assert.match(app, /disabled=\{handwritingDisabled\}/);
+  assert.ok(handwritingPad.includes("const [penOnlyMode, setPenOnlyMode] = useState(false);"));
+  assert.match(handwritingPad, /aria-label="仅笔模式"/);
   assert.match(handwritingPad, /try\s*{\s*event\.currentTarget\.setPointerCapture\(event\.pointerId\);\s*}\s*catch/);
   assert.match(styles, /\.handwriting-pad-backdrop\s*{/);
   assert.match(styles, /\.handwriting-canvas\s*{[^}]*touch-action:\s*none;/s);

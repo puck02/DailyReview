@@ -4,6 +4,7 @@ import {
   addHandwritingPoint,
   exportHandwritingImage,
   isActiveHandwritingPointer,
+  isHandwritingInputAllowed,
   handwritingStrokeWidth,
   isHandwritingPenInput
 } from "/tmp/dailyreview-frontend-tests/frontend/src/handwritingPad.js";
@@ -83,11 +84,21 @@ test("isHandwritingPenInput only accepts Apple Pencil style pen input", () => {
   assert.equal(isHandwritingPenInput(""), false);
 });
 
-test("isActiveHandwritingPointer keeps palm touches from affecting the active Pencil stroke", () => {
-  assert.equal(isActiveHandwritingPointer(7, 7, "pen"), true);
-  assert.equal(isActiveHandwritingPointer(7, 8, "pen"), false);
-  assert.equal(isActiveHandwritingPointer(7, 8, "touch"), false);
-  assert.equal(isActiveHandwritingPointer(null, 7, "pen"), false);
+test("isHandwritingInputAllowed only filters touch input in pen-only mode", () => {
+  assert.equal(isHandwritingInputAllowed("pen", false), true);
+  assert.equal(isHandwritingInputAllowed("touch", false), true);
+  assert.equal(isHandwritingInputAllowed("mouse", false), true);
+  assert.equal(isHandwritingInputAllowed("pen", true), true);
+  assert.equal(isHandwritingInputAllowed("touch", true), false);
+  assert.equal(isHandwritingInputAllowed("mouse", true), false);
+});
+
+test("isActiveHandwritingPointer keeps palm touches from affecting active Pencil strokes only in pen-only mode", () => {
+  assert.equal(isActiveHandwritingPointer(7, 7, "pen", true), true);
+  assert.equal(isActiveHandwritingPointer(7, 8, "pen", true), false);
+  assert.equal(isActiveHandwritingPointer(7, 8, "touch", true), false);
+  assert.equal(isActiveHandwritingPointer(null, 7, "pen", true), false);
+  assert.equal(isActiveHandwritingPointer(7, 7, "touch", false), true);
 });
 
 test("exportHandwritingImage renders pressure-sensitive strokes to a webp attachment file", async () => {

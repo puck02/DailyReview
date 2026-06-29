@@ -41,8 +41,17 @@ export function isHandwritingPenInput(pointerType: string) {
   return pointerType === "pen";
 }
 
-export function isActiveHandwritingPointer(activePointerId: number | null, pointerId: number, pointerType: string) {
-  return isHandwritingPenInput(pointerType) && activePointerId === pointerId;
+export function isHandwritingInputAllowed(pointerType: string, penOnlyMode: boolean) {
+  return !penOnlyMode || isHandwritingPenInput(pointerType);
+}
+
+export function isActiveHandwritingPointer(
+  activePointerId: number | null,
+  pointerId: number,
+  pointerType: string,
+  penOnlyMode: boolean
+) {
+  return isHandwritingInputAllowed(pointerType, penOnlyMode) && activePointerId === pointerId;
 }
 
 function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
