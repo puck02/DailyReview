@@ -164,6 +164,9 @@ test("chat composer opens a pressure-sensitive handwriting pad", () => {
   assert.match(handwritingPad, /addEventListener\("touchstart",[\s\S]*passive:\s*false/s);
   assert.match(handwritingPad, /addEventListener\("touchmove",[\s\S]*passive:\s*false/s);
   assert.match(handwritingPad, /try\s*{\s*event\.currentTarget\.setPointerCapture\(event\.pointerId\);\s*}\s*catch/);
+  assert.match(handwritingPad, /activePointerIdRef\.current !== null/);
+  const pointerMoveBody = handwritingPad.match(/function handlePointerMove[\s\S]*?\n  }\n\n  function finishStroke/)?.[0] || "";
+  assert.doesNotMatch(pointerMoveBody, /setStrokes\(/);
   assert.match(styles, /\.handwriting-pad-backdrop,[\s\S]*?\.handwriting-pad-backdrop \*\s*{[^}]*user-select:\s*none;[^}]*-webkit-user-select:\s*none;[^}]*-webkit-touch-callout:\s*none;/s);
   assert.match(styles, /\.handwriting-canvas\s*{[^}]*touch-action:\s*none;/s);
   assert.match(styles, /\.handwriting-tool\s*{/);

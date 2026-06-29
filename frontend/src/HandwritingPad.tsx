@@ -37,6 +37,7 @@ function pointFromEvent(event: ReactPointerEvent<HTMLCanvasElement>): Handwritin
 export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   const backdropRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const strokesRef = useRef<HandwritingPoint[][]>([]);
   const activeStrokeRef = useRef<HandwritingPoint[]>([]);
   const activePointerIdRef = useRef<number | null>(null);
   const [strokes, setStrokes] = useState<HandwritingPoint[][]>([]);
@@ -92,15 +93,22 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return undefined;
+    paintCanvas(strokes, true);
+  }, [strokes, strokeMax]);
+
+  function paintCanvas(points: HandwritingPoint[][], syncSize = false) {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
     const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
     const width = Math.max(1, Math.round(canvas.clientWidth || fallbackPadWidth));
     const height = Math.max(1, Math.round(canvas.clientHeight || fallbackPadHeight));
-    setCanvasSize((current) => (current.width === width && current.height === height ? current : { width, height }));
-    canvas.width = Math.round(width * pixelRatio);
-    canvas.height = Math.round(height * pixelRatio);
+    const pixelWidth = Math.round(width * pixelRatio);
+    const pixelHeight = Math.round(height * pixelRatio);
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
     const context = canvas.getContext("2d");
-    if (!context) return;
+    if (!context) return null;
     context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     context.clearRect(0, 0, width, height);
     context.fillStyle = "#fffffe";
@@ -113,8 +121,45 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
       context.lineTo(width, y);
       context.stroke();
     }
-    for (const stroke of strokes) drawStroke(context, stroke, strokeMax);
-  }, [strokes, strokeMax]);
+    for (const stroke of points) drawStroke(context, stroke, strokeMax);
+    if (syncSize) {
+      setCanvasSize((current) => (current.width === width && current.height === height ? current : { width, height }));
+    }
+    return context;
+  }
+
+  function setCommittedStrokes(nextStrokes: HandwritingPoint[][]) {
+    strokesRef.current = nextStrokes;
+    setStrokes(nextStrokes);
+  }
+
+  function eraseAtPoint(point: HandwritingPoint, syncState: boolean) {
+    const nextStrokes = strokesRef.current.filter((stroke) => !stroke.some((item) => Math.hypot(item.x - point.x, item.y - point.y) < 28));
+    if (nextStrokes.length === strokesRef.current.length) return;
+    strokesRef.current = nextStrokes;
+    paintCanvas(nextStrokes);
+    if (syncState) setStrokes(nextStrokes);
+  }
+
+  function releasePointer(event: ReactPointerEvent<HTMLCanvasElement>) {
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture can already be released by the browser after cancel/lost capture.
+    }
+  }
+
+  function endActiveStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const stroke = activeStrokeRef.current;
+    activePointerIdRef.current = null;
+    activeStrokeRef.current = [];
+    releasePointer(event);
+    if (tool === "eraser") {
+      setStrokes(strokesRef.current);
+      return;
+    }
+    if (stroke.length) setCommittedStrokes([...strokesRef.current, stroke]);
+  }
 
   function drawStroke(context: CanvasRenderingContext2D, points: HandwritingPoint[], maxWidth: number) {
     if (!points.length) return;
@@ -142,9 +187,20 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
     }
   }
 
+  function drawLiveSegment(context: CanvasRenderingContext2D, previous: HandwritingPoint, current: HandwritingPoint, maxWidth: number) {
+    context.strokeStyle = "#111111";
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.beginPath();
+    context.lineWidth = handwritingStrokeWidth(current.pressure, minStrokeWidth, maxWidth);
+    context.moveTo(previous.x, previous.y);
+    context.lineTo(current.x, current.y);
+    context.stroke();
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
     event.preventDefault();
-    if (exporting || !isHandwritingInputAllowed(event.pointerType, penOnlyMode)) return;
+    if (exporting || activePointerIdRef.current !== null || !isHandwritingInputAllowed(event.pointerType, penOnlyMode)) return;
     activePointerIdRef.current = event.pointerId;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -154,11 +210,12 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
     setError("");
     const point = pointFromEvent(event);
     if (tool === "eraser") {
-      setStrokes((current) => current.filter((stroke) => !stroke.some((item) => Math.hypot(item.x - point.x, item.y - point.y) < 28)));
+      eraseAtPoint(point, true);
       return;
     }
     activeStrokeRef.current = [point];
-    setStrokes((current) => [...current, activeStrokeRef.current]);
+    const context = canvasRef.current?.getContext("2d");
+    if (context) drawStroke(context, activeStrokeRef.current, strokeMax);
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
@@ -167,39 +224,32 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
     const point = pointFromEvent(event);
     if (tool === "eraser") {
       if (event.buttons !== 1) return;
-      setStrokes((current) => current.filter((stroke) => !stroke.some((item) => Math.hypot(item.x - point.x, item.y - point.y) < 28)));
+      eraseAtPoint(point, false);
       return;
     }
     if (!activeStrokeRef.current.length) return;
-    activeStrokeRef.current = addHandwritingPoint(activeStrokeRef.current, {
-      x: point.x,
-      y: point.y,
-      pressure: point.pressure,
-      pointerType: event.pointerType,
-      time: point.time
-    });
-    setStrokes((current) => [...current.slice(0, -1), activeStrokeRef.current]);
+    const previous = activeStrokeRef.current[activeStrokeRef.current.length - 1];
+    activeStrokeRef.current.push(point);
+    const context = canvasRef.current?.getContext("2d");
+    if (context) drawLiveSegment(context, previous, point, strokeMax);
   }
 
   function finishStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
     if (!isActiveHandwritingPointer(activePointerIdRef.current, event.pointerId, event.pointerType, penOnlyMode)) return;
     event.preventDefault();
-    activePointerIdRef.current = null;
-    if (tool === "eraser") return;
-    const stroke = activeStrokeRef.current;
-    activeStrokeRef.current = [];
-    if (stroke.length) setStrokes((current) => [...current.slice(0, -1), stroke]);
+    endActiveStroke(event);
   }
 
   async function handleConfirm() {
-    if (!strokes.length || exporting) return;
+    const committedStrokes = strokesRef.current;
+    if (!committedStrokes.length || exporting) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     setExporting(true);
     setError("");
     try {
       const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
-      const file = await exportHandwritingImage(strokes, {
+      const file = await exportHandwritingImage(committedStrokes, {
         width: canvasSize.width,
         height: canvasSize.height,
         name: `handwriting-${Date.now()}.webp`,
@@ -268,7 +318,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
             <button
               type="button"
               className="handwriting-action"
-              onClick={() => setStrokes((current) => current.slice(0, -1))}
+              onClick={() => setCommittedStrokes(strokesRef.current.slice(0, -1))}
               disabled={!strokes.length || exporting}
               aria-label="撤销"
               title="撤销"
@@ -278,7 +328,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
             <button
               type="button"
               className="handwriting-action"
-              onClick={() => setStrokes([])}
+              onClick={() => setCommittedStrokes([])}
               disabled={!strokes.length || exporting}
               aria-label="清空"
               title="清空"
@@ -310,6 +360,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
           onPointerMove={handlePointerMove}
           onPointerUp={finishStroke}
           onPointerCancel={finishStroke}
+          onLostPointerCapture={finishStroke}
         />
       </section>
     </div>
