@@ -35,6 +35,7 @@ function pointFromEvent(event: ReactPointerEvent<HTMLCanvasElement>): Handwritin
 }
 
 export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
+  const backdropRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeStrokeRef = useRef<HandwritingPoint[]>([]);
   const activePointerIdRef = useRef<number | null>(null);
@@ -53,6 +54,41 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onCancel]);
+
+  useEffect(() => {
+    const backdrop = backdropRef.current;
+    const canvas = canvasRef.current;
+    if (!backdrop || !canvas) return;
+    const activeBackdrop = backdrop;
+
+    function preventModalSelection(event: Event) {
+      const target = event.target;
+      if (target instanceof Node && activeBackdrop.contains(target)) event.preventDefault();
+    }
+
+    function clearActiveSelection() {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) selection.removeAllRanges();
+    }
+
+    function preventCanvasTouch(event: TouchEvent) {
+      event.preventDefault();
+    }
+
+    document.addEventListener("selectstart", preventModalSelection, { capture: true });
+    document.addEventListener("contextmenu", preventModalSelection, { capture: true });
+    document.addEventListener("selectionchange", clearActiveSelection);
+    canvas.addEventListener("touchstart", preventCanvasTouch, { passive: false });
+    canvas.addEventListener("touchmove", preventCanvasTouch, { passive: false });
+
+    return () => {
+      document.removeEventListener("selectstart", preventModalSelection, { capture: true });
+      document.removeEventListener("contextmenu", preventModalSelection, { capture: true });
+      document.removeEventListener("selectionchange", clearActiveSelection);
+      canvas.removeEventListener("touchstart", preventCanvasTouch);
+      canvas.removeEventListener("touchmove", preventCanvasTouch);
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -179,7 +215,7 @@ export function HandwritingPad({ onCancel, onConfirm }: HandwritingPadProps) {
   }
 
   return (
-    <div className="handwriting-pad-backdrop" role="dialog" aria-modal="true" aria-label="写字板">
+    <div ref={backdropRef} className="handwriting-pad-backdrop" role="dialog" aria-modal="true" aria-label="写字板">
       <section className="handwriting-pad-panel">
         <header className="handwriting-pad-toolbar">
           <div className="handwriting-tool-group" aria-label="写字工具">
