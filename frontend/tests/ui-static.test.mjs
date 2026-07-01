@@ -146,6 +146,13 @@ test("pending image previews are removable above the composer", () => {
   assert.match(styles, /@keyframes attachment-spin\s*{/);
 });
 
+test("screen capture returns focus to DailyReview before opening the editor", () => {
+  assert.match(app, /function focusDailyReviewAfterScreenCapture\(\)/);
+  assert.match(app, /window\.focus\(\)/);
+  assert.match(app, /document\.documentElement\.focus\(\{ preventScroll:\s*true \}\)/);
+  assert.match(app, /const canvas = await captureScreenCanvas\(\);[\s\S]*await focusDailyReviewAfterScreenCapture\(\);[\s\S]*setScreenshotCanvas\(canvas\);/);
+});
+
 test("chat composer opens a pressure-sensitive handwriting pad", () => {
   assert.ok(app.includes('import { HandwritingPad } from "./HandwritingPad";'));
   assert.ok(app.includes("PencilLine"));

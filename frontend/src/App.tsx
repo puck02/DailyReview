@@ -241,6 +241,16 @@ function isScreenshotCancel(error: unknown) {
   return error instanceof DOMException && ["AbortError", "NotAllowedError", "SecurityError"].includes(error.name);
 }
 
+function nextAnimationFrame() {
+  return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+}
+
+async function focusDailyReviewAfterScreenCapture() {
+  window.focus();
+  document.documentElement.focus({ preventScroll: true });
+  await nextAnimationFrame();
+}
+
 async function captureScreenCanvas(): Promise<HTMLCanvasElement> {
   const getDisplayMedia = navigator.mediaDevices?.getDisplayMedia?.bind(navigator.mediaDevices);
   if (!getDisplayMedia) {
@@ -1141,7 +1151,9 @@ function ChatView({
     setCapturingScreenshot(true);
     setError("");
     try {
-      setScreenshotCanvas(await captureScreenCanvas());
+      const canvas = await captureScreenCanvas();
+      await focusDailyReviewAfterScreenCapture();
+      setScreenshotCanvas(canvas);
     } catch (err) {
       if (!isScreenshotCancel(err)) {
         setError(err instanceof Error ? err.message : "截图失败，请重试");
