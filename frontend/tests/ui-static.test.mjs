@@ -147,6 +147,12 @@ test("pending image previews are removable above the composer", () => {
 });
 
 test("screen capture returns focus to DailyReview before opening the editor", () => {
+  assert.match(app, /type FocusPreservingCaptureController =/);
+  assert.match(app, /function createFocusPreservingCaptureController\(\)/);
+  assert.match(app, /new CaptureController\(\)/);
+  assert.match(app, /controller\.setFocusBehavior\("no-focus-change"\)/);
+  assert.match(app, /controller\.setFocusBehavior\("focus-capturing-application"\)/);
+  assert.match(app, /captureOptions\.controller = controller;/);
   assert.match(app, /function focusDailyReviewAfterScreenCapture\(\)/);
   assert.match(app, /window\.focus\(\)/);
   assert.match(app, /document\.documentElement\.focus\(\{ preventScroll:\s*true \}\)/);

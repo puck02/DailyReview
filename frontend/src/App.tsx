@@ -113,6 +113,17 @@ type TokenFlushController = {
   flush: () => void;
   cancel: () => void;
 };
+type CaptureFocusBehavior = "no-focus-change" | "focus-capturing-application";
+type FocusPreservingCaptureController = {
+  setFocusBehavior: (behavior: CaptureFocusBehavior) => void;
+};
+type ScreenCaptureWindow = Window &
+  typeof globalThis & {
+    CaptureController?: new () => FocusPreservingCaptureController;
+  };
+type DisplayMediaOptionsWithController = DisplayMediaStreamOptions & {
+  controller?: FocusPreservingCaptureController;
+};
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "gpt-5.5";
 const reportModels = [defaultModel, complexModel];
@@ -241,6 +252,24 @@ function isScreenshotCancel(error: unknown) {
   return error instanceof DOMException && ["AbortError", "NotAllowedError", "SecurityError"].includes(error.name);
 }
 
+function createFocusPreservingCaptureController() {
+  const CaptureController = (window as ScreenCaptureWindow).CaptureController;
+  if (!CaptureController) return null;
+
+  const controller = new CaptureController();
+  try {
+    controller.setFocusBehavior("no-focus-change");
+    return controller;
+  } catch {
+    try {
+      controller.setFocusBehavior("focus-capturing-application");
+      return controller;
+    } catch {
+      return null;
+    }
+  }
+}
+
 function nextAnimationFrame() {
   return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 }
@@ -257,10 +286,14 @@ async function captureScreenCanvas(): Promise<HTMLCanvasElement> {
     throw new Error("当前浏览器不支持网页截图，请使用 Chrome 或 Edge 桌面版");
   }
 
-  const stream = await getDisplayMedia({
+  const captureOptions: DisplayMediaOptionsWithController = {
     video: { cursor: "always" } as MediaTrackConstraints,
     audio: false
-  });
+  };
+  const controller = createFocusPreservingCaptureController();
+  if (controller) captureOptions.controller = controller;
+
+  const stream = await getDisplayMedia(captureOptions);
   try {
     const video = document.createElement("video");
     video.muted = true;
