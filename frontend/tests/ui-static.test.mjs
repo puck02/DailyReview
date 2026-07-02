@@ -272,6 +272,14 @@ test("essay api surface serializes session, image context, and suggestion reques
   assert.ok(apiSource.includes('updateEssaySession: (sessionId: number, payload: { title?: string; draft_text?: string; model?: string; clear_topic_image?: boolean })'));
   assert.ok(apiSource.includes('deleteEssaySession: (sessionId: number)'));
   assert.ok(apiSource.includes("essayImageContext: (sessionId: number, attachmentId: number)"));
+  assert.ok(apiSource.includes('export type EssayParagraphStage = "opening" | "development" | "transition" | "conclusion" | "unknown";'));
+  assert.ok(apiSource.includes('kind: "word" | "phrase" | "sentence" | "rewrite";'));
+  assert.ok(apiSource.includes('insert_mode?: "inline" | "replace";'));
+  assert.ok(apiSource.includes("prefix?: string;"));
+  assert.ok(apiSource.includes("suffix?: string;"));
+  assert.ok(apiSource.includes("cursor_index?: number;"));
+  assert.ok(apiSource.includes("word_count?: number;"));
+  assert.ok(apiSource.includes("paragraph_stage?: EssayParagraphStage;"));
   assert.ok(apiSource.includes("essaySuggest: ("));
   assert.ok(apiSource.includes('request<{ suggestions: EssaySuggestion[] }>("/api/essay/suggest"'));
 });

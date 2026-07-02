@@ -35,11 +35,25 @@ export type EssaySession = {
   updated_at: string;
 };
 
+export type EssayParagraphStage = "opening" | "development" | "transition" | "conclusion" | "unknown";
+
 export type EssaySuggestion = {
-  kind: "word" | "sentence";
+  kind: "word" | "phrase" | "sentence" | "rewrite";
   text: string;
   reason: string;
   confidence: number;
+  insert_mode?: "inline" | "replace";
+};
+
+export type EssaySuggestionRequest = {
+  session_id: number;
+  content: string;
+  model?: string;
+  prefix?: string;
+  suffix?: string;
+  cursor_index?: number;
+  word_count?: number;
+  paragraph_stage?: EssayParagraphStage;
 };
 
 export type Attachment = {
@@ -265,7 +279,7 @@ export const api = {
       body: JSON.stringify({ attachment_id: attachmentId })
     }),
   essaySuggest: (
-    payload: { session_id: number; content: string; model?: string },
+    payload: EssaySuggestionRequest,
     init?: RequestInit
   ) =>
     request<{ suggestions: EssaySuggestion[] }>("/api/essay/suggest", {
