@@ -474,6 +474,40 @@ describe("chat sessions and attachments", () => {
     });
   });
 
+  it("stores a visible failure message when upstream finishes without assistant content", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    vi.stubGlobal("fetch", async () => {
+      return new Response("data: [DONE]\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "空回复", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "解释泰勒公式", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+
+    expect(stream.status).toBe(200);
+    await expect(readSse(stream)).resolves.toEqual([JSON.stringify("AI 没有返回内容，请重试或切换模型。"), "[DONE]"]);
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    const stored = (await messages.json()) as Array<{ role: string; content: string }>;
+    expect(stored.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "AI 没有返回内容，请重试或切换模型。"
+    });
+  });
+
   it("aborts the upstream AI request when the chat request is aborted", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";

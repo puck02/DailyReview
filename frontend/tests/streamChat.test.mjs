@@ -25,6 +25,8 @@ test("streamChat parses JSON encoded multiline SSE tokens", async () => {
 test("streamChat forwards abort signals to fetch", async () => {
   const body = new ReadableStream({
     start(controller) {
+      const encoder = new TextEncoder();
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
     }
   });
@@ -42,4 +44,18 @@ test("streamChat forwards abort signals to fetch", async () => {
   );
 
   assert.equal(receivedSignal, controller.signal);
+});
+
+test("streamChat reports interrupted streams without DONE", async () => {
+  const body = new ReadableStream({
+    start(controller) {
+      controller.close();
+    }
+  });
+  globalThis.fetch = async () => new Response(body, { status: 200 });
+
+  await assert.rejects(
+    streamChat({ session_id: 1, content: "test", model: "gpt-5.4-mini", attachment_ids: [] }, () => undefined),
+    /连接中断，AI 回复未完成/
+  );
 });

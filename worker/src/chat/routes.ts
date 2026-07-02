@@ -312,6 +312,8 @@ type StreamAssistantOptions = {
   imageContextUserContent?: string | null;
 };
 
+const emptyAssistantReplyMessage = "AI 没有返回内容，请重试或切换模型。";
+
 async function streamAssistantResponse(
   env: Env,
   sessionId: number,
@@ -368,18 +370,23 @@ async function streamAssistantResponse(
         }
       }
       const assistantContent = parts.join("");
-      if (assistantContent) {
+      if (!assistantContent && !failed && !abortedByRequest) {
+        parts.push(emptyAssistantReplyMessage);
+        enqueue(`data: ${JSON.stringify(emptyAssistantReplyMessage)}\n\n`);
+      }
+      const finalAssistantContent = parts.join("");
+      if (finalAssistantContent) {
         if (replaceAssistantMessageId !== null) {
           await env.DB.prepare("UPDATE messages SET content = ?, model = ?, created_at = ? WHERE id = ?")
-            .bind(assistantContent, actualModel, nowIso(), replaceAssistantMessageId)
+            .bind(finalAssistantContent, actualModel, nowIso(), replaceAssistantMessageId)
             .run();
         } else {
           await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
-            .bind(sessionId, assistantContent, actualModel, nowIso())
+            .bind(sessionId, finalAssistantContent, actualModel, nowIso())
             .run();
         }
         if (options.imageContextUserContent && !failed && !abortedByRequest) {
-          await appendSessionImageContext(env, sessionId, options.imageContextUserContent, assistantContent);
+          await appendSessionImageContext(env, sessionId, options.imageContextUserContent, finalAssistantContent);
         }
       }
       await recordTokenUsage(env, userId, aiConfig, actualModel, totalTokens);

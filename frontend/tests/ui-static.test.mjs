@@ -475,6 +475,9 @@ test("chat scrolls to the latest message after loading and streaming updates", (
 test("streaming chat batches token UI updates and aborts stale requests", () => {
   assert.ok(app.includes("type TokenFlushController"));
   assert.ok(app.includes("function createTokenFlushController"));
+  assert.ok(app.includes('const emptyAssistantReplyMessage = "AI 没有返回内容，请重试或切换模型。";'));
+  assert.ok(app.includes('const interruptedAssistantReplyMessage = "连接中断，AI 回复可能不完整。";'));
+  assert.ok(app.includes("function finishAssistantMessage"));
   assert.ok(app.includes("window.requestAnimationFrame(flush)"));
   assert.ok(app.includes("activeStreamAbortRef"));
   assert.ok(app.includes("activeStreamAbortRef.current?.abort();"));
@@ -487,8 +490,22 @@ test("streaming chat batches token UI updates and aborts stale requests", () => 
   assert.ok(app.includes("tokenFlush.push"));
   assert.ok(app.includes("tokenFlush.flush();"));
   assert.ok(app.includes("{ signal: abortController.signal }"));
+  assert.ok(app.includes("let assistantHadContent = false;"));
+  assert.ok(app.includes("assistantHadContent = true;"));
+  assert.ok(app.includes("finishAssistantMessage(assistant.id, emptyAssistantReplyMessage);"));
+  assert.ok(app.includes("finishAssistantMessage(assistant.id, \"已停止生成。\");"));
+  assert.ok(app.includes("const refreshedMessages = await api.messages(session.id);"));
+  assert.ok(app.includes("activeRef.current?.id === session.id"));
   assert.ok(apiSource.includes("options: { signal?: AbortSignal } = {}"));
   assert.ok(apiSource.includes("signal: options.signal"));
+  assert.ok(apiSource.includes("let receivedDone = false;"));
+  assert.ok(apiSource.includes("receivedDone = true;"));
+  assert.ok(apiSource.includes('throw new Error("连接中断，AI 回复未完成");'));
+});
+
+test("chat does not reset an active conversation when returning from another page", () => {
+  assert.ok(app.includes("const chatAutoNewSessionRef = useRef(false);"));
+  assert.match(app, /useEffect\(\(\) => \{\s*if \(!isActive \|\| chatAutoNewSessionRef\.current\) return;[\s\S]*chatAutoNewSessionRef\.current = true;[\s\S]*void newSession\(\);[\s\S]*\}, \[isActive\]\);/);
 });
 
 test("chat sidebar can collapse from the top-left control", () => {
@@ -545,8 +562,8 @@ test("new chat stays local until the first message is sent", () => {
   assert.ok(app.includes("const [draftSessionActive, setDraftSessionActive]"));
   assert.match(app, /async function newSession\(\)\s*{[\s\S]*setDraftSessionActive\(true\);[\s\S]*setActive\(null\);[\s\S]*setMessages\(\[\]\);/);
   assert.doesNotMatch(app, /async function newSession\(\)\s*{[\s\S]*api\.createSession\("新会话", model\)/);
-  assert.ok(app.includes("if (isActive) newSession();"));
-  assert.match(app, /useEffect\(\(\) => \{\s*if \(isActive\) newSession\(\);/);
+  assert.ok(app.includes("void newSession();"));
+  assert.match(app, /useEffect\(\(\) => \{\s*if \(!isActive \|\| chatAutoNewSessionRef\.current\) return;[\s\S]*void newSession\(\);/);
 });
 
 test("draft chat first message skips the initial history reload while streaming", () => {

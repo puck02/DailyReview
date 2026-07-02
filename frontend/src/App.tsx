@@ -128,6 +128,8 @@ type DisplayMediaOptionsWithController = DisplayMediaStreamOptions & {
 };
 const defaultModel = "gpt-5.4-mini";
 const complexModel = "gpt-5.5";
+const emptyAssistantReplyMessage = "AI 没有返回内容，请重试或切换模型。";
+const interruptedAssistantReplyMessage = "连接中断，AI 回复可能不完整。";
 const reportModels = [defaultModel, complexModel];
 const providerNames: AiProviderName[] = ["gpt", "zhipu", "deepseek"];
 const fallbackProviderModels: Record<AiProviderName, { text: string[]; vision: string[] }> = {
@@ -845,6 +847,7 @@ function ChatView({
   const attachmentsRef = useRef<PendingAttachment[]>([]);
   const activeRef = useRef<ChatSession | null>(null);
   const draftSessionActiveRef = useRef(false);
+  const chatAutoNewSessionRef = useRef(false);
   const skipNextMessageLoadSessionIdRef = useRef<number | null>(null);
   const sessionLoadRequestRef = useRef(0);
   const messageLoadRequestRef = useRef(0);
@@ -1027,7 +1030,9 @@ function ChatView({
   }, [isActive]);
 
   useEffect(() => {
-    if (isActive) newSession();
+    if (!isActive || chatAutoNewSessionRef.current) return;
+    chatAutoNewSessionRef.current = true;
+    void newSession();
   }, [isActive]);
 
   async function newSession() {
@@ -1212,6 +1217,16 @@ function ChatView({
     setBusy(false);
   }
 
+  function finishAssistantMessage(messageId: number, fallback: string) {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId && message.role === "assistant" && !message.content.trim()
+          ? { ...message, content: fallback }
+          : message
+      )
+    );
+  }
+
   async function sendMessage() {
     const content = input.trim();
     if ((!content && !hasReadyAttachments) || busy || sendLockRef.current) return;
@@ -1251,7 +1266,9 @@ function ChatView({
     activeStreamAbortRef.current?.abort();
     const abortController = new AbortController();
     activeStreamAbortRef.current = abortController;
+    let assistantHadContent = false;
     const tokenFlush = createTokenFlushController((text) => {
+      assistantHadContent = true;
       setMessages((current) =>
         current.map((message) =>
           message.id === assistant.id ? { ...message, content: message.content + text } : message
@@ -1283,6 +1300,13 @@ function ChatView({
         { signal: abortController.signal }
       );
       tokenFlush.flush();
+      if (!assistantHadContent) {
+        finishAssistantMessage(assistant.id, emptyAssistantReplyMessage);
+      }
+      const refreshedMessages = await api.messages(session.id);
+      if (activeRef.current?.id === session.id) {
+        setMessages((current) => (refreshedMessages.length ? refreshedMessages : current));
+      }
       await refreshSessions();
     } catch (err) {
       if (!session) {
@@ -1292,7 +1316,11 @@ function ChatView({
         setInput(content);
       }
       if (!abortController.signal.aborted) {
-        setError(err instanceof Error ? err.message : "发送失败");
+        const message = err instanceof Error ? err.message : "发送失败";
+        setError(message);
+        finishAssistantMessage(assistant.id, assistantHadContent ? interruptedAssistantReplyMessage : message);
+      } else {
+        finishAssistantMessage(assistant.id, "已停止生成。");
       }
     } finally {
       tokenFlush.flush();
@@ -1335,7 +1363,9 @@ function ChatView({
     activeStreamAbortRef.current?.abort();
     const abortController = new AbortController();
     activeStreamAbortRef.current = abortController;
+    let assistantHadContent = false;
     const tokenFlush = createTokenFlushController((text) => {
+      assistantHadContent = true;
       setMessages((current) =>
         current.map((message) =>
           message.id === replacement.id ? { ...message, content: message.content + text } : message
@@ -1355,12 +1385,19 @@ function ChatView({
         { signal: abortController.signal }
       );
       tokenFlush.flush();
+      if (!assistantHadContent) {
+        finishAssistantMessage(replacement.id, emptyAssistantReplyMessage);
+      }
       const refreshedMessages = await api.messages(active.id);
       setMessages(refreshedMessages);
       await refreshSessions();
     } catch (err) {
       if (!abortController.signal.aborted) {
-        setError(err instanceof Error ? err.message : "重新生成失败");
+        const message = err instanceof Error ? err.message : "重新生成失败";
+        setError(message);
+        finishAssistantMessage(replacement.id, assistantHadContent ? interruptedAssistantReplyMessage : message);
+      } else {
+        finishAssistantMessage(replacement.id, "已停止生成。");
       }
     } finally {
       tokenFlush.flush();

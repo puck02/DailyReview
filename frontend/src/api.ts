@@ -403,6 +403,7 @@ async function streamChatEndpoint(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let receivedDone = false;
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -413,7 +414,10 @@ async function streamChatEndpoint(
       const line = event.split("\n").find((item) => item.startsWith("data:"));
       if (!line) continue;
       const token = line.replace(/^data:\s?/, "");
-      if (token === "[DONE]") continue;
+      if (token === "[DONE]") {
+        receivedDone = true;
+        continue;
+      }
       try {
         const parsed = JSON.parse(token);
         onToken(typeof parsed === "string" ? parsed : token);
@@ -421,5 +425,8 @@ async function streamChatEndpoint(
         onToken(token);
       }
     }
+  }
+  if (!receivedDone) {
+    throw new Error("连接中断，AI 回复未完成");
   }
 }
