@@ -178,4 +178,148 @@ describe("essay writing assistant", () => {
     expect(String(requestBody?.messages?.at(-1)?.content)).toContain("题目 OCR");
     expect(String(requestBody?.messages?.at(-1)?.content)).toContain("当前草稿");
   });
+
+  it("sends cursor context and normalizes insertion-aware essay suggestions", async () => {
+    const { env, cookie } = await loginUser();
+    const create = await fetchWorker(env, "/api/essay/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "练习 2", model: "gpt-5.4-mini" })
+    });
+    const session = (await create.json()) as { id: number };
+
+    await env.DB.prepare(
+      "UPDATE essay_sessions SET ocr_text = ?, objective_description = ? WHERE id = ?"
+    )
+      .bind(
+        "Directions: write an essay based on the picture.",
+        "A young man is looking at a phone while books are open on the desk.",
+        session.id
+      )
+      .run();
+
+    let requestBody: { messages?: Array<{ role: string; content: string }>; model?: string } | null = null;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body || "{}")) as typeof requestBody;
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  suggestions: [
+                    {
+                      kind: "phrase",
+                      text: "a lack of self-discipline",
+                      reason: "贴合前文对手机干扰学习的论述",
+                      confidence: 0.91,
+                      insert_mode: "inline"
+                    },
+                    {
+                      kind: "rewrite",
+                      text: "This scene suggests that digital distraction may weaken students' self-discipline.",
+                      reason: "更准确承接图片和前文",
+                      confidence: 0.72,
+                      insert_mode: "replace"
+                    },
+                    {
+                      kind: "bad-kind",
+                      text: "   , therefore, students should stay focused.  ",
+                      reason: "测试格式修剪",
+                      confidence: 2,
+                      insert_mode: "bad-mode"
+                    }
+                  ]
+                })
+              }
+            }
+          ],
+          usage: { total_tokens: 17 }
+        }),
+        { headers: { "content-type": "application/json" } }
+      );
+    });
+
+    const suggestionResponse = await fetchWorker(env, "/api/essay/suggest", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "In the picture, the student is distracted by his phone. This reflects ",
+        prefix: "In the picture, the student is distracted by his phone. This reflects ",
+        suffix: " in modern learning.",
+        cursor_index: 69,
+        word_count: 12,
+        paragraph_stage: "development",
+        model: "gpt-5.4-mini"
+      })
+    });
+
+    expect(suggestionResponse.status).toBe(200);
+    const body = (await suggestionResponse.json()) as {
+      suggestions: Array<{ kind: string; text: string; reason: string; confidence: number; insert_mode?: string }>;
+    };
+    expect(body.suggestions).toHaveLength(3);
+    expect(body.suggestions[0]).toMatchObject({
+      kind: "phrase",
+      text: "a lack of self-discipline",
+      insert_mode: "inline"
+    });
+    expect(body.suggestions[1]).toMatchObject({
+      kind: "rewrite",
+      insert_mode: "replace"
+    });
+    expect(body.suggestions[2]).toMatchObject({
+      kind: "sentence",
+      text: ", therefore, students should stay focused.",
+      confidence: 1,
+      insert_mode: "inline"
+    });
+    const systemPrompt = String(requestBody?.messages?.at(0)?.content || "");
+    const userPrompt = String(requestBody?.messages?.at(-1)?.content || "");
+    expect(systemPrompt).toContain("必须切合题目");
+    expect(systemPrompt).toContain("贴合光标前文");
+    expect(systemPrompt).toContain("标点和空格");
+    expect(userPrompt).toContain("光标前文");
+    expect(userPrompt).toContain("光标后文");
+    expect(userPrompt).toContain("段落阶段：development");
+    expect(userPrompt).toContain("词数：12");
+    expect(userPrompt).toContain("A young man is looking at a phone");
+  });
+
+  it("returns conclusion-stage fallback suggestions when AI is unavailable", async () => {
+    const { env, cookie } = await loginUser({ AI_API_KEY: "" });
+    const create = await fetchWorker(env, "/api/essay/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "练习 3", model: "gpt-5.4-mini" })
+    });
+    const session = (await create.json()) as { id: number };
+
+    const suggestionResponse = await fetchWorker(env, "/api/essay/suggest", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "In conclusion, we should pay more attention to this issue",
+        prefix: "In conclusion, we should pay more attention to this issue",
+        suffix: "",
+        cursor_index: 57,
+        word_count: 10,
+        paragraph_stage: "conclusion",
+        model: "gpt-5.4-mini"
+      })
+    });
+
+    expect(suggestionResponse.status).toBe(200);
+    const body = (await suggestionResponse.json()) as {
+      suggestions: Array<{ kind: string; text: string; reason: string; insert_mode?: string }>;
+    };
+    expect(body.suggestions[0]).toMatchObject({
+      kind: "sentence",
+      insert_mode: "inline"
+    });
+    expect(body.suggestions[0].text).toContain("practical steps");
+    expect(body.suggestions[0].reason).toContain("结尾");
+  });
 });

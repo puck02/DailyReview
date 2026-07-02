@@ -22,6 +22,16 @@ type EssaySessionRow = Row & {
   created_at: string;
   updated_at: string;
 };
+type EssayParagraphStage = "opening" | "development" | "transition" | "conclusion" | "unknown";
+type EssaySuggestionKind = "word" | "phrase" | "sentence" | "rewrite";
+type EssaySuggestionInsertMode = "inline" | "replace";
+type EssaySuggestion = {
+  kind: EssaySuggestionKind;
+  text: string;
+  reason: string;
+  confidence: number;
+  insert_mode: EssaySuggestionInsertMode;
+};
 
 const DEFAULT_ESSAY_TITLE = "考研英语作文";
 const MAX_TITLE_LENGTH = 255;
@@ -38,19 +48,24 @@ JSON 结构：
 - objective_description 只做客观描述，不要使用“主题是”“说明了”等推断性表述。
 - 语言尽量简洁。`;
 const ESSAY_SUGGESTION_SYSTEM_PROMPT = `你是一名考研英语一作文停顿补全助手。
-请严格基于题目 OCR、图像客观描述和当前草稿生成 3 条可直接插入的补全候选。
+请严格基于题目 OCR、图像客观描述、当前草稿、光标前文、光标后文和段落阶段生成 3 条可直接插入的补全候选。
 只输出 JSON 数组，不要输出 Markdown、代码块、解释或额外文本。
 每个数组项都必须包含：
 {
-  "kind": "word" | "sentence",
+  "kind": "word" | "phrase" | "sentence" | "rewrite",
   "text": "英文补全内容",
   "reason": "简短理由",
-  "confidence": 0.0
+  "confidence": 0.0,
+  "insert_mode": "inline" | "replace"
 }
 要求：
+- 必须切合题目 OCR 和图像客观描述，不要偏题。
+- 必须贴合光标前文，延续当前句子的语义、语法和语气。
+- 必须考虑光标后文，避免和后文重复或冲突。
+- 必须处理好标点和空格，text 不要包含多余首尾空白，不要重复光标前已有标点。
 - text 必须是英文。
-- kind 为 word 时，优先给短语、连接词或句首表达。
-- kind 为 sentence 时，优先给 1 句或 2 句可直接接在当前草稿后的内容。
+- kind 为 word 时，只给一个单词或连接词；kind 为 phrase 时给短语；kind 为 sentence 时给 1 句可直接接续的内容；kind 为 rewrite 时给更顺畅的改写。
+- insert_mode 为 inline 表示插入到光标处；replace 表示可替换当前句或短语。
 - 不要编造题图里不存在的具体事实。
 - 不要写成讲解文案，只给可用补全。`;
 
@@ -73,7 +88,12 @@ const essayImageContextSchema = z.object({
 const essaySuggestionSchema = z.object({
   session_id: z.number().int(),
   content: z.string().max(MAX_DRAFT_LENGTH).default(""),
-  model: z.string().trim().max(128).optional()
+  model: z.string().trim().max(128).optional(),
+  prefix: z.string().max(MAX_DRAFT_LENGTH).optional(),
+  suffix: z.string().max(MAX_DRAFT_LENGTH).optional(),
+  cursor_index: z.number().int().min(0).optional(),
+  word_count: z.number().int().min(0).optional(),
+  paragraph_stage: z.enum(["opening", "development", "transition", "conclusion", "unknown"]).optional()
 });
 
 const essayTablesReady = new WeakSet<D1Database>();
@@ -153,11 +173,17 @@ function essayTitleFromDraft(draft: string): string {
   return firstLine.length > 32 ? `${firstLine.slice(0, 32)}...` : firstLine;
 }
 
-function emptyEssaySuggestion(kind: "word" | "sentence", text: string, reason: string, confidence: number) {
-  return { kind, text, reason, confidence };
+function emptyEssaySuggestion(
+  kind: EssaySuggestionKind,
+  text: string,
+  reason: string,
+  confidence: number,
+  insertMode: EssaySuggestionInsertMode = "inline"
+): EssaySuggestion {
+  return { kind, text, reason, confidence, insert_mode: insertMode };
 }
 
-function fallbackEssaySuggestions(content: string, context: string): Array<{ kind: "word" | "sentence"; text: string; reason: string; confidence: number }> {
+function fallbackEssaySuggestions(content: string, context: string, paragraphStage: EssayParagraphStage = "unknown"): EssaySuggestion[] {
   const draft = content.trim();
   const hasContext = Boolean(context.trim());
   if (!draft) {
@@ -167,6 +193,27 @@ function fallbackEssaySuggestions(content: string, context: string): Array<{ kin
       emptyEssaySuggestion("word", "However, ", "可用于自然转折", 0.54)
     ];
   }
+  if (paragraphStage === "conclusion") {
+    return [
+      emptyEssaySuggestion("sentence", "we need to take practical steps to solve it. ", "适合结尾段收束观点", 0.66),
+      emptyEssaySuggestion("phrase", "in the long run", "适合结尾段提升表达", 0.58),
+      emptyEssaySuggestion("sentence", "Only in this way can we make steady progress. ", "适合结尾段总结", 0.55)
+    ];
+  }
+  if (paragraphStage === "opening") {
+    return [
+      emptyEssaySuggestion("sentence", "it reflects a social phenomenon that deserves careful attention. ", "适合开头段点明现象", 0.62),
+      emptyEssaySuggestion("phrase", "a thought-provoking scene", "适合描述题图", 0.57),
+      emptyEssaySuggestion("word", "Clearly, ", "适合自然引出观点", 0.54)
+    ];
+  }
+  if (paragraphStage === "transition") {
+    return [
+      emptyEssaySuggestion("word", "Moreover, ", "适合段间递进", 0.6),
+      emptyEssaySuggestion("phrase", "from another perspective", "适合转换论证角度", 0.56),
+      emptyEssaySuggestion("sentence", "The deeper reason behind this phenomenon is worth considering. ", "适合承上启下", 0.55)
+    ];
+  }
   return [
     emptyEssaySuggestion("sentence", "This simple picture reminds us that small actions can lead to meaningful change. ", "承接当前草稿并推进论证", 0.63),
     emptyEssaySuggestion("word", "Moreover, ", "适合继续展开第二层论证", 0.57),
@@ -174,19 +221,24 @@ function fallbackEssaySuggestions(content: string, context: string): Array<{ kin
   ];
 }
 
-function normalizeSuggestion(value: unknown): { kind: "word" | "sentence"; text: string; reason: string; confidence: number } | null {
+function normalizeSuggestion(value: unknown): EssaySuggestion | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
-  const kind = source.kind === "word" ? "word" : source.kind === "sentence" ? "sentence" : null;
+  const kind =
+    source.kind === "word" || source.kind === "phrase" || source.kind === "sentence" || source.kind === "rewrite"
+      ? source.kind
+      : "sentence";
   const text = String(source.text || "").trim();
   const reason = String(source.reason || "").trim();
   const confidence = Number(source.confidence);
-  if (!kind || !text || !reason) return null;
+  const insertMode = source.insert_mode === "replace" ? "replace" : "inline";
+  if (!text || !reason) return null;
   return {
     kind,
     text,
     reason,
-    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.5
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.5,
+    insert_mode: insertMode
   };
 }
 
@@ -387,8 +439,13 @@ async function suggestEssayCompletion(request: Request, env: Env): Promise<Respo
     throw new HttpError(404, "作文会话不存在");
   }
   const content = payload.content.trim();
+  const prefix = (payload.prefix ?? payload.content).trimEnd();
+  const suffix = (payload.suffix ?? "").trimStart();
+  const cursorIndex = payload.cursor_index ?? prefix.length;
+  const wordCount = payload.word_count ?? ((payload.content.match(/[A-Za-z][A-Za-z'-]*/g) || []).length);
+  const paragraphStage = payload.paragraph_stage || "unknown";
   const context = [session.ocr_text.trim(), session.objective_description.trim()].filter(Boolean).join("\n\n");
-  const fallback = fallbackEssaySuggestions(content, context);
+  const fallback = fallbackEssaySuggestions(content, context, paragraphStage);
   const aiConfig = await getAiConfig(env);
   const model = resolveChatModel(aiConfig, payload.model || session.default_model || aiTextModel(aiConfig), false);
   let suggestions = fallback;
@@ -403,7 +460,7 @@ async function suggestEssayCompletion(request: Request, env: Env): Promise<Respo
         },
         {
           role: "user",
-          content: `题目 OCR：\n${session.ocr_text.trim() || "（空）"}\n\n图像客观描述：\n${session.objective_description.trim() || "（空）"}\n\n当前草稿：\n${content || "（空）"}`
+          content: `题目 OCR：\n${session.ocr_text.trim() || "（空）"}\n\n图像客观描述：\n${session.objective_description.trim() || "（空）"}\n\n当前草稿：\n${content || "（空）"}\n\n光标前文：\n${prefix || "（空）"}\n\n光标后文：\n${suffix || "（空）"}\n\n光标位置：${cursorIndex}\n词数：${wordCount}\n段落阶段：${paragraphStage}`
         }
       ],
       model,
@@ -413,12 +470,7 @@ async function suggestEssayCompletion(request: Request, env: Env): Promise<Respo
     );
     totalTokens = response.totalTokens;
     const parsed = safeJsonArray(response.content);
-    const normalized = parsed.map(normalizeSuggestion).filter(Boolean) as Array<{
-      kind: "word" | "sentence";
-      text: string;
-      reason: string;
-      confidence: number;
-    }>;
+    const normalized = parsed.map(normalizeSuggestion).filter(Boolean) as EssaySuggestion[];
     if (normalized.length) {
       suggestions = normalized.slice(0, 3);
     }
