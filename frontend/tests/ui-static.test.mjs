@@ -272,6 +272,7 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.ok(app.includes("function dismissInlineEssaySuggestion"));
   assert.ok(app.includes("function updateEssayCursor"));
   assert.ok(app.includes("function insertEssaySuggestion"));
+  assert.ok(app.includes("async function createEssaySession(initialDraft = \"\")"));
   assert.ok(app.includes("prefix,"));
   assert.ok(app.includes("suffix,"));
   assert.ok(app.includes("cursor_index: cursorIndex,"));

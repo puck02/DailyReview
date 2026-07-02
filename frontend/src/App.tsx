@@ -2377,7 +2377,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
     return () => window.removeEventListener("resize", closeOnResize);
   }, [active]);
 
-  async function createEssaySession(initialDraft = draftRef.current) {
+  async function createEssaySession(initialDraft = "") {
     pendingCreateDraftRef.current = initialDraft;
     if (creatingSessionRef.current) return creatingSessionRef.current;
     const createPromise = (async () => {
