@@ -2154,6 +2154,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
   const [topicImageFile, setTopicImageFile] = useState<PendingAttachment | null>(null);
   const [suggestions, setSuggestions] = useState<EssaySuggestion[]>([]);
+  const [topicImageDialogOpen, setTopicImageDialogOpen] = useState(false);
   const [essayCursorIndex, setEssayCursorIndex] = useState(0);
   const [ghostScrollTop, setGhostScrollTop] = useState(0);
   const [acceptedEssaySuggestion, setAcceptedEssaySuggestion] = useState<EssayAcceptedSuggestion | null>(null);
@@ -2770,7 +2771,14 @@ function EssayView({ isActive }: { isActive: boolean }) {
             </div>
             <div className="essay-topic-preview">
               {topicImagePreview ? (
-                <img src={topicImagePreview} alt="作文题目图片" />
+                <button
+                  type="button"
+                  className="essay-topic-preview-button"
+                  onClick={() => setTopicImageDialogOpen(true)}
+                  aria-label="放大题图"
+                >
+                  <img src={topicImagePreview} alt="作文题目图片" />
+                </button>
               ) : (
                 <div className="essay-topic-placeholder">选择或粘贴题图</div>
               )}
@@ -2791,11 +2799,11 @@ function EssayView({ isActive }: { isActive: boolean }) {
             <div className="essay-context-list">
               <div>
                 <span>OCR</span>
-                <p>{imageContextPreview.ocr_text ? "已加入上下文" : "等待解析"}</p>
+                <p className="essay-context-text">{imageContextPreview.ocr_text || "等待解析"}</p>
               </div>
               <div>
                 <span>客观描述</span>
-                <p>{imageContextPreview.objective_description ? "已加入上下文" : "等待解析"}</p>
+                <p className="essay-context-text">{imageContextPreview.objective_description || "等待解析"}</p>
               </div>
             </div>
           </section>
@@ -2879,6 +2887,28 @@ function EssayView({ isActive }: { isActive: boolean }) {
             )}
           </aside>
         </div>
+        {topicImageDialogOpen && topicImagePreview ? (
+          <div
+            className="essay-image-dialog-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label="作文题图预览"
+            onClick={() => setTopicImageDialogOpen(false)}
+          >
+            <div className="essay-image-dialog-panel" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className="essay-image-dialog-close"
+                onClick={() => setTopicImageDialogOpen(false)}
+                aria-label="关闭题图预览"
+                title="关闭"
+              >
+                <X size={20} />
+              </button>
+              <img src={topicImagePreview} alt="作文题目图片放大预览" />
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );
