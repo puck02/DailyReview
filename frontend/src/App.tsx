@@ -2397,7 +2397,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
       const created = await createPromise;
       const localCreated = {
         ...created,
-        draft_text: draftRef.current || created.draft_text,
+        draft_text: created.draft_text,
         default_model: modelRef.current || created.default_model
       };
       setSessions((current) => [localCreated, ...current.filter((item) => item.id !== created.id)]);
