@@ -1971,10 +1971,52 @@ textarea:focus {
   font-size: 11px;
 }
 
+.essay-editor-stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.essay-editor,
+.essay-ghost-layer {
+  padding: 9px 30px 20px 68px;
+  font-family: "Comic Sans MS", "Bradley Hand", "Segoe Print", "Chalkboard SE", "Comic Sans", cursive;
+  font-size: 18px;
+  line-height: 35px;
+  text-align: left;
+  white-space: pre-wrap;
+}
+
+.essay-ghost-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+}
+
+.essay-ghost-prefix {
+  visibility: hidden;
+}
+
+.essay-ghost-suggestion {
+  color: color-mix(in srgb, var(--muted-text) 62%, transparent);
+}
+
 .essay-editor {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   resize: none;
   color: var(--headline);
+  padding: 9px 30px 20px 68px;
+  font-family: "Comic Sans MS", "Bradley Hand", "Segoe Print", "Chalkboard SE", "Comic Sans", cursive;
+  font-size: 18px;
+  line-height: 35px;
+  text-align: left;
   background:
     repeating-linear-gradient(
       to bottom,
@@ -1987,11 +2029,6 @@ textarea:focus {
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  padding: 9px 30px 20px 68px;
-  font-family: "Comic Sans MS", "Bradley Hand", "Segoe Print", "Chalkboard SE", "Comic Sans", cursive;
-  font-size: 18px;
-  line-height: 35px;
-  text-align: left;
 }
 
 .essay-editor:focus {
@@ -2009,11 +2046,27 @@ textarea:focus {
 
 .essay-editor-footer {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr auto;
   gap: 12px;
   align-items: end;
   border-top: 1px solid var(--stroke);
   padding: 12px 16px;
+}
+
+.essay-undo-completion {
+  align-self: center;
+  border: 1px solid var(--stroke);
+  background: var(--button-surface);
+  color: var(--headline);
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.essay-undo-completion:hover {
+  background: var(--button-surface-hover);
+  border-color: var(--stroke-strong);
 }
 
 .essay-status-line {
@@ -3476,6 +3529,12 @@ textarea:focus {
   }
 
   .essay-editor {
+    padding: 9px 16px 18px 56px;
+    font-size: 16px;
+    line-height: 35px;
+  }
+
+  .essay-ghost-layer {
     padding: 9px 16px 18px 56px;
     font-size: 16px;
     line-height: 35px;

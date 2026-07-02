@@ -64,6 +64,8 @@ import {
 } from "./api";
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { firstClipboardImage } from "./clipboard";
+import { countEssayWords, deriveEssayParagraphStage, insertEssaySuggestionAtCursor, undoAcceptedEssaySuggestion } from "./essayAssistant";
+import type { EssayAcceptedSuggestion } from "./essayAssistant";
 import { HandwritingPad } from "./HandwritingPad";
 import { ScreenshotEditor } from "./ScreenshotEditor";
 import appIconUrl from "./assets/app-icon.svg?url";
@@ -457,10 +459,6 @@ const englishStopWords = new Set([
 function compactCloudLabel(text: string) {
   const value = text.trim().replace(/\s+/g, " ");
   return value.length > 28 ? `${value.slice(0, 28)}...` : value;
-}
-
-function countEssayWords(text: string) {
-  return text.match(/[A-Za-z][A-Za-z'-]*/g)?.length || 0;
 }
 
 function labelsForTranslationEntry(entry: TranslationEntry) {
@@ -2119,6 +2117,9 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const [selectedAttachment, setSelectedAttachment] = useState<Attachment | null>(null);
   const [topicImageFile, setTopicImageFile] = useState<PendingAttachment | null>(null);
   const [suggestions, setSuggestions] = useState<EssaySuggestion[]>([]);
+  const [essayCursorIndex, setEssayCursorIndex] = useState(0);
+  const [ghostScrollTop, setGhostScrollTop] = useState(0);
+  const [acceptedEssaySuggestion, setAcceptedEssaySuggestion] = useState<EssayAcceptedSuggestion | null>(null);
   const [imageContextPreview, setImageContextPreview] = useState<{ ocr_text: string; objective_description: string }>({
     ocr_text: "",
     objective_description: ""
@@ -2127,8 +2128,10 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const saveTimerRef = useRef<number | null>(null);
   const suggestTimerRef = useRef<number | null>(null);
   const suggestionRequestRef = useRef(0);
+  const suggestionAbortRef = useRef<AbortController | null>(null);
   const activeRef = useRef<EssaySession | null>(null);
   const topicFileInputRef = useRef<HTMLInputElement>(null);
+  const essayEditorRef = useRef<HTMLTextAreaElement>(null);
   const draftRef = useRef("");
   const modelRef = useRef(model);
   const creatingSessionRef = useRef<Promise<EssaySession> | null>(null);
@@ -2194,6 +2197,8 @@ function EssayView({ isActive }: { isActive: boolean }) {
             ocr_text: updated.ocr_text,
             objective_description: updated.objective_description
           });
+          setEssayCursorIndex(updated.draft_text.length);
+          setAcceptedEssaySuggestion(null);
           return;
         }
       }
@@ -2207,6 +2212,8 @@ function EssayView({ isActive }: { isActive: boolean }) {
           ocr_text: items[0].ocr_text,
           objective_description: items[0].objective_description
         });
+        setEssayCursorIndex(items[0].draft_text.length);
+        setAcceptedEssaySuggestion(null);
       }
     } finally {
       if (requestId === sessionLoadRequestRef.current) setLoadingSessions(false);
@@ -2226,6 +2233,8 @@ function EssayView({ isActive }: { isActive: boolean }) {
       ocr_text: active.ocr_text,
       objective_description: active.objective_description
     });
+    setEssayCursorIndex(active.draft_text.length);
+    setAcceptedEssaySuggestion(null);
   }, [active?.id]);
 
   useEffect(() => {
@@ -2273,6 +2282,8 @@ function EssayView({ isActive }: { isActive: boolean }) {
 
   useEffect(() => {
     if (suggestTimerRef.current) window.clearTimeout(suggestTimerRef.current);
+    suggestionAbortRef.current?.abort();
+    suggestionAbortRef.current = null;
     if (!active) {
       setSuggestions([]);
       return;
@@ -2281,27 +2292,40 @@ function EssayView({ isActive }: { isActive: boolean }) {
     suggestTimerRef.current = window.setTimeout(async () => {
       const currentActive = activeRef.current;
       if (!currentActive) return;
+      const cursorIndex = Math.max(0, Math.min(essayCursorIndex, draftRef.current.length));
+      const prefix = draftRef.current.slice(0, cursorIndex);
+      const suffix = draftRef.current.slice(cursorIndex);
+      const abortController = new AbortController();
+      suggestionAbortRef.current = abortController;
       setSuggesting(true);
       try {
         const result = await api.essaySuggest({
           session_id: currentActive.id,
           content: draftRef.current,
+          prefix,
+          suffix,
+          cursor_index: cursorIndex,
+          word_count: countEssayWords(draftRef.current),
+          paragraph_stage: deriveEssayParagraphStage(draftRef.current, cursorIndex),
           model: modelRef.current
-        });
+        }, { signal: abortController.signal });
         if (requestId !== suggestionRequestRef.current) return;
         setSuggestions(result.suggestions);
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         if (requestId !== suggestionRequestRef.current) return;
         setError(err instanceof Error ? err.message : "补全建议加载失败");
       } finally {
+        if (suggestionAbortRef.current === abortController) suggestionAbortRef.current = null;
         if (requestId === suggestionRequestRef.current) setSuggesting(false);
       }
-    }, 900);
+    }, 650);
 
     return () => {
       if (suggestTimerRef.current) window.clearTimeout(suggestTimerRef.current);
+      suggestionAbortRef.current?.abort();
     };
-  }, [active?.id, draft, imageContextPreview.ocr_text, imageContextPreview.objective_description, model]);
+  }, [active?.id, draft, essayCursorIndex, imageContextPreview.ocr_text, imageContextPreview.objective_description, model]);
 
   useEffect(() => {
     if (!active) return;
@@ -2349,6 +2373,8 @@ function EssayView({ isActive }: { isActive: boolean }) {
         objective_description: localCreated.objective_description
       });
       setSuggestions([]);
+      setEssayCursorIndex(localCreated.draft_text.length);
+      setAcceptedEssaySuggestion(null);
       if (isMobileViewport()) setSidebarOpen(false);
       return localCreated;
     } catch (err) {
@@ -2373,7 +2399,10 @@ function EssayView({ isActive }: { isActive: boolean }) {
       ocr_text: session.ocr_text,
       objective_description: session.objective_description
     });
+    suggestionAbortRef.current?.abort();
     setSuggestions([]);
+    setEssayCursorIndex(session.draft_text.length);
+    setAcceptedEssaySuggestion(null);
     if (isMobileViewport()) setSidebarOpen(false);
   }
 
@@ -2404,7 +2433,10 @@ function EssayView({ isActive }: { isActive: boolean }) {
         setImageContextPreview({ ocr_text: "", objective_description: "" });
         setSelectedAttachment(null);
       }
+      suggestionAbortRef.current?.abort();
       setSuggestions([]);
+      setEssayCursorIndex(next?.draft_text.length || 0);
+      setAcceptedEssaySuggestion(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除作文会话失败");
     }
@@ -2418,6 +2450,9 @@ function EssayView({ isActive }: { isActive: boolean }) {
     });
     setSelectedAttachment(null);
     setImageContextPreview({ ocr_text: "", objective_description: "" });
+    suggestionAbortRef.current?.abort();
+    setSuggestions([]);
+    setAcceptedEssaySuggestion(null);
     if (!current) return;
     api
       .updateEssaySession(current.id, {
@@ -2476,7 +2511,9 @@ function EssayView({ isActive }: { isActive: boolean }) {
         if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
         return null;
       });
+      setEssayCursorIndex(updated.draft_text.length);
       setSuggestions([]);
+      setAcceptedEssaySuggestion(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "图片上传失败";
       setError(message);
@@ -2510,10 +2547,76 @@ function EssayView({ isActive }: { isActive: boolean }) {
   }, [isActive]);
 
   const currentSuggestions = suggestions.slice(0, 3);
+  const inlineSuggestion = currentSuggestions.find((suggestion) => (suggestion.insert_mode || "inline") === "inline") || currentSuggestions[0];
+  const ghostSuggestionPreview = inlineSuggestion ? insertEssaySuggestionAtCursor(draft, inlineSuggestion.text, essayCursorIndex).insertedText : "";
   const hasTopicImage = Boolean(selectedAttachment);
   const topicImagePreview = topicImageFile?.previewUrl || selectedAttachment?.url || "";
   const topicStatus = topicImageFile?.status === "failed" ? "失败" : topicImageFile ? "上传中" : hasTopicImage ? "已上传" : "未上传";
   const essayWordCount = useMemo(() => countEssayWords(draft), [draft]);
+
+  function updateEssayCursor() {
+    const next = essayEditorRef.current?.selectionStart ?? draftRef.current.length;
+    setEssayCursorIndex(Math.max(0, Math.min(next, draftRef.current.length)));
+  }
+
+  function syncEssayGhostScroll() {
+    setGhostScrollTop(essayEditorRef.current?.scrollTop || 0);
+  }
+
+  function insertEssaySuggestion(suggestion: EssaySuggestion) {
+    const inserted = insertEssaySuggestionAtCursor(draftRef.current, suggestion.text, essayCursorIndex);
+    setDraft(inserted.text);
+    draftRef.current = inserted.text;
+    setAcceptedEssaySuggestion(inserted);
+    setSuggestions([]);
+    setEssayCursorIndex(inserted.range.end);
+    window.requestAnimationFrame(() => {
+      essayEditorRef.current?.focus();
+      essayEditorRef.current?.setSelectionRange(inserted.range.end, inserted.range.end);
+    });
+  }
+
+  function acceptInlineEssaySuggestion() {
+    if (!inlineSuggestion) return;
+    insertEssaySuggestion(inlineSuggestion);
+  }
+
+  function dismissInlineEssaySuggestion() {
+    suggestionAbortRef.current?.abort();
+    setSuggestions([]);
+    setAcceptedEssaySuggestion(null);
+  }
+
+  function undoEssayCompletion() {
+    const next = undoAcceptedEssaySuggestion(draftRef.current, acceptedEssaySuggestion);
+    if (next === null) return;
+    setDraft(next);
+    draftRef.current = next;
+    setAcceptedEssaySuggestion(null);
+    setEssayCursorIndex(next.length);
+    window.requestAnimationFrame(() => {
+      essayEditorRef.current?.focus();
+      essayEditorRef.current?.setSelectionRange(next.length, next.length);
+    });
+  }
+
+  function handleEssayEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Tab" && inlineSuggestion) {
+      event.preventDefault();
+      acceptInlineEssaySuggestion();
+    }
+    if (event.key === "Escape" && inlineSuggestion) {
+      event.preventDefault();
+      dismissInlineEssaySuggestion();
+    }
+  }
+
+  function essaySuggestionKindLabel(suggestion: EssaySuggestion) {
+    if (suggestion.kind === "word") return "词";
+    if (suggestion.kind === "phrase") return "短语";
+    if (suggestion.kind === "rewrite") return "改写";
+    return "句子";
+  }
 
   return (
     <div className={sidebarOpen ? "essay-pane" : "essay-pane sidebar-collapsed"}>
@@ -2610,8 +2713,11 @@ function EssayView({ isActive }: { isActive: boolean }) {
               type="button"
               className="secondary-button compact essay-clear-button"
               onClick={() => {
+                suggestionAbortRef.current?.abort();
                 setDraft("");
                 setSuggestions([]);
+                setEssayCursorIndex(0);
+                setAcceptedEssaySuggestion(null);
               }}
             >
               <RotateCcw size={16} />
@@ -2668,23 +2774,43 @@ function EssayView({ isActive }: { isActive: boolean }) {
                 <span>{model}</span>
               </div>
             </div>
-            <textarea
-              className="essay-editor"
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                if (!active) {
-                  createEssaySession(event.target.value).catch((err) =>
-                    setError(err instanceof Error ? err.message : "创建作文会话失败")
-                  );
-                }
-              }}
-              placeholder="输入正文"
-            />
+            <div className="essay-editor-stage">
+              {inlineSuggestion && ghostSuggestionPreview ? (
+                <div className="essay-ghost-layer" aria-hidden="true" style={{ transform: `translateY(${-ghostScrollTop}px)` }}>
+                  <span className="essay-ghost-prefix">{draft.slice(0, essayCursorIndex)}</span>
+                  <span className="essay-ghost-suggestion">{ghostSuggestionPreview}</span>
+                </div>
+              ) : null}
+              <textarea
+                ref={essayEditorRef}
+                className="essay-editor"
+                value={draft}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setSuggestions([]);
+                  setAcceptedEssaySuggestion(null);
+                  setEssayCursorIndex(event.target.selectionStart);
+                  if (!active) {
+                    createEssaySession(event.target.value).catch((err) =>
+                      setError(err instanceof Error ? err.message : "创建作文会话失败")
+                    );
+                  }
+                }}
+                onKeyDown={handleEssayEditorKeyDown}
+                onSelect={updateEssayCursor}
+                onScroll={syncEssayGhostScroll}
+                placeholder="输入正文"
+              />
+            </div>
             <div className="essay-editor-footer">
               <div className="essay-status-line">
                 <span>{error || (saving ? "保存中" : suggesting ? "补全中" : "已保存")}</span>
               </div>
+              {acceptedEssaySuggestion ? (
+                <button type="button" className="essay-undo-completion" onClick={undoEssayCompletion}>
+                  撤销补全
+                </button>
+              ) : null}
             </div>
           </section>
 
@@ -2700,12 +2826,10 @@ function EssayView({ isActive }: { isActive: boolean }) {
                     key={`${suggestion.kind}-${index}-${suggestion.text}`}
                     type="button"
                     className="essay-suggestion-card"
-                    onClick={() => {
-                      setDraft((current) => `${current}${suggestion.text}`);
-                    }}
+                    onClick={() => insertEssaySuggestion(suggestion)}
                   >
                     <div className="essay-suggestion-card-head">
-                      <span>{suggestion.kind === "word" ? "词 / 短语" : "句子"}</span>
+                      <span>{essaySuggestionKindLabel(suggestion)} · {(suggestion.insert_mode || "inline") === "replace" ? "替换" : "补全"}</span>
                       <strong>{Math.round(suggestion.confidence * 100)}%</strong>
                     </div>
                     <p>{suggestion.text}</p>
