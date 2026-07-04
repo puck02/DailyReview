@@ -141,6 +141,7 @@ const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
 const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared";
 const aiConfigChangedEvent = "dailyreview:ai-config-changed";
+const keepAliveIntervalMs = 120_000;
 const wordCloudLaneCount = 4;
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
 const DAILY_QUOTES = [
@@ -3670,6 +3671,17 @@ export default function App() {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    function pingVisiblePageKeepAlive() {
+      if (document.visibilityState !== "visible") return;
+      api.health().catch(() => undefined);
+    }
+
+    const keepAliveTimer = window.setInterval(pingVisiblePageKeepAlive, keepAliveIntervalMs);
+    return () => window.clearInterval(keepAliveTimer);
+  }, [user]);
 
   useEffect(() => {
     if (!user) {

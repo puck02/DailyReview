@@ -233,6 +233,14 @@ test("visited app views stay mounted and heavy markdown renderer is prefetched f
   assert.match(styles, /\.app-content\s*{[^}]*min-width:\s*0;[^}]*min-height:\s*0;[^}]*overflow:\s*hidden;/s);
 });
 
+test("authenticated app sends a lightweight visible-page keepalive", () => {
+  assert.ok(apiSource.includes('health: () => request<{ status: string; runtime: string }>("/api/health")'));
+  assert.ok(app.includes("const keepAliveIntervalMs = 120_000;"));
+  assert.match(app, /function pingVisiblePageKeepAlive\(\) \{[\s\S]*document\.visibilityState !== "visible"[\s\S]*api\.health\(\)\.catch\(\(\) => undefined\);[\s\S]*\}/);
+  assert.match(app, /window\.setInterval\(pingVisiblePageKeepAlive,\s*keepAliveIntervalMs\)/);
+  assert.match(app, /return \(\) => window\.clearInterval\(keepAliveTimer\);/);
+});
+
 test("essay writing view renders a dedicated workspace and suggestion rail", () => {
   assert.ok(app.includes('type View = "chat" | "translate" | "essay" | "reports" | "admin" | "settings";'));
   assert.ok(app.includes('aria-label="作文"'));

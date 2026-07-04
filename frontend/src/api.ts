@@ -223,6 +223,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  health: () => request<{ status: string; runtime: string }>("/api/health"),
   me: () => request<User>("/api/auth/me"),
   login: (email: string, password: string) =>
     request<User>("/api/auth/login", {
