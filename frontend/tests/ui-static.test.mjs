@@ -280,7 +280,13 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.ok(app.includes("function dismissInlineEssaySuggestion"));
   assert.ok(app.includes("function updateEssayCursor"));
   assert.ok(app.includes("function insertEssaySuggestion"));
+  assert.ok(app.includes("function newEssaySession()"));
   assert.ok(app.includes("async function createEssaySession(initialDraft = \"\")"));
+  assert.match(app, /<button className="new-session" onClick=\{newEssaySession\}>/);
+  assert.doesNotMatch(app, /onClick=\{\(\) => createEssaySession\(\)\}/);
+  assert.doesNotMatch(app, /if \(!activeRef\.current && items\[0\]\) \{/);
+  assert.ok(app.includes("const hasEssayTopicContext = Boolean(imageContextPreview.ocr_text.trim() || imageContextPreview.objective_description.trim());"));
+  assert.ok(app.includes("if (!active || !hasEssayTopicContext) {"));
   assert.ok(app.includes("draft_text: created.draft_text"));
   assert.doesNotMatch(app, /draft_text:\s*draftRef\.current \|\| created\.draft_text/);
   assert.ok(app.includes("prefix,"));

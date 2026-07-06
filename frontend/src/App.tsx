@@ -2176,6 +2176,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const creatingSessionRef = useRef<Promise<EssaySession> | null>(null);
   const pendingCreateDraftRef = useRef("");
   const topicImageFileRef = useRef<PendingAttachment | null>(null);
+  const hasEssayTopicContext = Boolean(imageContextPreview.ocr_text.trim() || imageContextPreview.objective_description.trim());
 
   useEffect(() => {
     activeRef.current = active;
@@ -2240,19 +2241,6 @@ function EssayView({ isActive }: { isActive: boolean }) {
           setAcceptedEssaySuggestion(null);
           return;
         }
-      }
-      if (!activeRef.current && items[0]) {
-        activeRef.current = items[0];
-        setActive(items[0]);
-        setDraft(items[0].draft_text);
-        setModel(items[0].default_model || modelRef.current);
-        setSelectedAttachment(items[0].topic_attachment);
-        setImageContextPreview({
-          ocr_text: items[0].ocr_text,
-          objective_description: items[0].objective_description
-        });
-        setEssayCursorIndex(items[0].draft_text.length);
-        setAcceptedEssaySuggestion(null);
       }
     } finally {
       if (requestId === sessionLoadRequestRef.current) setLoadingSessions(false);
@@ -2323,8 +2311,9 @@ function EssayView({ isActive }: { isActive: boolean }) {
     if (suggestTimerRef.current) window.clearTimeout(suggestTimerRef.current);
     suggestionAbortRef.current?.abort();
     suggestionAbortRef.current = null;
-    if (!active) {
+    if (!active || !hasEssayTopicContext) {
       setSuggestions([]);
+      setSuggesting(false);
       return;
     }
     const requestId = ++suggestionRequestRef.current;
@@ -2364,7 +2353,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
       if (suggestTimerRef.current) window.clearTimeout(suggestTimerRef.current);
       suggestionAbortRef.current?.abort();
     };
-  }, [active?.id, draft, essayCursorIndex, imageContextPreview.ocr_text, imageContextPreview.objective_description, model]);
+  }, [active?.id, draft, essayCursorIndex, hasEssayTopicContext, imageContextPreview.ocr_text, imageContextPreview.objective_description, model]);
 
   useEffect(() => {
     if (!active) return;
@@ -2422,6 +2411,37 @@ function EssayView({ isActive }: { isActive: boolean }) {
     } finally {
       creatingSessionRef.current = null;
     }
+  }
+
+  function newEssaySession() {
+    const isBlankLocalSession =
+      !activeRef.current &&
+      !draftRef.current.trim() &&
+      !selectedAttachment &&
+      !topicImageFileRef.current &&
+      !hasEssayTopicContext;
+    if (isBlankLocalSession) {
+      if (isMobileViewport()) setSidebarOpen(false);
+      return;
+    }
+    setTopicImageFile((current) => {
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return null;
+    });
+    suggestionAbortRef.current?.abort();
+    activeRef.current = null;
+    setActive(null);
+    setDraft("");
+    draftRef.current = "";
+    setSelectedAttachment(null);
+    setImageContextPreview({ ocr_text: "", objective_description: "" });
+    setSuggestions([]);
+    setSuggesting(false);
+    setEssayCursorIndex(0);
+    setGhostScrollTop(0);
+    setAcceptedEssaySuggestion(null);
+    setError("");
+    if (isMobileViewport()) setSidebarOpen(false);
   }
 
   function selectSession(session: EssaySession) {
@@ -2685,7 +2705,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
                 <X size={17} />
               </button>
             </div>
-            <button className="new-session" onClick={() => createEssaySession()}>
+            <button className="new-session" onClick={newEssaySession}>
               <Plus size={16} />
               新作文
             </button>
