@@ -1348,8 +1348,6 @@ function ChatView({
       created_at: new Date().toISOString(),
       attachments: []
     };
-    autoFollowRef.current = true;
-    setShowScrollToBottom(false);
     setInput("");
     setMessages((current) => [...current, pendingUser, assistant]);
     sendLockRef.current = true;

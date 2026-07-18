@@ -584,6 +584,16 @@ test("chat scrolls to the latest message after loading and streaming updates", (
   assert.match(styles, /\.messages-end\s*{[^}]*height:\s*1px;/s);
 });
 
+test("sending a message preserves manual chat scroll position", () => {
+  const sendStart = app.indexOf("  async function sendMessage() {");
+  const regenerateStart = app.indexOf("  async function regenerateAssistantMessage", sendStart);
+  assert.ok(sendStart >= 0 && regenerateStart > sendStart);
+  assert.doesNotMatch(
+    app.slice(sendStart, regenerateStart),
+    /autoFollowRef\.current = true|setShowScrollToBottom\(false\)/
+  );
+});
+
 test("streaming chat batches token UI updates and aborts stale requests", () => {
   assert.ok(app.includes("type TokenFlushController"));
   assert.ok(app.includes("function createTokenFlushController"));
