@@ -117,7 +117,7 @@ test("mobile navigation keeps four primary destinations and one account menu", (
   assert.ok(app.includes('aria-haspopup="menu"'));
   assert.ok(app.includes('className="account-menu"'));
   assert.ok(app.includes('className="desktop-account-action"'));
-  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.desktop-account-action,[\s\S]*\.nav-brand\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.app-nav \.desktop-account-action,[\s\S]*\.nav-brand\s*{[^}]*display:\s*none;/s);
   assert.match(styles, /\.account-menu-trigger,[\s\S]*?\.account-menu\s*{[^}]*display:\s*none;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.account-menu-trigger\s*{[^}]*display:\s*inline-flex;/s);
 });
@@ -404,6 +404,10 @@ test("mobile essay workspace switches panels without state-driven ghost scrollin
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.essay-mobile-tabs\s*{[^}]*display:\s*grid;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.essay-workspace-panel:not\(\.mobile-active\)\s*{[^}]*display:\s*none;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.essay-topic-card\.mobile-active\s*{[^}]*overflow-y:\s*auto;/s);
+  assert.match(
+    styles,
+    /@media \(max-width:\s*980px\)[\s\S]*\.workspace\.sidebar-collapsed,\s*\.essay-pane\.sidebar-collapsed\s*{[^}]*grid-template-columns:\s*1fr;/s
+  );
 });
 
 test("essay api surface serializes session, image context, and suggestion requests", () => {

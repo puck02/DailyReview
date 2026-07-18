@@ -3328,7 +3328,7 @@ textarea:focus {
     line-height: 1;
   }
 
-  .desktop-account-action,
+  .app-nav .desktop-account-action,
   .nav-brand {
     display: none;
   }
@@ -3397,7 +3397,8 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
-  .workspace.sidebar-collapsed {
+  .workspace.sidebar-collapsed,
+  .essay-pane.sidebar-collapsed {
     grid-template-columns: 1fr;
   }
 
