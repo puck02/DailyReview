@@ -18,6 +18,7 @@ const headersFile = fs.readFileSync(new URL("../public/_headers", import.meta.ur
 const appIcon = fs.readFileSync(new URL("../src/assets/app-icon.svg", import.meta.url), "utf8");
 
 test("uses tinted neutral surfaces with restrained semantic colors", () => {
+  assert.match(styles, /--muted:\s*var\(--muted-text\);/);
   assert.match(styles, /--background:\s*#f7f7f8;/);
   assert.match(styles, /--headline:\s*#1b1b1f;/);
   assert.match(styles, /--paragraph:\s*#303036;/);

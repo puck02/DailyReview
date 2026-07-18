@@ -17,6 +17,7 @@
   --message-surface: #efeff2;
   --notice-surface: #f1f1f3;
   --muted-text: #65646d;
+  --muted: var(--muted-text);
   --input-bg: rgba(252, 252, 253, 0.86);
   --focus-border: rgba(73, 66, 96, 0.48);
   --focus-ring: rgba(91, 78, 135, 0.16);
