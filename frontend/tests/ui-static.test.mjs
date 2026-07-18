@@ -307,7 +307,8 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.doesNotMatch(app, /保存后会自动同步到后端/);
   assert.match(app, /const essayWordCount =/);
   assert.match(app, /countEssayWords\(/);
-  assert.ok(app.includes('import { countEssayWords, deriveEssayParagraphStage, insertEssaySuggestionAtCursor, undoAcceptedEssaySuggestion } from "./essayAssistant";'));
+  assert.ok(app.includes("createEssaySaveVersionGuard,"));
+  assert.ok(app.includes("activeRef.current?.id !== updated.id"));
   assert.ok(app.includes("const essayEditorRef = useRef<HTMLTextAreaElement>(null);"));
   assert.ok(app.includes("const [essayCursorIndex, setEssayCursorIndex] = useState(0);"));
   assert.ok(app.includes("const suggestionAbortRef = useRef<AbortController | null>(null);"));
@@ -322,7 +323,7 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.doesNotMatch(app, /onClick=\{\(\) => createEssaySession\(\)\}/);
   assert.doesNotMatch(app, /if \(!activeRef\.current && items\[0\]\) \{/);
   assert.ok(app.includes("const hasEssayTopicContext = Boolean(imageContextPreview.ocr_text.trim() || imageContextPreview.objective_description.trim());"));
-  assert.ok(app.includes("if (!active || !hasEssayTopicContext) {"));
+  assert.ok(app.includes("if (!isActive || !active || !hasEssayTopicContext) {"));
   assert.ok(app.includes("draft_text: created.draft_text"));
   assert.doesNotMatch(app, /draft_text:\s*draftRef\.current \|\| created\.draft_text/);
   assert.ok(app.includes("prefix,"));
@@ -342,7 +343,8 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.ok(app.includes("insertEssaySuggestion(suggestion)"));
   assert.ok(app.includes('suggestion.kind === "phrase"'));
   assert.ok(app.includes('suggestion.kind === "rewrite"'));
-  assert.match(styles, /\.essay-editor\s*{[^}]*font-family:\s*"Comic Sans MS"/s);
+  assert.doesNotMatch(styles, /\.essay-editor\s*{[^}]*font-family:\s*"Comic Sans MS"/s);
+  assert.match(styles, /\.essay-editor\s*{[^}]*font-family:\s*"Iowan Old Style"/s);
   assert.match(styles, /\.essay-editor-stage\s*{[^}]*position:\s*relative;[^}]*overflow:\s*hidden;/s);
   assert.match(styles, /\.essay-topic-preview-button\s*{[^}]*width:\s*100%;[^}]*height:\s*100%;/s);
   assert.match(styles, /\.essay-image-dialog-backdrop\s*{[^}]*position:\s*fixed;[^}]*inset:\s*0;/s);
@@ -364,6 +366,22 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.match(styles, /\.essay-pane\s*{/);
   assert.match(styles, /\.essay-editor\s*{/);
   assert.match(styles, /\.essay-suggestion-rail\s*{/);
+});
+
+test("mobile essay workspace switches panels without state-driven ghost scrolling", () => {
+  assert.ok(app.includes('type EssayMobilePanel = "topic" | "editor" | "suggestions";'));
+  assert.ok(app.includes('useState<EssayMobilePanel>("editor")'));
+  assert.equal(app.match(/data-essay-panel=/g)?.length, 3);
+  assert.ok(app.includes('aria-label="作文工作区"'));
+  assert.ok(app.includes("essayGhostRef"));
+  assert.ok(app.includes("ghostScrollFrameRef"));
+  assert.ok(app.includes("window.requestAnimationFrame"));
+  assert.ok(!app.includes("setGhostScrollTop"));
+  assert.ok(!app.includes("const [ghostScrollTop"));
+  assert.match(styles, /\.essay-mobile-tabs\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.essay-mobile-tabs\s*{[^}]*display:\s*grid;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.essay-workspace-panel:not\(\.mobile-active\)\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.essay-topic-card\.mobile-active\s*{[^}]*overflow-y:\s*auto;/s);
 });
 
 test("essay api surface serializes session, image context, and suggestion requests", () => {

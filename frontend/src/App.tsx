@@ -69,7 +69,13 @@ import { removeAttachmentPreview } from "./attachmentPreviews";
 import { isNearScrollBottom } from "./chatPerformance";
 import { firstClipboardImage } from "./clipboard";
 import { Dialog } from "./Dialog";
-import { countEssayWords, deriveEssayParagraphStage, insertEssaySuggestionAtCursor, undoAcceptedEssaySuggestion } from "./essayAssistant";
+import {
+  countEssayWords,
+  createEssaySaveVersionGuard,
+  deriveEssayParagraphStage,
+  insertEssaySuggestionAtCursor,
+  undoAcceptedEssaySuggestion
+} from "./essayAssistant";
 import type { EssayAcceptedSuggestion } from "./essayAssistant";
 import { HandwritingPad } from "./HandwritingPad";
 import { ScreenshotEditor } from "./ScreenshotEditor";
@@ -80,6 +86,7 @@ import "katex/dist/katex.min.css";
 type View = "chat" | "translate" | "essay" | "reports" | "admin" | "settings";
 type AuthMode = "login" | "register";
 type ThemePreference = "light" | "dark";
+type EssayMobilePanel = "topic" | "editor" | "suggestions";
 type PendingAttachment = Attachment & {
   previewUrl: string;
   dataUrl: string;
@@ -2222,7 +2229,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const [suggestions, setSuggestions] = useState<EssaySuggestion[]>([]);
   const [topicImageDialogOpen, setTopicImageDialogOpen] = useState(false);
   const [essayCursorIndex, setEssayCursorIndex] = useState(0);
-  const [ghostScrollTop, setGhostScrollTop] = useState(0);
+  const [essayMobilePanel, setEssayMobilePanel] = useState<EssayMobilePanel>("editor");
   const [acceptedEssaySuggestion, setAcceptedEssaySuggestion] = useState<EssayAcceptedSuggestion | null>(null);
   const [imageContextPreview, setImageContextPreview] = useState<{ ocr_text: string; objective_description: string }>({
     ocr_text: "",
@@ -2236,11 +2243,15 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const activeRef = useRef<EssaySession | null>(null);
   const topicFileInputRef = useRef<HTMLInputElement>(null);
   const essayEditorRef = useRef<HTMLTextAreaElement>(null);
+  const essayGhostRef = useRef<HTMLDivElement>(null);
+  const ghostScrollFrameRef = useRef<number | null>(null);
   const draftRef = useRef("");
   const modelRef = useRef(model);
   const creatingSessionRef = useRef<Promise<EssaySession> | null>(null);
   const pendingCreateDraftRef = useRef("");
   const topicImageFileRef = useRef<PendingAttachment | null>(null);
+  const saveVersionGuardRef = useRef<ReturnType<typeof createEssaySaveVersionGuard> | null>(null);
+  const saveVersionGuard = saveVersionGuardRef.current ||= createEssaySaveVersionGuard();
   const hasEssayTopicContext = Boolean(imageContextPreview.ocr_text.trim() || imageContextPreview.objective_description.trim());
 
   useEffect(() => {
@@ -2262,6 +2273,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
   useEffect(() => {
     return () => {
       if (topicImageFileRef.current?.previewUrl) URL.revokeObjectURL(topicImageFileRef.current.previewUrl);
+      if (ghostScrollFrameRef.current !== null) window.cancelAnimationFrame(ghostScrollFrameRef.current);
     };
   }, []);
 
@@ -2331,7 +2343,11 @@ function EssayView({ isActive }: { isActive: boolean }) {
 
   useEffect(() => {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    if (!active) return;
+    const saveVersion = saveVersionGuard.begin();
+    if (!active) {
+      setSaving(false);
+      return;
+    }
     const nextDraft = draft;
     const nextModel = model;
     saveTimerRef.current = window.setTimeout(async () => {
@@ -2343,6 +2359,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
           draft_text: nextDraft,
           model: nextModel
         });
+        if (!saveVersionGuard.isLatest(saveVersion) || activeRef.current?.id !== updated.id) return;
         const localUpdated = {
           ...updated,
           draft_text: draftRef.current,
@@ -2361,9 +2378,10 @@ function EssayView({ isActive }: { isActive: boolean }) {
           objective_description: updated.objective_description
         });
       } catch (err) {
+        if (!saveVersionGuard.isLatest(saveVersion)) return;
         setError(err instanceof Error ? err.message : "作文保存失败");
       } finally {
-        setSaving(false);
+        if (saveVersionGuard.isLatest(saveVersion)) setSaving(false);
       }
     }, 600);
 
@@ -2376,7 +2394,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
     if (suggestTimerRef.current) window.clearTimeout(suggestTimerRef.current);
     suggestionAbortRef.current?.abort();
     suggestionAbortRef.current = null;
-    if (!active || !hasEssayTopicContext) {
+    if (!isActive || !active || !hasEssayTopicContext) {
       setSuggestions([]);
       setSuggesting(false);
       return;
@@ -2418,7 +2436,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
       if (suggestTimerRef.current) window.clearTimeout(suggestTimerRef.current);
       suggestionAbortRef.current?.abort();
     };
-  }, [active?.id, draft, essayCursorIndex, hasEssayTopicContext, imageContextPreview.ocr_text, imageContextPreview.objective_description, model]);
+  }, [isActive, active?.id, draft, essayCursorIndex, hasEssayTopicContext, imageContextPreview.ocr_text, imageContextPreview.objective_description, model]);
 
   useEffect(() => {
     if (!active) return;
@@ -2503,7 +2521,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
     setSuggestions([]);
     setSuggesting(false);
     setEssayCursorIndex(0);
-    setGhostScrollTop(0);
+    if (essayGhostRef.current) essayGhostRef.current.style.transform = "translateY(0)";
     setAcceptedEssaySuggestion(null);
     setError("");
     if (isMobileViewport()) setSidebarOpen(false);
@@ -2678,13 +2696,23 @@ function EssayView({ isActive }: { isActive: boolean }) {
   const topicStatus = topicImageFile?.status === "failed" ? "失败" : topicImageFile ? "上传中" : hasTopicImage ? "已上传" : "未上传";
   const essayWordCount = useMemo(() => countEssayWords(draft), [draft]);
 
+  useEffect(() => {
+    if (!ghostSuggestionPreview) return;
+    syncEssayGhostScroll();
+  }, [ghostSuggestionPreview]);
+
   function updateEssayCursor() {
     const next = essayEditorRef.current?.selectionStart ?? draftRef.current.length;
     setEssayCursorIndex(Math.max(0, Math.min(next, draftRef.current.length)));
   }
 
   function syncEssayGhostScroll() {
-    setGhostScrollTop(essayEditorRef.current?.scrollTop || 0);
+    if (ghostScrollFrameRef.current !== null) window.cancelAnimationFrame(ghostScrollFrameRef.current);
+    ghostScrollFrameRef.current = window.requestAnimationFrame(() => {
+      const scrollTop = essayEditorRef.current?.scrollTop || 0;
+      if (essayGhostRef.current) essayGhostRef.current.style.transform = `translateY(${-scrollTop}px)`;
+      ghostScrollFrameRef.current = null;
+    });
   }
 
   function insertEssaySuggestion(suggestion: EssaySuggestion) {
@@ -2849,8 +2877,43 @@ function EssayView({ isActive }: { isActive: boolean }) {
             </button>
           </div>
         </header>
+        <div className="essay-mobile-tabs" role="tablist" aria-label="作文工作区">
+          <button
+            type="button"
+            role="tab"
+            data-essay-panel="topic"
+            aria-selected={essayMobilePanel === "topic"}
+            aria-controls="essay-topic-panel"
+            onClick={() => setEssayMobilePanel("topic")}
+          >
+            题图
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-essay-panel="editor"
+            aria-selected={essayMobilePanel === "editor"}
+            aria-controls="essay-editor-panel"
+            onClick={() => setEssayMobilePanel("editor")}
+          >
+            正文
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-essay-panel="suggestions"
+            aria-selected={essayMobilePanel === "suggestions"}
+            aria-controls="essay-suggestions-panel"
+            onClick={() => setEssayMobilePanel("suggestions")}
+          >
+            补全
+          </button>
+        </div>
         <div className="essay-workspace">
-          <section className="essay-topic-card">
+          <section
+            id="essay-topic-panel"
+            className={`essay-topic-card essay-workspace-panel ${essayMobilePanel === "topic" ? "mobile-active" : ""}`}
+          >
             <div className="essay-topic-head">
               <span>题图</span>
               <strong>{topicStatus}</strong>
@@ -2894,7 +2957,10 @@ function EssayView({ isActive }: { isActive: boolean }) {
             </div>
           </section>
 
-          <section className="essay-editor-shell">
+          <section
+            id="essay-editor-panel"
+            className={`essay-editor-shell essay-workspace-panel ${essayMobilePanel === "editor" ? "mobile-active" : ""}`}
+          >
             <div className="essay-editor-toolbar">
               <div>
                 <span>正文</span>
@@ -2907,7 +2973,7 @@ function EssayView({ isActive }: { isActive: boolean }) {
             </div>
             <div className="essay-editor-stage">
               {inlineSuggestion && ghostSuggestionPreview ? (
-                <div className="essay-ghost-layer" aria-hidden="true" style={{ transform: `translateY(${-ghostScrollTop}px)` }}>
+                <div ref={essayGhostRef} className="essay-ghost-layer" aria-hidden="true">
                   <span className="essay-ghost-prefix">{draft.slice(0, essayCursorIndex)}</span>
                   <span className="essay-ghost-suggestion">{ghostSuggestionPreview}</span>
                 </div>
@@ -2945,7 +3011,10 @@ function EssayView({ isActive }: { isActive: boolean }) {
             </div>
           </section>
 
-          <aside className="essay-suggestion-rail">
+          <aside
+            id="essay-suggestions-panel"
+            className={`essay-suggestion-rail essay-workspace-panel ${essayMobilePanel === "suggestions" ? "mobile-active" : ""}`}
+          >
             <div className="essay-suggestion-head">
               <span>补全</span>
               <strong>{currentSuggestions.length ? `${currentSuggestions.length} 条候选` : "等待停顿"}</strong>

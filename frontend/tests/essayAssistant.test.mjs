@@ -2,11 +2,21 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   countEssayWords,
+  createEssaySaveVersionGuard,
   deriveEssayParagraphStage,
   insertEssaySuggestionAtCursor,
   normalizeEssaySuggestionForInsert,
   undoAcceptedEssaySuggestion
 } from "/tmp/dailyreview-frontend-tests/frontend/src/essayAssistant.js";
+
+test("essay save version guard accepts only the latest response", () => {
+  const guard = createEssaySaveVersionGuard();
+  const firstSave = guard.begin();
+  const latestSave = guard.begin();
+
+  assert.equal(guard.isLatest(firstSave), false);
+  assert.equal(guard.isLatest(latestSave), true);
+});
 
 test("countEssayWords counts English words instead of characters", () => {
   assert.equal(countEssayWords("In today's world, self-discipline matters."), 5);

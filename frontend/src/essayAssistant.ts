@@ -14,6 +14,19 @@ const sentenceEndPattern = /[.!?]$/;
 const leadingPunctuationPattern = /^[,.;:!?)]/;
 const duplicateLeadingPunctuationPattern = /^([.!?])\s*\1+/;
 
+export function createEssaySaveVersionGuard() {
+  let latestVersion = 0;
+  return {
+    begin() {
+      latestVersion += 1;
+      return latestVersion;
+    },
+    isLatest(version: number) {
+      return version === latestVersion;
+    }
+  };
+}
+
 export function countEssayWords(text: string) {
   return text.match(wordPattern)?.length || 0;
 }
