@@ -10,20 +10,23 @@ const markdownPlugins = fs.readFileSync(new URL("../src/markdownPlugins.ts", imp
 const dialogUrl = new URL("../src/Dialog.tsx", import.meta.url);
 const dialog = fs.existsSync(dialogUrl) ? fs.readFileSync(dialogUrl, "utf8") : "";
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const indexHtml = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const packageJson = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
 const headersFile = fs.readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
 
 const appIcon = fs.readFileSync(new URL("../src/assets/app-icon.svg", import.meta.url), "utf8");
 
-test("uses black and white surfaces with a pale purple global sidebar", () => {
-  assert.match(styles, /--background:\s*#ffffff;/);
-  assert.match(styles, /--headline:\s*#111111;/);
-  assert.match(styles, /--paragraph:\s*#111111;/);
-  assert.match(styles, /--app-nav-hover:\s*rgba\(0,\s*0,\s*0,\s*0\.07\);/);
-  assert.match(styles, /--message-surface:\s*#f4f4f4;/);
-  assert.match(styles, /--primary-bg:\s*#111111;/);
-  assert.match(styles, /--sidebar-tint:\s*#f3f0ff;/);
+test("uses tinted neutral surfaces with restrained semantic colors", () => {
+  assert.match(styles, /--background:\s*#f7f7f8;/);
+  assert.match(styles, /--headline:\s*#1b1b1f;/);
+  assert.match(styles, /--paragraph:\s*#303036;/);
+  assert.match(styles, /--muted-text:\s*#65646d;/);
+  assert.match(styles, /--message-surface:\s*#efeff2;/);
+  assert.match(styles, /--primary-bg:\s*#29272f;/);
+  assert.match(styles, /--sidebar-tint:\s*#eeebf7;/);
+  assert.match(styles, /--success-surface:\s*#edf5ef;/);
+  assert.match(styles, /--warning-surface:\s*#faf2df;/);
   assert.match(styles, /\.app-nav\s*{[^}]*background:\s*var\(--sidebar-tint\);/s);
   assert.match(styles, /\.app-nav button\s*{[^}]*color:\s*var\(--headline\);/s);
   assert.match(styles, /\.send-button[^,{]*,[\s\S]*?\.new-session\s*{[^}]*background:\s*var\(--primary-bg\);/s);
@@ -38,10 +41,10 @@ test("uses black and white surfaces with a pale purple global sidebar", () => {
 test("theme follows system dark mode with readable chat surfaces", () => {
   assert.match(styles, /color-scheme:\s*light dark;/);
   assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)\s*{/);
-  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--background:\s*#111111;/);
-  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--headline:\s*#f5f5f5;/);
-  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--sidebar-tint:\s*#292433;/);
-  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--message-surface:\s*#242424;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--background:\s*#17171a;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--headline:\s*#f1f0f3;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--sidebar-tint:\s*#24222b;/);
+  assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)[\s\S]*--message-surface:\s*#27272c;/);
   assert.match(styles, /\.sessions-pane\s*{[^}]*background:\s*var\(--panel-bg\);/s);
   assert.match(styles, /\.new-session\s*{[^}]*background:\s*var\(--button-surface\);/s);
   assert.match(styles, /\.composer-shell\s*{[^}]*background:\s*var\(--surface\);/s);
@@ -60,7 +63,7 @@ test("chat header can manually toggle light and dark theme before the model pick
   assert.ok(app.includes("Sun"));
   assert.match(app, /className="pane-actions"[\s\S]*className="theme-toggle"[\s\S]*<select value={model}/);
   assert.match(styles, /:root\[data-theme="light"\]\s*{[^}]*color-scheme:\s*light;/s);
-  assert.match(styles, /:root\[data-theme="dark"\]\s*{[^}]*--background:\s*#111111;/s);
+  assert.match(styles, /:root\[data-theme="dark"\]\s*{[^}]*--background:\s*#17171a;/s);
   assert.match(styles, /@media \(prefers-color-scheme:\s*dark\)\s*{[\s\S]*:root:not\(\[data-theme\]\)/);
   assert.match(styles, /\.pane-actions\s*{[^}]*display:\s*flex;/s);
   assert.match(styles, /\.theme-toggle\s*{[^}]*width:\s*38px;[^}]*height:\s*38px;/s);
@@ -117,6 +120,26 @@ test("mobile navigation keeps four primary destinations and one account menu", (
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.desktop-account-action,[\s\S]*\.nav-brand\s*{[^}]*display:\s*none;/s);
   assert.match(styles, /\.account-menu-trigger,[\s\S]*?\.account-menu\s*{[^}]*display:\s*none;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.account-menu-trigger\s*{[^}]*display:\s*inline-flex;/s);
+});
+
+test("visual system keeps compact radii, quiet panels, and motion-safe word cloud", () => {
+  assert.match(styles, /--radius-control:\s*6px;/);
+  assert.match(styles, /--radius-panel:\s*8px;/);
+  assert.match(styles, /--radius-dialog:\s*12px;/);
+  assert.match(styles, /\.settings-card\s*{[^}]*border-radius:\s*var\(--radius-panel\);[^}]*box-shadow:\s*none;[^}]*backdrop-filter:\s*none;/s);
+  assert.match(styles, /\.essay-topic-card,[\s\S]*?\.essay-suggestion-rail\s*{[^}]*border-radius:\s*var\(--radius-panel\);[^}]*box-shadow:\s*none;[^}]*backdrop-filter:\s*none;/s);
+  assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)\s*{[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;[^}]*transform:\s*none;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;[^}]*transform:\s*none;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-chip\[data-cloud-copy="true"\]\s*{[^}]*display:\s*none;/s);
+  assert.ok(app.includes("const wordCloudLaneItemLimit = 18;"));
+  assert.ok(app.includes('data-cloud-copy={isCopy ? "true" : undefined}'));
+  assert.ok(app.includes('className="secondary-button compact danger settings-clear-entries"'));
+  assert.match(styles, /\.settings-clear-entries\s*{[^}]*white-space:\s*nowrap;/s);
+  assert.doesNotMatch(styles, /\.essay-editor\s*{[^}]*font-family:\s*"Comic Sans MS"/s);
+  assert.match(styles, /\.essay-editor\s*{[^}]*font-family:\s*"Iowan Old Style"/s);
+  assert.match(indexHtml, /<meta name="description" content="DailyReview 学习工作台：问答、翻译、作文练习与复盘报告。" \/>/);
+  assert.match(indexHtml, /<meta name="theme-color" content="#f7f7f8" media="\(prefers-color-scheme: light\)" \/>/);
+  assert.match(indexHtml, /<meta name="theme-color" content="#17171a" media="\(prefers-color-scheme: dark\)" \/>/);
 });
 
 test("desktop shell keeps the left sidebar fixed while admin content scrolls independently", () => {
@@ -863,7 +886,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("词条详解生成失败，稍后刷新或重新收录。"));
   assert.ok(app.includes("setDetailState({ label: item.label, entry: existing, error: \"\" });"));
   assert.ok(!app.includes("const translated = await api.translate(item.label);"));
-  assert.ok(app.includes("repeated.length < 32"));
+  assert.ok(app.includes("repeated.length < wordCloudLaneItemLimit"));
   assert.ok(app.includes("data-size={item.weight}"));
   assert.ok(app.includes("data-tone={cloudTone(item.key)}"));
   assert.ok(app.includes("data-label={item.label}"));
@@ -921,8 +944,8 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
     assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-tone="${tone}"\\]`));
   }
   assert.match(styles, /\.word-cloud-chip:hover,[\s\S]*?\.word-cloud-chip\.active\s*{[^}]*background:\s*color-mix\(in srgb,\s*var\(--word-chip-bg,\s*var\(--button-surface\)\) 78%,\s*var\(--surface-solid\)\);/s);
-  assert.match(styles, /\.word-cloud-detail-backdrop\s*{[^}]*position:\s*fixed;[^}]*backdrop-filter:\s*blur\(18px\);/s);
-  assert.match(styles, /\.word-cloud-detail-card\s*{[^}]*backdrop-filter:\s*blur\(28px\);[^}]*max-height:\s*min\(72vh,\s*620px\);/s);
+  assert.match(styles, /\.word-cloud-detail-backdrop\s*{[^}]*position:\s*fixed;[^}]*backdrop-filter:\s*blur\(6px\);/s);
+  assert.match(styles, /\.word-cloud-detail-card\s*{[^}]*backdrop-filter:\s*none;[^}]*max-height:\s*min\(72vh,\s*620px\);/s);
   assert.match(styles, /\.word-cloud-detail-content\s*{[^}]*overflow-y:\s*auto;/s);
   assert.match(styles, /\.word-cloud-detail-loading\s*{[^}]*min-height:\s*180px;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);

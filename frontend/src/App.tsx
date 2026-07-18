@@ -606,12 +606,14 @@ function cloudTone(key: string) {
   return String((hash % 6) + 1);
 }
 
+const wordCloudLaneItemLimit = 18;
+
 function repeatedLaneItems(items: TranslationCloudItem[]) {
   if (!items.length) return [];
-  if (items.length >= 32) return items;
+  if (items.length >= wordCloudLaneItemLimit) return items;
   const repeated: TranslationCloudItem[] = [];
-  while (repeated.length < 32) repeated.push(...items);
-  return repeated.slice(0, 32);
+  while (repeated.length < wordCloudLaneItemLimit) repeated.push(...items);
+  return repeated.slice(0, wordCloudLaneItemLimit);
 }
 
 function cloudLookupKey(text: string) {
@@ -714,18 +716,24 @@ function TranslationWordCloud({
                       } as CSSProperties
                     }
                   >
-                    {[...laneItems, ...laneItems].map((item, index) => (
-                      <button
-                        key={`${lane.id}-${item.key}-${index}`}
-                        className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
-                        data-size={item.weight}
-                        data-tone={cloudTone(item.key)}
-                        data-label={item.label}
-                        onClick={() => openCloudDetail(item)}
-                      >
-                        <span>{item.label}</span>
-                      </button>
-                    ))}
+                    {[...laneItems, ...laneItems].map((item, index) => {
+                      const isCopy = index >= laneItems.length;
+                      return (
+                        <button
+                          key={`${lane.id}-${item.key}-${index}`}
+                          className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
+                          data-size={item.weight}
+                          data-tone={cloudTone(item.key)}
+                          data-label={item.label}
+                          data-cloud-copy={isCopy ? "true" : undefined}
+                          aria-hidden={isCopy ? true : undefined}
+                          tabIndex={isCopy ? -1 : undefined}
+                          onClick={() => openCloudDetail(item)}
+                        >
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -3258,7 +3266,7 @@ function SettingsView({
               <span>词条记录</span>
               <p>清空当前账号的翻译历史和词云内容。</p>
             </div>
-            <button className="secondary-button compact danger" type="button" onClick={clearTranslationEntries} disabled={clearingEntries}>
+            <button className="secondary-button compact danger settings-clear-entries" type="button" onClick={clearTranslationEntries} disabled={clearingEntries}>
               <Trash2 size={16} />
               {clearingEntries ? "清空中..." : "清空词条"}
             </button>
