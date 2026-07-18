@@ -67,6 +67,81 @@ describe("chat sessions and attachments", () => {
     ]);
   });
 
+  it("rejects invalid attachments before storing the user message", async () => {
+    const { env, cookie } = await loginUser();
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "附件校验", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const response = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "这条消息不应保存",
+        model: "gpt-5.4-mini",
+        attachment_ids: [999999]
+      })
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ detail: "附件不存在" });
+    const stored = await env.DB.prepare("SELECT COUNT(*) AS count FROM messages WHERE session_id = ?")
+      .bind(session.id)
+      .first<{ count: number }>();
+    expect(stored?.count).toBe(0);
+  });
+
+  it("sends only the latest 60 chat messages upstream in chronological order", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    let requestBody: { messages?: Array<{ role: string; content: unknown }> } | null = null;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = JSON.parse(String(init?.body || "{}")) as typeof requestBody;
+      return new Response('data: {"choices":[{"delta":{"content":"窗口正常"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "历史窗口", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    for (let index = 0; index < 65; index += 1) {
+      await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'user', ?, ?, ?)")
+        .bind(
+          session.id,
+          `history-${String(index).padStart(2, "0")}`,
+          "gpt-5.4-mini",
+          new Date(Date.UTC(2026, 6, 17, 0, 0, index)).toISOString()
+        )
+        .run();
+    }
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        content: "latest-question",
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    await readSse(stream);
+
+    const nonSystemMessages = requestBody?.messages?.filter((message) => message.role !== "system") || [];
+    expect(nonSystemMessages).toHaveLength(60);
+    expect(nonSystemMessages[0]).toMatchObject({ role: "user", content: "history-06" });
+    expect(nonSystemMessages.at(-1)).toMatchObject({ role: "user", content: "latest-question" });
+  });
+
   it("does not switch providers when the user explicitly selects a chat model", async () => {
     const { env, cookie, adminCookie } = await loginUser();
     const saved = await fetchWorker(env, "/api/admin/ai-config", {
@@ -378,15 +453,24 @@ describe("chat sessions and attachments", () => {
       body: JSON.stringify({ title: "token 统计", model: "gpt-5.4-mini" })
     });
     const session = (await sessionResponse.json()) as { id: number };
+    const backgroundTasks: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil(promise: Promise<unknown>) {
+        backgroundTasks.push(promise);
+      },
+      passThroughOnException() {}
+    } as unknown as ExecutionContext;
 
     const stream = await fetchWorker(env, "/api/chat/stream", {
       method: "POST",
       headers: { cookie },
       body: JSON.stringify({ session_id: session.id, content: "解释极限", model: "gpt-5.4-mini", attachment_ids: [] })
-    });
+    }, `https://example.com/api/chat/stream`, ctx);
 
     expect(stream.status).toBe(200);
     await expect(readSse(stream)).resolves.toEqual([JSON.stringify("回答"), "[DONE]"]);
+    expect(backgroundTasks).toHaveLength(1);
+    await Promise.all(backgroundTasks);
     const usage = await env.DB.prepare("SELECT user_id, total_tokens FROM ai_token_usage").first<{
       user_id: number;
       total_tokens: number;

@@ -7,7 +7,7 @@ import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
 import { aiTranslationModel, completeChatWithUsage, isAiConfigured } from "../ai/client";
 import { withMathMarkdownProtocol } from "../ai/prompting";
-import { recordTokenUsage } from "../ai/usage";
+import { scheduleTokenUsage } from "../ai/usage";
 import {
   DEFAULT_TRANSLATION_PROMPT,
   TRANSLATION_INPUT_LIMIT,
@@ -192,7 +192,9 @@ async function queueWordDetail(env: Env, userId: number, text: string, isAutoDet
 async function generateWordDetail(
   env: Env,
   userId: number,
-  text: string
+  text: string,
+  signal?: AbortSignal,
+  ctx?: ExecutionContext
 ): Promise<{ sourceText: string; phonetic: string | null; resultMarkdown: string } | null> {
   const cached = await findCachedWordDetail(env, text);
   if (cached) {
@@ -212,9 +214,10 @@ async function generateWordDetail(
       model,
       fallback,
       env,
-      aiConfig
+      aiConfig,
+      signal ? { signal } : {}
     );
-    await recordTokenUsage(env, userId, aiConfig, response.model, response.totalTokens);
+    await scheduleTokenUsage(ctx, env, userId, aiConfig, response.model, response.totalTokens);
     result = response.content;
   } catch {
     result = fallback;
@@ -362,7 +365,7 @@ async function translate(request: Request, env: Env, ctx?: ExecutionContext): Pr
       });
       return json(entryResponse(entry));
     }
-    const detail = await generateWordDetail(env, user.id, text);
+    const detail = await generateWordDetail(env, user.id, text, request.signal, ctx);
     if (!detail) {
       const extracted = extractPhoneticAndMarkdown(fallbackTranslation(text, sourceKind));
       const entry = await insertEntry(env, {
@@ -400,9 +403,10 @@ async function translate(request: Request, env: Env, ctx?: ExecutionContext): Pr
       model,
       fallback,
       env,
-      aiConfig
+      aiConfig,
+      { signal: request.signal }
     );
-    await recordTokenUsage(env, user.id, aiConfig, response.model, response.totalTokens);
+    await scheduleTokenUsage(ctx, env, user.id, aiConfig, response.model, response.totalTokens);
     result = response.content;
   } catch {
     result = fallback;
@@ -419,16 +423,28 @@ async function translate(request: Request, env: Env, ctx?: ExecutionContext): Pr
   });
 
   if (sourceKind === "english") {
-    const existingRows = await all<Row & { source_text: string }>(
-      env.DB.prepare("SELECT source_text FROM translation_entries WHERE user_id = ? AND source_kind = 'word'").bind(user.id)
-    );
-    const existing = new Set(existingRows.map((row) => row.source_text.toLowerCase()));
-    for (const label of labelsForAutoWordDetails(text)) {
-      if (existing.has(label)) {
-        continue;
+    const task = (async () => {
+      const existingRows = await all<Row & { source_text: string }>(
+        env.DB.prepare("SELECT source_text FROM translation_entries WHERE user_id = ? AND source_kind = 'word'").bind(user.id)
+      );
+      const existing = new Set(existingRows.map((row) => row.source_text.toLowerCase()));
+      for (const label of labelsForAutoWordDetails(text)) {
+        if (existing.has(label)) {
+          continue;
+        }
+        await queueWordDetail(env, user.id, label, true);
+        existing.add(label);
       }
-      await queueWordDetail(env, user.id, label, true);
-      existing.add(label);
+    })();
+    if (ctx) {
+      ctx.waitUntil(task.catch((error) => {
+        console.error("Automatic word extraction failed", {
+          userId: user.id,
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }));
+    } else {
+      await task;
     }
   }
 

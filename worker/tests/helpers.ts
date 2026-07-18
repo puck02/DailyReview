@@ -76,6 +76,21 @@ class SqliteD1 {
   prepare(sql: string): SqliteStatement {
     return new SqliteStatement(this.db, sql);
   }
+
+  async batch(statements: SqliteStatement[]): Promise<Awaited<ReturnType<SqliteStatement["run"]>>[]> {
+    this.db.exec("BEGIN");
+    try {
+      const results = [];
+      for (const statement of statements) {
+        results.push(await statement.run());
+      }
+      this.db.exec("COMMIT");
+      return results;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 class MemoryR2 {

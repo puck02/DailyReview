@@ -70,6 +70,31 @@ describe("translation routes", () => {
     });
   });
 
+  it("registers automatic English word extraction through waitUntil", async () => {
+    const { env, cookie } = await loginUser();
+    const backgroundTasks: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil(promise: Promise<unknown>) {
+        backgroundTasks.push(promise);
+      },
+      passThroughOnException() {}
+    } as unknown as ExecutionContext;
+
+    const response = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ text: "The derivative requires careful limits." })
+    }, `https://example.com/api/translation`, ctx);
+
+    expect(response.status).toBe(200);
+    expect(backgroundTasks).toHaveLength(1);
+    await Promise.all(backgroundTasks);
+    const entries = await env.DB.prepare(
+      "SELECT source_text FROM translation_entries WHERE source_kind = 'word' AND is_auto_detail = 1 ORDER BY id ASC"
+    ).all<{ source_text: string }>();
+    expect(entries.results.map((entry) => entry.source_text)).toEqual(["derivative", "requires", "careful", "limits"]);
+  });
+
   it("updates and reads the per-user translation prompt", async () => {
     const { env, cookie } = await loginUser();
 

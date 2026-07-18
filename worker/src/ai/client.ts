@@ -38,6 +38,7 @@ type AiRequestOptions = {
 };
 
 const DEFAULT_STREAM_TIMEOUT_MS = 60_000;
+const DEFAULT_COMPLETION_TIMEOUT_MS = 30_000;
 
 function providerConfig(config: AiConfig, provider: keyof AiConfig["providers"]): AiProviderConfig {
   return config.providers[provider];
@@ -118,40 +119,54 @@ export async function completeChatWithUsage(
           (candidate) => modelProvider(config, candidate, hasImages ? "vision" : "text") === requested
         )
       : candidateModelsForRequest(config, model, hasImages);
-  for (const candidate of candidates) {
-    const provider = modelProvider(config, candidate, hasImages ? "vision" : "text");
-    if (!provider || !isProviderConfigured(config, provider)) {
-      continue;
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
-    try {
-      const response = await fetch(chatCompletionsUrl(config, provider), {
-        method: "POST",
-        headers: authHeaders(config, provider),
-        body: JSON.stringify({ model: candidate, messages, stream: false }),
-        signal: controller.signal
-      });
-      if (!response.ok) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_COMPLETION_TIMEOUT_MS);
+  const abortFromRequest = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) {
+    controller.abort(options.signal.reason);
+  } else {
+    options.signal?.addEventListener("abort", abortFromRequest, { once: true });
+  }
+  try {
+    for (const candidate of candidates) {
+      if (controller.signal.aborted) {
+        break;
+      }
+      const provider = modelProvider(config, candidate, hasImages ? "vision" : "text");
+      if (!provider || !isProviderConfigured(config, provider)) {
         continue;
       }
-      const data = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-        usage?: { total_tokens?: number; totalTokens?: number };
-      };
-      const content = data.choices?.[0]?.message?.content;
-      if (content) {
-        return {
-          content,
-          totalTokens: data.usage?.total_tokens ?? data.usage?.totalTokens ?? null,
-          model: candidate
+      try {
+        const response = await fetch(chatCompletionsUrl(config, provider), {
+          method: "POST",
+          headers: authHeaders(config, provider),
+          body: JSON.stringify({ model: candidate, messages, stream: false }),
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          continue;
+        }
+        const data = (await response.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: { total_tokens?: number; totalTokens?: number };
         };
+        const content = data.choices?.[0]?.message?.content;
+        if (content) {
+          return {
+            content,
+            totalTokens: data.usage?.total_tokens ?? data.usage?.totalTokens ?? null,
+            model: candidate
+          };
+        }
+      } catch {
+        if (controller.signal.aborted) {
+          break;
+        }
       }
-    } catch {
-      continue;
-    } finally {
-      clearTimeout(timeout);
     }
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromRequest);
   }
   return { content: fallback, totalTokens: null, model };
 }

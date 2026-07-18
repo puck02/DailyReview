@@ -82,6 +82,31 @@ export async function recordTokenUsage(
     .run();
 }
 
+export async function scheduleTokenUsage(
+  ctx: ExecutionContext | undefined,
+  env: Env,
+  userId: number,
+  config: AiConfig,
+  model: string,
+  totalTokens: number | null | undefined
+): Promise<void> {
+  if (!Number.isFinite(totalTokens) || !totalTokens || totalTokens <= 0) {
+    return;
+  }
+  if (!ctx) {
+    await recordTokenUsage(env, userId, config, model, totalTokens);
+    return;
+  }
+  ctx.waitUntil(
+    recordTokenUsage(env, userId, config, model, totalTokens).catch((error) => {
+      console.error("Token usage recording failed", {
+        userId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    })
+  );
+}
+
 export async function summarizeTokenUsage(
   env: Env,
   now = new Date(),

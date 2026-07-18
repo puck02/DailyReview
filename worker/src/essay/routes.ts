@@ -7,7 +7,7 @@ import { all, first, insertAndReturnId, nowIso, type Row } from "../db/d1";
 import type { Env } from "../env";
 import { HttpError, json, parseJson, route, type Route } from "../http";
 import { aiTextModel, aiVisionModel, completeChatWithUsage, type ChatMessage } from "../ai/client";
-import { recordTokenUsage } from "../ai/usage";
+import { scheduleTokenUsage } from "../ai/usage";
 import { resolveChatModel } from "../ai/providers";
 
 type EssaySessionRow = Row & {
@@ -21,6 +21,16 @@ type EssaySessionRow = Row & {
   objective_description: string;
   created_at: string;
   updated_at: string;
+};
+type EssaySessionListRow = EssaySessionRow & {
+  attachment_id: number | null;
+  attachment_message_id: number | null;
+  attachment_user_id: number | null;
+  attachment_object_key: string | null;
+  attachment_mime_type: string | null;
+  attachment_size: number | null;
+  attachment_expires_at: string | null;
+  attachment_created_at: string | null;
 };
 type EssayParagraphStage = "opening" | "development" | "transition" | "conclusion" | "unknown";
 type EssaySuggestionKind = "word" | "phrase" | "sentence" | "rewrite";
@@ -244,8 +254,7 @@ async function getEssayAttachment(env: Env, attachmentId: number, userId: number
   return attachment;
 }
 
-async function essaySessionResponse(env: Env, session: EssaySessionRow): Promise<Record<string, unknown>> {
-  const attachment = session.topic_attachment_id ? await getAttachment(env, session.topic_attachment_id) : null;
+function essaySessionData(session: EssaySessionRow, attachment: AttachmentRow | null): Record<string, unknown> {
   return {
     id: session.id,
     title: session.title,
@@ -260,16 +269,46 @@ async function essaySessionResponse(env: Env, session: EssaySessionRow): Promise
   };
 }
 
+async function essaySessionResponse(env: Env, session: EssaySessionRow): Promise<Record<string, unknown>> {
+  const attachment = session.topic_attachment_id ? await getAttachment(env, session.topic_attachment_id) : null;
+  return essaySessionData(session, attachment && attachment.user_id === session.user_id ? attachment : null);
+}
+
 async function listEssaySessions(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  const sessions = await all<EssaySessionRow>(
-    env.DB.prepare("SELECT * FROM essay_sessions WHERE user_id = ? ORDER BY updated_at DESC, id DESC").bind(user.id)
+  const sessions = await all<EssaySessionListRow>(
+    env.DB.prepare(
+      `SELECT
+         s.*,
+         a.id AS attachment_id,
+         a.message_id AS attachment_message_id,
+         a.user_id AS attachment_user_id,
+         a.object_key AS attachment_object_key,
+         a.mime_type AS attachment_mime_type,
+         a.size AS attachment_size,
+         a.expires_at AS attachment_expires_at,
+         a.created_at AS attachment_created_at
+       FROM essay_sessions s
+       LEFT JOIN attachments a ON a.id = s.topic_attachment_id AND a.user_id = s.user_id
+       WHERE s.user_id = ?
+       ORDER BY s.updated_at DESC, s.id DESC`
+    ).bind(user.id)
   );
-  const items = [];
-  for (const session of sessions) {
-    items.push(await essaySessionResponse(env, session));
-  }
-  return json(items);
+  return json(sessions.map((session) => {
+    const attachment = session.attachment_id === null
+      ? null
+      : {
+          id: session.attachment_id,
+          message_id: session.attachment_message_id,
+          user_id: session.attachment_user_id as number,
+          object_key: session.attachment_object_key as string,
+          mime_type: session.attachment_mime_type as string,
+          size: session.attachment_size as number,
+          expires_at: session.attachment_expires_at as string,
+          created_at: session.attachment_created_at as string
+        };
+    return essaySessionData(session, attachment);
+  }));
 }
 
 async function createEssaySession(request: Request, env: Env): Promise<Response> {
@@ -328,7 +367,12 @@ async function deleteEssaySession(request: Request, env: Env, params: Record<str
   return json({ status: "ok" });
 }
 
-async function generateEssayImageContext(request: Request, env: Env, params: Record<string, string>): Promise<Response> {
+async function generateEssayImageContext(
+  request: Request,
+  env: Env,
+  params: Record<string, string>,
+  ctx?: ExecutionContext
+): Promise<Response> {
   const user = await requireUser(request, env);
   const sessionId = Number.parseInt(params.session_id || "", 10);
   const session = Number.isFinite(sessionId) ? await getEssaySession(env, sessionId) : null;
@@ -380,7 +424,8 @@ async function generateEssayImageContext(request: Request, env: Env, params: Rec
       model,
       fallback,
       env,
-      aiConfig
+      aiConfig,
+      { signal: request.signal }
     );
     content = response.content || fallback;
     model = response.model || model;
@@ -399,13 +444,13 @@ async function generateEssayImageContext(request: Request, env: Env, params: Rec
   )
     .bind(attachment.id, nextOcrText, nextObjectiveDescription, nowIso(), session.id)
     .run();
-  await recordTokenUsage(env, user.id, aiConfig, model, totalTokens);
+  await scheduleTokenUsage(ctx, env, user.id, aiConfig, model, totalTokens);
   const updated = await getEssaySession(env, session.id);
   if (!updated) throw new HttpError(500, "服务器内部错误");
   return json(await essaySessionResponse(env, updated));
 }
 
-async function suggestEssayCompletion(request: Request, env: Env): Promise<Response> {
+async function suggestEssayCompletion(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = essaySuggestionSchema.parse(await parseJson<unknown>(request));
   const session = await getEssaySession(env, payload.session_id);
@@ -440,7 +485,8 @@ async function suggestEssayCompletion(request: Request, env: Env): Promise<Respo
       model,
       JSON.stringify(fallback),
       env,
-      aiConfig
+      aiConfig,
+      { signal: request.signal }
     );
     totalTokens = response.totalTokens;
     const parsed = safeJsonArray(response.content);
@@ -452,7 +498,7 @@ async function suggestEssayCompletion(request: Request, env: Env): Promise<Respo
     suggestions = fallback;
   }
 
-  await recordTokenUsage(env, user.id, aiConfig, model, totalTokens);
+  await scheduleTokenUsage(ctx, env, user.id, aiConfig, model, totalTokens);
   return json({ suggestions });
 }
 
@@ -462,9 +508,9 @@ export function essayRoutes(env: Env): Route[] {
     route("POST", "/api/essay/sessions", (request) => createEssaySession(request, env)),
     route("PATCH", "/api/essay/sessions/:session_id", (request, params) => updateEssaySession(request, env, params)),
     route("DELETE", "/api/essay/sessions/:session_id", (request, params) => deleteEssaySession(request, env, params)),
-    route("POST", "/api/essay/sessions/:session_id/image-context", (request, params) =>
-      generateEssayImageContext(request, env, params)
+    route("POST", "/api/essay/sessions/:session_id/image-context", (request, params, ctx) =>
+      generateEssayImageContext(request, env, params, ctx)
     ),
-    route("POST", "/api/essay/suggest", (request) => suggestEssayCompletion(request, env))
+    route("POST", "/api/essay/suggest", (request, _params, ctx) => suggestEssayCompletion(request, env, ctx))
   ];
 }

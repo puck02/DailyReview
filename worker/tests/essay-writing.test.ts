@@ -115,6 +115,50 @@ describe("essay writing assistant", () => {
     );
   });
 
+  it("lists topic attachments without querying each essay session separately", async () => {
+    const { env, cookie } = await loginUser({ AI_API_KEY: "" });
+    const expected = new Map<number, number>();
+    for (const title of ["练习 A", "练习 B"]) {
+      const created = await fetchWorker(env, "/api/essay/sessions", {
+        method: "POST",
+        headers: { cookie },
+        body: JSON.stringify({ title, model: "gpt-5.4-mini" })
+      });
+      const session = (await created.json()) as { id: number };
+      const form = new FormData();
+      form.append("file", pngFile(`${title}.png`));
+      const uploaded = await fetchWorker(env, "/api/attachments", { method: "POST", headers: { cookie }, body: form });
+      const attachment = (await uploaded.json()) as { id: number };
+      await env.DB.prepare("UPDATE essay_sessions SET topic_attachment_id = ? WHERE id = ?")
+        .bind(attachment.id, session.id)
+        .run();
+      expected.set(session.id, attachment.id);
+    }
+    const queries: string[] = [];
+    const originalDb = env.DB;
+    env.DB = new Proxy(originalDb, {
+      get(target, property, receiver) {
+        if (property === "prepare") {
+          return (sql: string) => {
+            queries.push(sql.replace(/\s+/g, " ").trim());
+            return target.prepare(sql);
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      }
+    }) as D1Database;
+
+    const response = await fetchWorker(env, "/api/essay/sessions", { headers: { cookie } });
+
+    expect(response.status).toBe(200);
+    const sessions = (await response.json()) as Array<{ id: number; topic_attachment: { id: number } | null }>;
+    expect(sessions).toHaveLength(2);
+    for (const session of sessions) {
+      expect(session.topic_attachment?.id).toBe(expected.get(session.id));
+    }
+    expect(queries.some((sql) => /FROM attachments WHERE id = \?/.test(sql))).toBe(false);
+  });
+
   it("returns delayed essay suggestions from the current draft and image context", async () => {
     const { env, cookie } = await loginUser();
     const create = await fetchWorker(env, "/api/essay/sessions", {
@@ -321,5 +365,43 @@ describe("essay writing assistant", () => {
     });
     expect(body.suggestions[0].text).toContain("practical steps");
     expect(body.suggestions[0].reason).toContain("结尾");
+  });
+
+  it("propagates an aborted essay request to the non-streaming AI fetch", async () => {
+    const { env, cookie } = await loginUser();
+    const create = await fetchWorker(env, "/api/essay/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "中止测试", model: "gpt-5.4-mini" })
+    });
+    const session = (await create.json()) as { id: number };
+    const requestAbort = new AbortController();
+    let markUpstreamStarted: (() => void) | undefined;
+    const upstreamStarted = new Promise<void>((resolve) => {
+      markUpstreamStarted = resolve;
+    });
+    let upstreamAborted = false;
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      init?.signal?.addEventListener("abort", () => {
+        upstreamAborted = true;
+      });
+      markUpstreamStarted?.();
+      return await new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(new Response("upstream unavailable", { status: 503 })), 20);
+      });
+    });
+
+    const responsePromise = fetchWorker(env, "/api/essay/suggest", {
+      method: "POST",
+      headers: { cookie },
+      signal: requestAbort.signal,
+      body: JSON.stringify({ session_id: session.id, content: "In conclusion, ", model: "gpt-5.4-mini" })
+    });
+    await upstreamStarted;
+    requestAbort.abort();
+    const response = await responsePromise;
+
+    expect(response.status).toBe(200);
+    expect(upstreamAborted).toBe(true);
   });
 });
