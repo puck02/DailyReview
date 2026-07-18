@@ -210,7 +210,9 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.ok(markdownPlugins.includes("remarkMath"));
   assert.ok(markdownPlugins.includes("rehypeKatex"));
   assert.ok(markdownRenderer.includes("normalizeMarkdownMath"));
-  assert.ok(markdownRenderer.includes("key={normalizedMarkdown}"));
+  assert.ok(!markdownRenderer.includes("key={normalizedMarkdown}"));
+  assert.ok(markdownRenderer.includes("markdownPluginsPromise"));
+  assert.match(markdownPlugins, /detect:\s*false/);
   assert.ok(fs.readFileSync(new URL("../../shared/src/markdown.ts", import.meta.url), "utf8").includes("normalizeInlineCodeMath"));
   assert.ok(app.includes('import "katex/dist/katex.min.css";'));
   assert.ok(markdownRenderer.includes("markdown-math-block"));
@@ -219,6 +221,16 @@ test("message markdown uses GFM and KaTeX for formulas", () => {
   assert.match(styles, /\.message-markdown \.katex\s*{/);
   assert.match(styles, /\.markdown-code\s*{/);
   assert.match(styles, /\.markdown-table-wrap\s*{/);
+});
+
+test("chat pauses automatic follow when the reader leaves the bottom", () => {
+  assert.ok(app.includes('import { isNearScrollBottom } from "./chatPerformance";'));
+  assert.ok(app.includes("handleMessagesScroll"));
+  assert.ok(app.includes("autoFollowRef"));
+  assert.ok(app.includes("showScrollToBottom"));
+  assert.ok(app.includes('aria-label="回到底部"'));
+  assert.ok(app.includes("memo(function MessageItem"));
+  assert.match(styles, /\.scroll-to-bottom\s*{/);
 });
 
 test("visited app views stay mounted and heavy markdown renderer is prefetched from navigation", () => {
@@ -358,7 +370,7 @@ test("message code blocks use syntax highlighting in light and dark themes", () 
   assert.ok(markdownPlugins.includes("import rehypeHighlight from \"rehype-highlight\";"));
   assert.ok(markdownPlugins.includes("rehypeHighlight"));
   assert.ok(markdownPlugins.includes("ignoreMissing: true"));
-  assert.ok(markdownPlugins.includes("detect: true"));
+  assert.ok(markdownPlugins.includes("detect: false"));
   assert.match(styles, /--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
   assert.match(styles, /:root\[data-theme="dark"\][\s\S]*--syntax-keyword:\s*#[0-9a-fA-F]{6};/);
   assert.match(styles, /\.markdown-code \.hljs-keyword[\s\S]*color:\s*var\(--syntax-keyword\);/);
@@ -377,7 +389,8 @@ test("assistant messages have one reply copy control while code blocks keep thei
   assert.ok(app.includes('aria-label={copied ? "已复制整条回复" : "复制整条回复"}'));
   assert.ok(app.includes('aria-label="重新生成回复"'));
   assert.ok(app.includes("RefreshCw"));
-  assert.ok(app.includes("regenerateAssistantMessage(message)"));
+  assert.ok(app.includes("onRegenerate(message)"));
+  assert.ok(app.includes("onRegenerate={regenerateAssistantMessage}"));
   assert.ok(app.includes('text={message.content}'));
   assert.ok(markdownRenderer.includes('aria-label={copied ? "已复制" : "复制此块"}'));
   assert.ok(app.includes("Copy size={14}"));
@@ -405,7 +418,7 @@ test("assistant regenerate uses the previous user message and replaces the assis
   assert.ok(app.includes("setMessages((current) => current.filter((message) => message.id !== assistantMessage.id))"));
   assert.ok(app.includes("content: lastUserMessage.content"));
   assert.ok(app.includes("attachment_ids: lastUserMessage.attachments.map((attachment) => attachment.id)"));
-  assert.ok(app.includes("regenerateAssistantMessage(message)"));
+  assert.ok(app.includes("onRegenerate(message)"));
   assert.ok(app.includes("sendLockRef"));
   assert.ok(app.includes("regenerateLockRef"));
   assert.ok(app.includes("busy || sendLockRef.current"));
@@ -498,10 +511,11 @@ test("auth screen centers the brand and shows a daily quote instead of the old h
 });
 
 test("chat scrolls to the latest message after loading and streaming updates", () => {
+  assert.ok(app.includes("const messagesViewportRef = useRef<HTMLDivElement>(null);"));
   assert.ok(app.includes("const messagesEndRef = useRef<HTMLDivElement>(null);"));
   assert.ok(app.includes("messagesEndRef.current?.scrollIntoView"));
   assert.ok(app.includes("window.requestAnimationFrame"));
-  assert.match(app, /useEffect\(\(\) => \{[\s\S]*messagesEndRef\.current\?\.scrollIntoView\(\{ block: "end" \}\);[\s\S]*\}, \[messages, messagesLoading\]\);/);
+  assert.match(app, /useEffect\(\(\) => \{[\s\S]*if \(!autoFollowRef\.current\) return;[\s\S]*messagesEndRef\.current\?\.scrollIntoView\(\{ block: "end" \}\);[\s\S]*\}, \[messages, messagesLoading\]\);/);
   assert.match(app, /<div[\s\S]*ref=\{messagesEndRef\}[\s\S]*className="messages-end"[\s\S]*aria-hidden="true"/);
   assert.match(styles, /\.messages-end\s*{[^}]*height:\s*1px;/s);
 });

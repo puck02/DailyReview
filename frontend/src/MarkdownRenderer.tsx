@@ -15,6 +15,8 @@ type MarkdownPlugins = {
   markdownRehypePlugins: Options["rehypePlugins"];
 };
 
+const markdownPluginsPromise: Promise<MarkdownPlugins> = import("./markdownPlugins");
+
 function safeMarkdownUrl(href: string) {
   try {
     const url = new URL(href, window.location.origin);
@@ -158,13 +160,13 @@ function copyableComponents(copyable: boolean): Components {
 }
 
 export default function MarkdownRenderer({ markdown, className, copyable = false }: MarkdownRendererProps) {
-  const normalizedMarkdown = normalizeMarkdownMath(markdown);
+  const normalizedMarkdown = useMemo(() => normalizeMarkdownMath(markdown), [markdown]);
   const components = useMemo(() => copyableComponents(copyable), [copyable]);
   const [plugins, setPlugins] = useState<MarkdownPlugins | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    import("./markdownPlugins").then((loaded) => {
+    markdownPluginsPromise.then((loaded) => {
       if (!cancelled) setPlugins(loaded);
     });
     return () => {
@@ -174,9 +176,8 @@ export default function MarkdownRenderer({ markdown, className, copyable = false
 
   return (
     <div className={className}>
-      <ReactMarkdown
-        key={normalizedMarkdown}
-        components={components}
+        <ReactMarkdown
+          components={components}
         rehypePlugins={plugins?.markdownRehypePlugins}
         remarkPlugins={plugins?.markdownRemarkPlugins}
         skipHtml

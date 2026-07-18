@@ -664,6 +664,7 @@ textarea:focus {
 }
 
 .chat-pane {
+  position: relative;
   min-width: 0;
   height: 100vh;
   display: grid;
@@ -753,6 +754,29 @@ textarea:focus {
 
 .messages-end {
   height: 1px;
+}
+
+.scroll-to-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 108px;
+  z-index: 6;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--headline);
+  background: var(--surface-solid);
+  border: 1px solid var(--stroke-strong);
+  border-radius: 50%;
+  box-shadow: var(--shadow-soft);
+  transform: translateX(-50%);
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.scroll-to-bottom:hover {
+  background: var(--button-surface-hover);
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .empty-chat {

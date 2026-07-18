@@ -7,11 +7,13 @@ import {
   Suspense,
   useEffect,
   lazy,
+  memo,
   useMemo,
   useRef,
   useState
 } from "react";
 import {
+  ArrowDown,
   CalendarDays,
   Camera,
   Check,
@@ -63,6 +65,7 @@ import {
   User
 } from "./api";
 import { removeAttachmentPreview } from "./attachmentPreviews";
+import { isNearScrollBottom } from "./chatPerformance";
 import { firstClipboardImage } from "./clipboard";
 import { countEssayWords, deriveEssayParagraphStage, insertEssaySuggestionAtCursor, undoAcceptedEssaySuggestion } from "./essayAssistant";
 import type { EssayAcceptedSuggestion } from "./essayAssistant";
@@ -387,13 +390,62 @@ function reportGenerationMessage(status: ReportGenerationStatus): string {
   return "当天没有足够的学习内容生成报告。";
 }
 
-function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
+const MessageMarkdown = memo(function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
   return (
     <Suspense fallback={<div className="message-markdown">{markdown}</div>}>
       <MarkdownRenderer markdown={markdown} className="message-markdown" copyable={copyable} />
     </Suspense>
   );
-}
+});
+
+const MessageItem = memo(function MessageItem({
+  message,
+  busy,
+  onRegenerate
+}: {
+  message: Message;
+  busy: boolean;
+  onRegenerate: (message: Message) => void;
+}) {
+  const isAssistantThinking = message.role === "assistant" && busy && !message.content.trim();
+  return (
+    <div className={`message ${message.role}`}>
+      <div className="message-content">
+        {isAssistantThinking && <TypingIndicator />}
+        {message.attachments.length > 0 && (
+          <div className="message-attachments" aria-label="消息图片">
+            {message.attachments.map((attachment) => (
+              <a
+                key={attachment.id}
+                className="message-attachment-thumb"
+                href={attachment.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <img src={attachment.url} alt="消息图片" />
+              </a>
+            ))}
+          </div>
+        )}
+        {message.content.trim() && (
+          <>
+            <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
+            {message.role === "assistant" && (
+              <MessageActions
+                text={message.content}
+                onRegenerate={() => onRegenerate(message)}
+                disabled={busy}
+              />
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}, (previous, next) => {
+  if (previous.message !== next.message || previous.busy !== next.busy) return false;
+  return next.busy || previous.onRegenerate === next.onRegenerate;
+});
 
 function isSavePickerGestureError(error: unknown): boolean {
   return error instanceof DOMException && /user gesture|handling a user gesture|activation/i.test(error.message);
@@ -854,7 +906,9 @@ function ChatView({
   const messageLoadRequestRef = useRef(0);
   const nextPendingAttachmentIdRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const autoFollowRef = useRef(true);
   const sendLockRef = useRef(false);
   const regenerateLockRef = useRef(false);
   const activeStreamAbortRef = useRef<AbortController | null>(null);
@@ -863,6 +917,7 @@ function ChatView({
   const [capturingScreenshot, setCapturingScreenshot] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [error, setError] = useState("");
   const [openingLine, setOpeningLine] = useState(randomOpeningLine);
   const preferredChatModel = chatDefaultModel || chatModelOptions[0] || defaultModel;
@@ -943,6 +998,8 @@ function ChatView({
 
   useEffect(() => {
     const requestId = ++messageLoadRequestRef.current;
+    autoFollowRef.current = true;
+    setShowScrollToBottom(false);
     if (!active) {
       skipNextMessageLoadSessionIdRef.current = null;
       setMessagesLoading(false);
@@ -995,6 +1052,7 @@ function ChatView({
 
   useEffect(() => {
     if (!messages.length || messagesLoading) return;
+    if (!autoFollowRef.current) return;
     const frame = window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ block: "end" });
     });
@@ -1002,12 +1060,26 @@ function ChatView({
   }, [messages, messagesLoading]);
 
   useEffect(() => {
-    if (!isActive || !messages.length) return;
+    if (!isActive || !messages.length || !autoFollowRef.current) return;
     const frame = window.requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ block: "end" });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [isActive, messages.length]);
+
+  function handleMessagesScroll() {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    const nearBottom = isNearScrollBottom(viewport.scrollTop, viewport.clientHeight, viewport.scrollHeight);
+    autoFollowRef.current = nearBottom;
+    setShowScrollToBottom(!nearBottom);
+  }
+
+  function scrollMessagesToBottom() {
+    autoFollowRef.current = true;
+    setShowScrollToBottom(false);
+    messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }
 
   useEffect(() => {
     return () => {
@@ -1037,6 +1109,8 @@ function ChatView({
   }, [isActive]);
 
   async function newSession() {
+    autoFollowRef.current = true;
+    setShowScrollToBottom(false);
     setDraftSessionActive(true);
     draftSessionActiveRef.current = true;
     skipNextMessageLoadSessionIdRef.current = null;
@@ -1052,6 +1126,8 @@ function ChatView({
   }
 
   function selectSession(session: ChatSession) {
+    autoFollowRef.current = true;
+    setShowScrollToBottom(false);
     setSessionMenu(null);
     setDraftSessionActive(false);
     draftSessionActiveRef.current = false;
@@ -1259,6 +1335,8 @@ function ChatView({
       created_at: new Date().toISOString(),
       attachments: []
     };
+    autoFollowRef.current = true;
+    setShowScrollToBottom(false);
     setInput("");
     setMessages((current) => [...current, pendingUser, assistant]);
     sendLockRef.current = true;
@@ -1352,6 +1430,8 @@ function ChatView({
       created_at: new Date().toISOString(),
       attachments: []
     };
+    autoFollowRef.current = true;
+    setShowScrollToBottom(false);
     setMessages((current) => current.filter((message) => message.id !== assistantMessage.id));
     setMessages((current) => {
       const userIndex = current.findIndex((message) => message.id === lastUserMessage.id);
@@ -1680,7 +1760,11 @@ function ChatView({
             </select>
           </div>
         </header>
-        <div className={isEmptyChat || (messagesLoading && !messages.length) ? "messages empty-chat" : "messages"}>
+        <div
+          ref={messagesViewportRef}
+          className={isEmptyChat || (messagesLoading && !messages.length) ? "messages empty-chat" : "messages"}
+          onScroll={handleMessagesScroll}
+        >
           {messagesLoading && !messages.length ? (
             <div className="empty-chat-content empty-chat-loading">
               <TranslationLoading />
@@ -1693,47 +1777,29 @@ function ChatView({
             </div>
           ) : (
             <>
-              {messages.map((message) => {
-                const isAssistantThinking = message.role === "assistant" && busy && !message.content.trim();
-                return (
-                  <div key={message.id} className={`message ${message.role}`}>
-                    <div className="message-content">
-                      {isAssistantThinking && <TypingIndicator />}
-                      {message.attachments.length > 0 && (
-                        <div className="message-attachments" aria-label="消息图片">
-                          {message.attachments.map((attachment) => (
-                            <a
-                              key={attachment.id}
-                              className="message-attachment-thumb"
-                              href={attachment.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              <img src={attachment.url} alt="消息图片" />
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                      {message.content.trim() && (
-                        <>
-                          <MessageMarkdown markdown={message.content} copyable={message.role === "assistant"} />
-                          {message.role === "assistant" && (
-                            <MessageActions
-                              text={message.content}
-                              onRegenerate={() => regenerateAssistantMessage(message)}
-                              disabled={busy}
-                            />
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              {messages.map((message) => (
+                <MessageItem
+                  key={message.id}
+                  message={message}
+                  busy={message.role === "assistant" && busy}
+                  onRegenerate={regenerateAssistantMessage}
+                />
+              ))}
               <div ref={messagesEndRef} className="messages-end" aria-hidden="true" />
             </>
           )}
         </div>
+        {showScrollToBottom && !isEmptyChat && (
+          <button
+            type="button"
+            className="scroll-to-bottom"
+            onClick={scrollMessagesToBottom}
+            aria-label="回到底部"
+            title="回到底部"
+          >
+            <ArrowDown size={18} />
+          </button>
+        )}
         {!isEmptyChat && composer}
       </section>
     </div>
