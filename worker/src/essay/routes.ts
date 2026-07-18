@@ -96,28 +96,6 @@ const essaySuggestionSchema = z.object({
   paragraph_stage: z.enum(["opening", "development", "transition", "conclusion", "unknown"]).optional()
 });
 
-const essayTablesReady = new WeakSet<D1Database>();
-
-async function ensureEssayTables(env: Env): Promise<void> {
-  if (essayTablesReady.has(env.DB)) return;
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS essay_sessions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      title TEXT NOT NULL DEFAULT '${DEFAULT_ESSAY_TITLE}',
-      default_model TEXT NOT NULL DEFAULT 'gpt-5.4-mini',
-      draft_text TEXT NOT NULL DEFAULT '',
-      topic_attachment_id INTEGER,
-      ocr_text TEXT NOT NULL DEFAULT '',
-      objective_description TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`
-  ).run();
-  await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_essay_sessions_user_updated ON essay_sessions(user_id, updated_at DESC)").run();
-  essayTablesReady.add(env.DB);
-}
-
 function safeJsonObject(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -257,7 +235,6 @@ function attachmentDataUrl(attachment: AttachmentRow, bytes: Uint8Array): string
 }
 
 async function getEssaySession(env: Env, id: number): Promise<EssaySessionRow | null> {
-  await ensureEssayTables(env);
   return await first<EssaySessionRow>(env.DB.prepare("SELECT * FROM essay_sessions WHERE id = ?").bind(id));
 }
 
@@ -285,7 +262,6 @@ async function essaySessionResponse(env: Env, session: EssaySessionRow): Promise
 
 async function listEssaySessions(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  await ensureEssayTables(env);
   const sessions = await all<EssaySessionRow>(
     env.DB.prepare("SELECT * FROM essay_sessions WHERE user_id = ? ORDER BY updated_at DESC, id DESC").bind(user.id)
   );
@@ -299,7 +275,6 @@ async function listEssaySessions(request: Request, env: Env): Promise<Response> 
 async function createEssaySession(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = essaySessionCreateSchema.parse(await parseJson<unknown>(request));
-  await ensureEssayTables(env);
   const aiConfig = await getAiConfig(env);
   const now = nowIso();
   const result = await env.DB.prepare(
@@ -432,7 +407,6 @@ async function generateEssayImageContext(request: Request, env: Env, params: Rec
 
 async function suggestEssayCompletion(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  await ensureEssayTables(env);
   const payload = essaySuggestionSchema.parse(await parseJson<unknown>(request));
   const session = await getEssaySession(env, payload.session_id);
   if (!session || session.user_id !== user.id) {

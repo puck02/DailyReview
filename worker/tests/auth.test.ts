@@ -45,6 +45,18 @@ describe("auth security", () => {
 });
 
 describe("auth and invite routes", () => {
+  it("serves health checks without touching D1", async () => {
+    const throwingDb = new Proxy({}, {
+      get() {
+        throw new Error("health check accessed D1");
+      }
+    }) as D1Database;
+    const response = await fetchWorker(createTestEnv({ DB: throwingDb }), "/api/health");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "ok", runtime: "cloudflare-workers" });
+  });
+
   it("redirects plain HTTP requests to HTTPS so secure session cookies can be stored", async () => {
     const env = createTestEnv();
     const response = await fetchWorker(
@@ -60,7 +72,6 @@ describe("auth and invite routes", () => {
 
   it("logs in the initial admin and reads current user from the session cookie", async () => {
     const env = createTestEnv();
-    await fetchWorker(env, "/api/health");
 
     const login = await fetchWorker(env, "/api/auth/login", {
       method: "POST",
@@ -81,18 +92,15 @@ describe("auth and invite routes", () => {
       .bind("admin@example.com", UNSUPPORTED_LEGACY_HASH, new Date().toISOString())
       .run();
 
-    const health = await fetchWorker(env, "/api/health");
-    expect(health.status).toBe(200);
-    const user = await env.DB.prepare("SELECT password_hash FROM users WHERE email = ?")
-      .bind("admin@example.com")
-      .first<{ password_hash: string }>();
-    expect(user?.password_hash).toMatch(/^pbkdf2_sha256\$100000\$/);
-
     const login = await fetchWorker(env, "/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
     });
     expect(login.status).toBe(200);
+    const user = await env.DB.prepare("SELECT password_hash FROM users WHERE email = ?")
+      .bind("admin@example.com")
+      .first<{ password_hash: string }>();
+    expect(user?.password_hash).toMatch(/^pbkdf2_sha256\$100000\$/);
   });
 
   it("resets an existing initial admin password when it does not match the configured secret", async () => {
@@ -102,20 +110,17 @@ describe("auth and invite routes", () => {
       .bind("admin@example.com", oldHash, new Date().toISOString())
       .run();
 
-    const health = await fetchWorker(env, "/api/health");
-    expect(health.status).toBe(200);
+    const newLogin = await fetchWorker(env, "/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
+    });
+    expect(newLogin.status).toBe(200);
 
     const oldLogin = await fetchWorker(env, "/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email: "admin@example.com", password: "old-admin-password" })
     });
     expect(oldLogin.status).toBe(401);
-
-    const newLogin = await fetchWorker(env, "/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email: "admin@example.com", password: "admin-password" })
-    });
-    expect(newLogin.status).toBe(200);
   });
 
   it("allows admins to create invites and blocks normal users from creating invites", async () => {

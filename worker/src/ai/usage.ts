@@ -10,22 +10,6 @@ export type TokenUsageSummary = {
   last_7d_total_tokens: number;
 };
 
-async function ensureTokenUsageTable(env: Env): Promise<void> {
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS ai_token_usage (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      provider TEXT NOT NULL,
-      model TEXT NOT NULL,
-      total_tokens INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`
-  ).run();
-  await env.DB.prepare(
-    "CREATE INDEX IF NOT EXISTS idx_ai_token_usage_user_created ON ai_token_usage(user_id, created_at DESC)"
-  ).run();
-}
-
 function timeZoneOffsetMs(date: Date, timeZone: string): number {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -90,7 +74,6 @@ export async function recordTokenUsage(
   if (!Number.isFinite(totalTokens) || !totalTokens || totalTokens <= 0) {
     return;
   }
-  await ensureTokenUsageTable(env);
   const provider = providerForAnyModel(config, model) || config.active_provider;
   await env.DB.prepare(
     "INSERT INTO ai_token_usage (user_id, provider, model, total_tokens, created_at) VALUES (?, ?, ?, ?, ?)"
@@ -104,7 +87,6 @@ export async function summarizeTokenUsage(
   now = new Date(),
   timeZone = env.APP_TIMEZONE || "UTC"
 ): Promise<TokenUsageSummary[]> {
-  await ensureTokenUsageTable(env);
   const bounds = dayBounds(now, timeZone);
   return await all<TokenUsageSummary & Row>(
     env.DB.prepare(

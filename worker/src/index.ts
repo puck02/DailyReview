@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { adminRoutes } from "./admin/routes";
 import { attachmentRoutes } from "./attachments/routes";
-import { ensureInitialAdmin, authRoutes } from "./auth/routes";
+import { authRoutes } from "./auth/routes";
 import { chatRoutes } from "./chat/routes";
 import { essayRoutes } from "./essay/routes";
 import { dispatch, errorResponse, json } from "./http";
@@ -25,7 +25,6 @@ function redirectToHttps(request: Request): Response | null {
 async function handleApi(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/api/health") {
-    await ensureInitialAdmin(env);
     return json({ status: "ok", runtime: "cloudflare-workers" });
   }
   const response = await dispatch(

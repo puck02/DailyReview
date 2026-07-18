@@ -62,20 +62,6 @@ const chatRegenerateSchema = z.object({
 const MAX_CHAT_IMAGES = 4;
 const IMAGE_CONTEXT_SYSTEM_PREFIX = "图片记忆：";
 const MAX_IMAGE_CONTEXT_CHARS = 12000;
-const imageContextReadyDatabases = new WeakSet<D1Database>();
-
-async function ensureChatSessionImageContextColumn(env: Env): Promise<void> {
-  if (imageContextReadyDatabases.has(env.DB)) return;
-  try {
-    await env.DB.prepare("ALTER TABLE chat_sessions ADD COLUMN image_context TEXT NOT NULL DEFAULT ''").run();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!/duplicate column|already exists/i.test(message)) {
-      throw error;
-    }
-  }
-  imageContextReadyDatabases.add(env.DB);
-}
 
 function maxImagePayloadBytes(env: Env): number {
   return Number.parseInt(env.MAX_UPLOAD_BYTES, 10) || 10 * 1024 * 1024;
@@ -108,7 +94,6 @@ function sessionResponse(session: SessionRow): Record<string, unknown> {
 }
 
 async function getSession(env: Env, id: number): Promise<SessionRow | null> {
-  await ensureChatSessionImageContextColumn(env);
   return await first<SessionRow>(env.DB.prepare("SELECT * FROM chat_sessions WHERE id = ?").bind(id));
 }
 
@@ -132,7 +117,6 @@ async function createSession(request: Request, env: Env): Promise<Response> {
 
 async function listSessions(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  await ensureChatSessionImageContextColumn(env);
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const sessions = await all<SessionRow>(
     env.DB.prepare(

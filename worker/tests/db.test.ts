@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import tokenUsageSource from "../src/ai/usage.ts?raw";
+import chatRoutesSource from "../src/chat/routes.ts?raw";
 import schema from "../src/db/schema.sql?raw";
+import essayRoutesSource from "../src/essay/routes.ts?raw";
 
 describe("D1 schema", () => {
   it("declares core tables and performance indexes", () => {
@@ -13,5 +16,13 @@ describe("D1 schema", () => {
     expect(schema).toContain("idx_messages_session_created");
     expect(schema).toContain("idx_reports_user_type_period");
     expect(schema).toContain("idx_ai_token_usage_user_created");
+  });
+
+  it("keeps request handlers free of runtime schema DDL", () => {
+    expect(chatRoutesSource).not.toContain("ALTER TABLE");
+    expect(essayRoutesSource).not.toContain("CREATE TABLE");
+    expect(essayRoutesSource).not.toContain("CREATE INDEX");
+    expect(tokenUsageSource).not.toContain("CREATE TABLE");
+    expect(tokenUsageSource).not.toContain("CREATE INDEX");
   });
 });
