@@ -123,6 +123,22 @@ test("mobile navigation keeps four primary destinations and one account menu", (
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.account-menu-trigger\s*{[^}]*display:\s*inline-flex;/s);
 });
 
+test("mobile controls provide readable 44px touch targets", () => {
+  assert.ok(app.includes('aria-label="自动生成日报"'));
+  assert.ok(app.includes('aria-label="显示翻译词云"'));
+  assert.match(styles, /\.primary-button,[\s\S]*?\.new-session\s*{[^}]*min-height:\s*44px;/s);
+  assert.match(styles, /\.settings-toggle\s*{[^}]*height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.session-drawer-close\s*{[^}]*width:\s*44px;[^}]*height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sidebar-toggle,[\s\S]*?\.theme-toggle\s*{[^}]*width:\s*44px;[^}]*height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.message-action-button\s*{[^}]*width:\s*44px;[^}]*height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-submit\s*{[^}]*height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-stage \.word-cloud-chip\s*{[^}]*min-height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-detail-close,[\s\S]*?\.essay-image-dialog-close\s*{[^}]*width:\s*44px;[^}]*height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.pane-header select\s*{[^}]*min-height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.composer-row\s*{[^}]*grid-template-columns:\s*44px 44px 44px minmax\(0,\s*1fr\) 44px;/s);
+  assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*\.composer textarea\s*{[^}]*min-height:\s*44px;[^}]*max-height:\s*110px;/s);
+});
+
 test("visual system keeps compact radii, quiet panels, and motion-safe word cloud", () => {
   assert.match(styles, /--radius-control:\s*6px;/);
   assert.match(styles, /--radius-panel:\s*8px;/);
@@ -656,6 +672,7 @@ test("composer textarea starts as one centered line and grows to four lines", ()
   assert.ok(app.includes("const textareaRef = useRef<HTMLTextAreaElement>(null);"));
   assert.ok(app.includes("textareaRef.current.style.height = \"auto\";"));
   assert.ok(app.includes("textareaRef.current.scrollHeight"));
+  assert.match(app, /const isEmptyChat = !messagesLoading && messages\.length === 0;[\s\S]*textareaRef\.current\.scrollHeight[\s\S]*\}, \[input, isEmptyChat\]\);/);
   assert.ok(app.includes("function handleComposerKeyDown"));
   assert.ok(app.includes("event.key !== \"Enter\" || event.shiftKey"));
   assert.ok(app.includes("event.nativeEvent.isComposing"));
@@ -1070,7 +1087,7 @@ test("mobile chat uses a slide-over session drawer", () => {
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane\s*{[\s\S]*position:\s*fixed;[\s\S]*border-radius:\s*0 22px 22px 0;[\s\S]*transform:\s*translateX\(0\);/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.workspace\.sidebar-collapsed \.sessions-pane\s*{[\s\S]*transform:\s*translateX\(-100%\);/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.sessions-pane-head\s*{[\s\S]*display:\s*flex;/);
-  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.session-drawer-close\s*{[\s\S]*width:\s*36px;[\s\S]*height:\s*36px;/);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.session-drawer-close\s*{[\s\S]*width:\s*44px;[\s\S]*height:\s*44px;/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.session-retention-note\s*{[\s\S]*display:\s*none;/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.pane-header\s*{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;[\s\S]*z-index:\s*10;/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.composer-shell\s*{[\s\S]*border-radius:\s*24px;/);

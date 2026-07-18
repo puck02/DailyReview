@@ -934,6 +934,7 @@ function ChatView({
   const [error, setError] = useState("");
   const [openingLine, setOpeningLine] = useState(randomOpeningLine);
   const preferredChatModel = chatDefaultModel || chatModelOptions[0] || defaultModel;
+  const isEmptyChat = !messagesLoading && messages.length === 0;
 
   async function refreshSessions() {
     const requestId = ++sessionLoadRequestRef.current;
@@ -1060,8 +1061,8 @@ function ChatView({
   useEffect(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = "auto";
-    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 88)}px`;
-  }, [input]);
+    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 110)}px`;
+  }, [input, isEmptyChat]);
 
   useEffect(() => {
     if (!messages.length || messagesLoading) return;
@@ -1508,7 +1509,6 @@ function ChatView({
     void sendMessage();
   }
 
-  const isEmptyChat = !messagesLoading && messages.length === 0;
   const isUploading = uploadingCount > 0;
   const screenshotDisabled = isUploading || busy || capturingScreenshot;
   const handwritingDisabled = isUploading || busy;
@@ -3210,6 +3210,7 @@ function SettingsView({
               onClick={() => setDailyReportEnabled((current) => !current)}
               role="switch"
               aria-checked={dailyReportEnabled}
+              aria-label="自动生成日报"
               type="button"
             >
               <span />
@@ -3254,6 +3255,7 @@ function SettingsView({
               disabled={!isAdmin}
               role="switch"
               aria-checked={wordCloudEnabled}
+              aria-label="显示翻译词云"
               type="button"
             >
               <span />
