@@ -20,6 +20,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronDown,
+  CircleUserRound,
   Copy,
   Download,
   NotebookPen,
@@ -67,6 +68,7 @@ import {
 import { removeAttachmentPreview } from "./attachmentPreviews";
 import { isNearScrollBottom } from "./chatPerformance";
 import { firstClipboardImage } from "./clipboard";
+import { Dialog } from "./Dialog";
 import { countEssayWords, deriveEssayParagraphStage, insertEssaySuggestionAtCursor, undoAcceptedEssaySuggestion } from "./essayAssistant";
 import type { EssayAcceptedSuggestion } from "./essayAssistant";
 import { HandwritingPad } from "./HandwritingPad";
@@ -728,55 +730,52 @@ function TranslationWordCloud({
         )}
       </section>
       {detailState && (
-        <div
-          className="word-cloud-detail-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${detailState.label} 详解`}
-          onClick={closeCloudDetail}
+        <Dialog
+          ariaLabel={`${detailState.label} 详解`}
+          backdropClassName="word-cloud-detail-backdrop"
+          panelClassName="word-cloud-detail-card"
+          onClose={closeCloudDetail}
         >
-          <div className="word-cloud-detail-card" onClick={(event) => event.stopPropagation()}>
-            <div className="word-cloud-detail-head">
-              <div>
-                <span>详解</span>
-                <strong>{detailState.label}</strong>
-              </div>
-              <button
-                type="button"
-                className="word-cloud-detail-close"
-                onClick={closeCloudDetail}
-                aria-label="关闭详解"
-                title="关闭"
-              >
-                <X size={16} />
-              </button>
+          <div className="word-cloud-detail-head">
+            <div>
+              <span>详解</span>
+              <strong>{detailState.label}</strong>
             </div>
-            <div className="word-cloud-detail-content">
-              {detailState.error ? (
-                <div className="form-error">{detailState.error}</div>
-              ) : detailEntry ? (
-                isTranslationDetailPending(detailEntry) && !detailEntry.result_markdown.trim() ? (
-                  <div className="word-cloud-detail-loading">
-                    <TranslationLoading />
-                    <span>正在按学习 Prompt 生成详解</span>
-                  </div>
-                ) : detailEntry.detail_status === "failed" && !detailEntry.result_markdown.trim() ? (
-                  <div className="form-error">词条详解生成失败，稍后刷新或重新收录。</div>
-                ) : (
-                  <>
-                    <TranslationPhonetic phonetic={detailEntry.phonetic} />
-                    <MarkdownRenderer markdown={detailEntry.result_markdown} className="translation-markdown" />
-                  </>
-                )
-              ) : (
+            <button
+              type="button"
+              className="word-cloud-detail-close"
+              onClick={closeCloudDetail}
+              aria-label="关闭详解"
+              title="关闭"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="word-cloud-detail-content">
+            {detailState.error ? (
+              <div className="form-error">{detailState.error}</div>
+            ) : detailEntry ? (
+              isTranslationDetailPending(detailEntry) && !detailEntry.result_markdown.trim() ? (
                 <div className="word-cloud-detail-loading">
                   <TranslationLoading />
-                  <span>正在查询词条并生成详解</span>
+                  <span>正在按学习 Prompt 生成详解</span>
                 </div>
-              )}
-            </div>
+              ) : detailEntry.detail_status === "failed" && !detailEntry.result_markdown.trim() ? (
+                <div className="form-error">词条详解生成失败，稍后刷新或重新收录。</div>
+              ) : (
+                <>
+                  <TranslationPhonetic phonetic={detailEntry.phonetic} />
+                  <MarkdownRenderer markdown={detailEntry.result_markdown} className="translation-markdown" />
+                </>
+              )
+            ) : (
+              <div className="word-cloud-detail-loading">
+                <TranslationLoading />
+                <span>正在查询词条并生成详解</span>
+              </div>
+            )}
           </div>
-        </div>
+        </Dialog>
       )}
     </>
   );
@@ -2975,26 +2974,23 @@ function EssayView({ isActive }: { isActive: boolean }) {
           </aside>
         </div>
         {topicImageDialogOpen && topicImagePreview ? (
-          <div
-            className="essay-image-dialog-backdrop"
-            role="dialog"
-            aria-modal="true"
-            aria-label="作文题图预览"
-            onClick={() => setTopicImageDialogOpen(false)}
+          <Dialog
+            ariaLabel="作文题图预览"
+            backdropClassName="essay-image-dialog-backdrop"
+            panelClassName="essay-image-dialog-panel"
+            onClose={() => setTopicImageDialogOpen(false)}
           >
-            <div className="essay-image-dialog-panel" onClick={(event) => event.stopPropagation()}>
-              <button
-                type="button"
-                className="essay-image-dialog-close"
-                onClick={() => setTopicImageDialogOpen(false)}
-                aria-label="关闭题图预览"
-                title="关闭"
-              >
-                <X size={20} />
-              </button>
-              <img src={topicImagePreview} alt="作文题目图片放大预览" />
-            </div>
-          </div>
+            <button
+              type="button"
+              className="essay-image-dialog-close"
+              onClick={() => setTopicImageDialogOpen(false)}
+              aria-label="关闭题图预览"
+              title="关闭"
+            >
+              <X size={20} />
+            </button>
+            <img src={topicImagePreview} alt="作文题目图片放大预览" />
+          </Dialog>
         ) : null}
       </section>
     </div>
@@ -3747,6 +3743,8 @@ export default function App() {
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const [systemTheme, setSystemTheme] = useState<ThemePreference>(currentSystemTheme);
   const [themePreference, setThemePreference] = useState<ThemePreference | null>(readThemePreference);
 
@@ -3795,10 +3793,26 @@ export default function App() {
     applyThemePreference(themePreference);
   }, [themePreference]);
 
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    function closeAccountMenu(event: globalThis.PointerEvent | globalThis.KeyboardEvent) {
+      if (event instanceof globalThis.KeyboardEvent && event.key !== "Escape") return;
+      if (event instanceof globalThis.PointerEvent && accountMenuRef.current?.contains(event.target as Node)) return;
+      setAccountMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", closeAccountMenu);
+    document.addEventListener("keydown", closeAccountMenu);
+    return () => {
+      document.removeEventListener("pointerdown", closeAccountMenu);
+      document.removeEventListener("keydown", closeAccountMenu);
+    };
+  }, [accountMenuOpen]);
+
   if (loading) return <div className="loading">加载中...</div>;
   if (!user) return <AuthScreen onAuthed={setUser} />;
 
   async function logout() {
+    setAccountMenuOpen(false);
     await api.logout();
     setUser(null);
     setView("chat");
@@ -3806,6 +3820,7 @@ export default function App() {
   }
 
   function openView(nextView: View) {
+    setAccountMenuOpen(false);
     setView(nextView);
     setVisitedViews((current) => {
       if (current.has(nextView)) return current;
@@ -3832,6 +3847,7 @@ export default function App() {
           <span>DailyReview</span>
         </div>
         <button
+          data-primary-nav
           className={view === "chat" ? "active" : ""}
           onClick={() => openView("chat")}
           aria-label="问答"
@@ -3841,6 +3857,7 @@ export default function App() {
           <span className="nav-label">问答</span>
         </button>
         <button
+          data-primary-nav
           className={view === "translate" ? "active" : ""}
           onClick={() => openView("translate")}
           onPointerEnter={() => preloadMarkdownRenderer()}
@@ -3851,6 +3868,7 @@ export default function App() {
           <span className="nav-label">翻译</span>
         </button>
         <button
+          data-primary-nav
           className={view === "essay" ? "active" : ""}
           onClick={() => openView("essay")}
           aria-label="作文"
@@ -3860,6 +3878,7 @@ export default function App() {
           <span className="nav-label">作文</span>
         </button>
         <button
+          data-primary-nav
           className={view === "reports" ? "active" : ""}
           onClick={() => openView("reports")}
           onPointerEnter={() => preloadMarkdownRenderer()}
@@ -3871,7 +3890,7 @@ export default function App() {
         </button>
         {user.role === "admin" && (
           <button
-            className={view === "admin" ? "active" : ""}
+            className={`desktop-account-action ${view === "admin" ? "active" : ""}`}
             onClick={() => openView("admin")}
             aria-label="AI 设置"
             title="AI 设置"
@@ -3883,7 +3902,7 @@ export default function App() {
         <div className="nav-spacer" />
         <div className="user-chip">{user.email}</div>
         <button
-          className={view === "settings" ? "active" : ""}
+          className={`desktop-account-action ${view === "settings" ? "active" : ""}`}
           onClick={() => openView("settings")}
           aria-label="设置"
           title="设置"
@@ -3891,10 +3910,43 @@ export default function App() {
           <Settings size={17} />
           <span className="nav-label">设置</span>
         </button>
-        <button onClick={logout} aria-label="退出" title="退出">
+        <button className="desktop-account-action" onClick={logout} aria-label="退出" title="退出">
           <LogOut size={17} />
           <span className="nav-label">退出</span>
         </button>
+        <div className="account-menu-host" ref={accountMenuRef}>
+          <button
+            type="button"
+            className={view === "admin" || view === "settings" ? "account-menu-trigger active" : "account-menu-trigger"}
+            onClick={() => setAccountMenuOpen((current) => !current)}
+            aria-label="账户"
+            title="账户"
+            aria-haspopup="menu"
+            aria-expanded={accountMenuOpen}
+          >
+            <CircleUserRound size={18} />
+            <span className="nav-label">账户</span>
+          </button>
+          {accountMenuOpen && (
+            <div className="account-menu" role="menu" aria-label="账户操作">
+              <div className="account-menu-email">{user.email}</div>
+              {user.role === "admin" && (
+                <button type="button" role="menuitem" onClick={() => openView("admin")}>
+                  <KeyRound size={17} />
+                  AI 设置
+                </button>
+              )}
+              <button type="button" role="menuitem" onClick={() => openView("settings")}>
+                <Settings size={17} />
+                设置
+              </button>
+              <button type="button" role="menuitem" onClick={logout}>
+                <LogOut size={17} />
+                退出
+              </button>
+            </div>
+          )}
+        </div>
       </nav>
       <section className="app-content">
         <div style={{ display: view === "chat" ? "contents" : "none" }}>

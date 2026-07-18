@@ -7,6 +7,8 @@ const apiSource = fs.readFileSync(new URL("../src/api.ts", import.meta.url), "ut
 const handwritingPad = fs.readFileSync(new URL("../src/HandwritingPad.tsx", import.meta.url), "utf8");
 const markdownRenderer = fs.readFileSync(new URL("../src/MarkdownRenderer.tsx", import.meta.url), "utf8");
 const markdownPlugins = fs.readFileSync(new URL("../src/markdownPlugins.ts", import.meta.url), "utf8");
+const dialogUrl = new URL("../src/Dialog.tsx", import.meta.url);
+const dialog = fs.existsSync(dialogUrl) ? fs.readFileSync(dialogUrl, "utf8") : "";
 const styles = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const main = fs.readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const packageJson = fs.readFileSync(new URL("../package.json", import.meta.url), "utf8");
@@ -93,6 +95,28 @@ test("desktop global sidebar is a narrow icon rail", () => {
   assert.ok(app.includes('aria-label="翻译"'));
   assert.ok(app.includes('title="AI 设置"'));
   assert.ok(app.includes('className="nav-label"'));
+});
+
+test("shared dialogs trap focus and restore the trigger", () => {
+  assert.ok(dialog.includes("initialFocusRef"));
+  assert.ok(dialog.includes('event.key === "Escape"'));
+  assert.ok(dialog.includes('event.key !== "Tab"'));
+  assert.ok(dialog.includes("focusableSelector"));
+  assert.ok(dialog.includes("previouslyFocused.current?.focus"));
+  assert.ok(app.includes('import { Dialog } from "./Dialog";'));
+  assert.match(app, /<Dialog[\s\S]*ariaLabel=\{`\$\{detailState\.label\} 详解`\}/);
+  assert.match(app, /<Dialog[\s\S]*ariaLabel="作文题图预览"/);
+});
+
+test("mobile navigation keeps four primary destinations and one account menu", () => {
+  assert.equal(app.match(/data-primary-nav/g)?.length, 4);
+  assert.ok(app.includes('aria-label="账户"'));
+  assert.ok(app.includes('aria-haspopup="menu"'));
+  assert.ok(app.includes('className="account-menu"'));
+  assert.ok(app.includes('className="desktop-account-action"'));
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.desktop-account-action,[\s\S]*\.nav-brand\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /\.account-menu-trigger,[\s\S]*?\.account-menu\s*{[^}]*display:\s*none;/s);
+  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.account-menu-trigger\s*{[^}]*display:\s*inline-flex;/s);
 });
 
 test("desktop shell keeps the left sidebar fixed while admin content scrolls independently", () => {
@@ -267,8 +291,8 @@ test("essay writing view renders a dedicated workspace and suggestion rail", () 
   assert.ok(app.includes("setTopicImageDialogOpen(true)"));
   assert.ok(app.includes("setTopicImageDialogOpen(false)"));
   assert.ok(app.includes("essay-image-dialog-backdrop"));
-  assert.ok(app.includes('role="dialog"'));
-  assert.ok(app.includes('aria-modal="true"'));
+  assert.ok(dialog.includes('role="dialog"'));
+  assert.ok(dialog.includes('aria-modal="true"'));
   assert.ok(app.includes("essay-image-dialog-close"));
   assert.ok(app.includes("essay-context-text"));
   assert.ok(app.includes('imageContextPreview.ocr_text || "等待解析"'));
@@ -835,7 +859,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("word-cloud-detail-card"));
   assert.ok(app.includes("word-cloud-detail-content"));
   assert.ok(app.includes("word-cloud-detail-close"));
-  assert.ok(app.includes("aria-modal=\"true\""));
+  assert.ok(dialog.includes("aria-modal=\"true\""));
   assert.ok(app.includes("closeCloudDetail"));
   assert.ok(app.includes("TranslationLoading"));
   assert.ok(app.includes("translation-submit-label"));
