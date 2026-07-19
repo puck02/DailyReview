@@ -72,6 +72,10 @@ class SqliteD1 {
   prepare(sql) {
     return new SqliteStatement(this.db, sql);
   }
+
+  async batch(statements) {
+    return await Promise.all(statements.map((statement) => statement.run()));
+  }
 }
 
 class MemoryR2 {
