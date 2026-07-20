@@ -81,6 +81,8 @@ test("chat model picker uses the full upstream model names", () => {
   assert.ok(app.includes("const options = config.text_models.length ? config.text_models : config.text_model ? [config.text_model] : [];"));
   assert.ok(app.includes("const nextDefault = config.text_model || nextOptions[0] || defaultModel;"));
   assert.ok(app.includes("setChatDefaultModel(nextDefault);"));
+  assert.ok(app.includes("setModel(nextDefault);"));
+  assert.doesNotMatch(app, /if \(current && current !== defaultModel && nextOptions\.includes\(current\)\) return current;/);
   assert.doesNotMatch(app, /if \(nextOptions\.includes\(defaultModel\)\) return defaultModel;/);
   assert.ok(app.includes("aiConfigChangedEvent"));
   assert.equal(app.match(/loadChatModels\(\)\.catch/g)?.length, 2);

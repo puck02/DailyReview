@@ -969,10 +969,7 @@ function ChatView({
     const nextDefault = config.text_model || nextOptions[0] || defaultModel;
     setChatModelOptions(nextOptions);
     setChatDefaultModel(nextDefault);
-    setModel((current) => {
-      if (current && current !== defaultModel && nextOptions.includes(current)) return current;
-      return nextDefault;
-    });
+    setModel(nextDefault);
   }
 
   useEffect(() => {

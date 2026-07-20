@@ -11,8 +11,8 @@ export type Env = {
   ZHIPU_API_KEY?: string;
   DEEPSEEK_BASE_URL?: string;
   DEEPSEEK_API_KEY?: string;
-  AI_DEFAULT_MODEL: string;
-  AI_COMPLEX_MODEL: string;
+  AI_DEFAULT_MODEL?: string;
+  AI_COMPLEX_MODEL?: string;
   AI_VISION_MODEL?: string;
   AI_STREAM_TIMEOUT_MS?: string;
   ADMIN_EMAIL?: string;

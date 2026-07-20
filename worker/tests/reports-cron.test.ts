@@ -418,7 +418,7 @@ describe("reports, cron jobs, and PDF export", () => {
     expect(body.markdown).toContain("## 一句话记忆");
   });
 
-  it("switches to a healthy provider during the ten-minute channel check when the active provider fails", async () => {
+  it("preserves the administrator-selected provider during ten-minute maintenance", async () => {
     const { env, adminCookie } = await loginUser();
     await fetchWorker(env, "/api/admin/ai-config", {
       method: "PUT",
@@ -465,6 +465,7 @@ describe("reports, cron jobs, and PDF export", () => {
 
     try {
       await runScheduledJobs(env, new Date("2026-06-11T00:10:00.000Z"), "*/10 * * * *");
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       fetchMock.mockRestore();
     }
@@ -473,7 +474,7 @@ describe("reports, cron jobs, and PDF export", () => {
       headers: { cookie: adminCookie }
     });
     expect(config.status).toBe(200);
-    await expect(config.json()).resolves.toMatchObject({ active_provider: "zhipu" });
+    await expect(config.json()).resolves.toMatchObject({ active_provider: "gpt", default_text_model: "gpt-5.5" });
   });
 
   it("extracts high-value learning events before writing the daily report", async () => {
