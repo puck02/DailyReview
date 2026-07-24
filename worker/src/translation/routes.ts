@@ -23,6 +23,7 @@ import {
   isNormalizedWord,
   isFallbackTranslationMarkdown,
   isThinDictionaryMarkdown,
+  labelsForWordCloud,
   labelsForAutoWordDetails,
   normalizeWord,
   type SourceKind
@@ -56,6 +57,40 @@ const promptSchema = z.object({
 const translationSchema = z.object({
   text: z.string().min(1)
 });
+
+const wordCloudReviewSchema = z.object({
+  key: z.string().min(1).max(TRANSLATION_INPUT_LIMIT + 16),
+  entry_id: z.number().int().positive()
+});
+
+type WordCloudSourceRow = Row & {
+  id: number;
+  source_text: string;
+  source_kind: SourceKind;
+  created_at: string;
+};
+
+type WordCloudReviewRow = Row & {
+  item_key: string;
+  reviewed_at: string;
+};
+
+type WordCloudCandidate = {
+  key: string;
+  label: string;
+  count: number;
+  recentCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  representativeId: number;
+  representativeKind: SourceKind;
+  lastReviewedAt: string | null;
+};
+
+type WordCloudReason = "recent" | "overdue" | "weak" | "explore";
+
+const WORD_CLOUD_LIMIT = 40;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function entryResponse(entry: TranslationEntryRow): Record<string, unknown> {
   return {
@@ -309,9 +344,202 @@ async function listEntries(request: Request, env: Env): Promise<Response> {
   return json(entries.map(entryResponse));
 }
 
+function stableWordCloudHash(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function chooseWordCloudCandidates(
+  candidates: WordCloudCandidate[],
+  userId: number,
+  now: Date,
+  dayKey: string
+): Array<WordCloudCandidate & { reason: WordCloudReason }> {
+  const selected = new Map<string, WordCloudCandidate & { reason: WordCloudReason }>();
+  const add = (items: WordCloudCandidate[], limit: number, reason: WordCloudReason) => {
+    for (const item of items) {
+      if (selected.size >= WORD_CLOUD_LIMIT || limit <= 0) break;
+      if (selected.has(item.key)) continue;
+      selected.set(item.key, { ...item, reason });
+      limit -= 1;
+    }
+  };
+  const reviewTime = (item: WordCloudCandidate) => Date.parse(item.lastReviewedAt || item.lastSeenAt);
+  const coolingCutoff = now.getTime() - 2 * DAY_MS;
+  const eligible = candidates.filter(
+    (item) => !item.lastReviewedAt || Date.parse(item.lastReviewedAt) < coolingCutoff
+  );
+  const recent = [...eligible]
+    .filter((item) => item.recentCount > 0)
+    .sort(
+      (left, right) =>
+        right.recentCount - left.recentCount ||
+        right.count - left.count ||
+        Date.parse(right.lastSeenAt) - Date.parse(left.lastSeenAt)
+    );
+  const overdue = [...eligible].sort(
+    (left, right) => reviewTime(left) - reviewTime(right) || right.count - left.count
+  );
+  const weak = [...eligible].sort(
+    (left, right) => left.count - right.count || reviewTime(left) - reviewTime(right)
+  );
+  const dailySeed = `${userId}:${dayKey}:`;
+  const explore = [...eligible].sort(
+    (left, right) => stableWordCloudHash(dailySeed + left.key) - stableWordCloudHash(dailySeed + right.key)
+  );
+
+  add(recent, 16, "recent");
+  add(overdue, 14, "overdue");
+  add(weak, 6, "weak");
+  add(explore, 4, "explore");
+  if (selected.size < Math.min(WORD_CLOUD_LIMIT, eligible.length)) {
+    add(overdue, WORD_CLOUD_LIMIT - selected.size, "overdue");
+  }
+  if (selected.size < Math.min(WORD_CLOUD_LIMIT, candidates.length)) {
+    add([...candidates].sort((left, right) => reviewTime(left) - reviewTime(right)), WORD_CLOUD_LIMIT - selected.size, "overdue");
+  }
+  return Array.from(selected.values());
+}
+
+async function listWordCloud(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const now = new Date();
+  const dayKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: env.APP_TIMEZONE || "UTC",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(now);
+  const recentCutoff = now.getTime() - 30 * DAY_MS;
+  const [sources, reviews] = await Promise.all([
+    all<WordCloudSourceRow>(
+      env.DB.prepare(
+        `SELECT id, source_text, source_kind, created_at
+         FROM translation_entries
+         WHERE user_id = ? AND is_auto_detail = 0 AND source_kind IN ('word', 'english')
+         ORDER BY id ASC`
+      ).bind(user.id)
+    ),
+    all<WordCloudReviewRow>(
+      env.DB.prepare(
+        "SELECT item_key, reviewed_at FROM translation_word_reviews WHERE user_id = ?"
+      ).bind(user.id)
+    )
+  ]);
+  const reviewTimes = new Map(reviews.map((row) => [row.item_key, row.reviewed_at]));
+  const candidates = new Map<string, WordCloudCandidate>();
+  for (const source of sources) {
+    const sourceTime = Date.parse(source.created_at);
+    for (const label of labelsForWordCloud(source.source_text, source.source_kind)) {
+      const existing = candidates.get(label.key);
+      if (!existing) {
+        candidates.set(label.key, {
+          ...label,
+          count: 1,
+          recentCount: sourceTime >= recentCutoff ? 1 : 0,
+          firstSeenAt: source.created_at,
+          lastSeenAt: source.created_at,
+          representativeId: source.id,
+          representativeKind: source.source_kind,
+          lastReviewedAt: reviewTimes.get(label.key) || null
+        });
+        continue;
+      }
+      existing.count += 1;
+      if (sourceTime >= recentCutoff) existing.recentCount += 1;
+      if (sourceTime < Date.parse(existing.firstSeenAt)) existing.firstSeenAt = source.created_at;
+      if (sourceTime > Date.parse(existing.lastSeenAt)) existing.lastSeenAt = source.created_at;
+      if (
+        (source.source_kind === "word" && existing.representativeKind !== "word") ||
+        (source.source_kind === existing.representativeKind && source.id > existing.representativeId)
+      ) {
+        existing.representativeId = source.id;
+        existing.representativeKind = source.source_kind;
+      }
+    }
+  }
+
+  const selected = chooseWordCloudCandidates(Array.from(candidates.values()), user.id, now, dayKey);
+  if (!selected.length) return json([]);
+
+  const wordLabels = selected.filter((item) => item.key.startsWith("word:")).map((item) => item.label);
+  if (wordLabels.length) {
+    const placeholders = wordLabels.map(() => "?").join(", ");
+    const details = await all<TranslationEntryRow>(
+      env.DB.prepare(
+        `SELECT * FROM translation_entries
+         WHERE user_id = ? AND source_kind = 'word' AND lower(source_text) IN (${placeholders})
+         ORDER BY is_auto_detail ASC, created_at DESC, id DESC`
+      ).bind(user.id, ...wordLabels)
+    );
+    const detailByLabel = new Map<string, TranslationEntryRow>();
+    for (const detail of details) {
+      const key = detail.source_text.toLowerCase();
+      if (!detailByLabel.has(key)) detailByLabel.set(key, detail);
+    }
+    for (const item of selected) {
+      const detail = detailByLabel.get(item.label.toLowerCase());
+      if (detail) item.representativeId = detail.id;
+    }
+  }
+
+  const ids = Array.from(new Set(selected.map((item) => item.representativeId)));
+  const placeholders = ids.map(() => "?").join(", ");
+  const entries = await all<TranslationEntryRow>(
+    env.DB.prepare(`SELECT * FROM translation_entries WHERE user_id = ? AND id IN (${placeholders})`).bind(user.id, ...ids)
+  );
+  const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+  const counts = selected.map((item) => item.count);
+  const minCount = Math.min(...counts);
+  const maxCount = Math.max(...counts);
+  const spread = maxCount - minCount;
+  return json(
+    selected.map((item) => ({
+      key: item.key,
+      label: item.label,
+      count: item.count,
+      weight: spread ? 1 + Math.round(((item.count - minCount) / spread) * 4) : 3,
+      reason: item.reason,
+      first_seen_at: item.firstSeenAt,
+      last_seen_at: item.lastSeenAt,
+      last_reviewed_at: item.lastReviewedAt,
+      entry: entryResponse(entriesById.get(item.representativeId)!)
+    }))
+  );
+}
+
+async function reviewWordCloudItem(request: Request, env: Env): Promise<Response> {
+  const user = await requireUser(request, env);
+  const payload = wordCloudReviewSchema.parse(await parseJson<unknown>(request));
+  const entry = await first<TranslationEntryRow>(
+    env.DB.prepare("SELECT * FROM translation_entries WHERE id = ? AND user_id = ?").bind(payload.entry_id, user.id)
+  );
+  if (!entry || !labelsForWordCloud(entry.source_text, entry.source_kind).some((item) => item.key === payload.key)) {
+    throw new HttpError(404, "词条不存在");
+  }
+  const reviewedAt = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO translation_word_reviews (user_id, item_key, entry_id, reviewed_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id, item_key) DO UPDATE SET
+       entry_id = excluded.entry_id,
+       reviewed_at = excluded.reviewed_at`
+  )
+    .bind(user.id, payload.key, entry.id, reviewedAt)
+    .run();
+  return json({ reviewed_at: reviewedAt });
+}
+
 async function clearEntries(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
-  await env.DB.prepare("DELETE FROM translation_entries WHERE user_id = ?").bind(user.id).run();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM translation_word_reviews WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM translation_entries WHERE user_id = ?").bind(user.id)
+  ]);
   return json({ status: "ok" });
 }
 
@@ -455,6 +683,8 @@ export function translationRoutes(env: Env): Route[] {
   return [
     route("GET", "/api/translation/prompt", (request) => readPrompt(request, env)),
     route("PUT", "/api/translation/prompt", (request) => updatePrompt(request, env)),
+    route("GET", "/api/translation/word-cloud", (request) => listWordCloud(request, env)),
+    route("POST", "/api/translation/word-cloud/review", (request) => reviewWordCloudItem(request, env)),
     route("GET", "/api/translation/entries", (request) => listEntries(request, env)),
     route("DELETE", "/api/translation/entries", (request) => clearEntries(request, env)),
     route("POST", "/api/translation/dictionary-entry", (request, _params, ctx) => dictionaryEntry(request, env, ctx)),

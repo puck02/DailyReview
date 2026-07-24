@@ -58,6 +58,7 @@ import {
   ReportGenerationStatus,
   ReportItem,
   TokenUsageSummary,
+  TranslationCloudItem,
   TranslationEntry,
   EssaySession,
   EssaySuggestion,
@@ -93,13 +94,6 @@ type PendingAttachment = Attachment & {
   name: string;
   status: "uploading" | "ready" | "failed";
   error?: string;
-};
-type TranslationCloudItem = {
-  key: string;
-  label: string;
-  count: number;
-  weight: number;
-  entry: TranslationEntry;
 };
 type TranslationCloudLane = {
   id: number;
@@ -154,6 +148,7 @@ const translationInputLimit = 2000;
 const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared";
 const aiConfigChangedEvent = "dailyreview:ai-config-changed";
 const wordCloudLaneCount = 4;
+const wordCloudAnimatedMinimum = 20;
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
 const DAILY_QUOTES = [
   { text: "面朝大海，春暖花开。", source: "海子" },
@@ -500,120 +495,28 @@ async function savePdfBlob(blob: Blob, filename: string, target: PdfSaveTarget) 
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-const englishStopWords = new Set([
-  "and",
-  "are",
-  "but",
-  "for",
-  "from",
-  "has",
-  "have",
-  "into",
-  "not",
-  "that",
-  "the",
-  "this",
-  "was",
-  "were",
-  "with",
-  "you"
-]);
-
-function compactCloudLabel(text: string) {
-  const value = text.trim().replace(/\s+/g, " ");
-  return value.length > 28 ? `${value.slice(0, 28)}...` : value;
-}
-
-function labelsForTranslationEntry(entry: TranslationEntry) {
-  const source = entry.source_text.trim().replace(/\s+/g, " ");
-  if (!source) return [];
-  if (entry.source_kind === "chinese") return [];
-  if (entry.source_kind === "word") return [compactCloudLabel(source)];
-
-  const words = source.match(/[A-Za-z][A-Za-z'-]*/g) || [];
-  if (words.length <= 3) return [compactCloudLabel(source)];
-  const labels = words
-    .map((word) => word.toLowerCase())
-    .filter((word) => word.length > 2 && !englishStopWords.has(word));
-  return Array.from(new Set(labels)).slice(0, 8);
-}
-
-function translationCloudItems(entries: TranslationEntry[]) {
-  const cloud = new Map<string, TranslationCloudItem>();
-  entries.slice(0, 60).forEach((entry) => {
-    labelsForTranslationEntry(entry).forEach((label) => {
-      const key = label.toLowerCase();
-      const existing = cloud.get(key);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        cloud.set(key, {
-          key,
-          label,
-          count: 1,
-          weight: 1,
-          entry
-        });
-      }
-    });
-  });
-
-  const items = Array.from(cloud.values()).sort(
-    (left, right) => right.count - left.count || right.entry.id - left.entry.id
-  );
-  const maxCount = Math.max(1, ...items.map((item) => item.count));
-  const minCount = Math.min(maxCount, ...items.map((item) => item.count));
-  return items
-    .map((item) => {
-      const spread = maxCount - minCount;
-      const weight = spread ? 1 + Math.round(((item.count - minCount) / spread) * 4) : 3;
-      return { ...item, weight: Math.max(1, Math.min(5, weight)) };
-    })
-    .slice(0, 40);
-}
-
-function shuffleTranslationCloudItems(items: TranslationCloudItem[]) {
-  const shuffled = [...items];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+function wordCloudHash(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
   }
-  return shuffled;
+  return hash >>> 0;
 }
 
 function buildTranslationCloudLanes(items: TranslationCloudItem[]): TranslationCloudLane[] {
-  const shuffled = shuffleTranslationCloudItems(items);
-  if (!shuffled.length) return [];
-  const laneCount = wordCloudLaneCount;
+  if (!items.length) return [];
+  const ordered = [...items].sort((left, right) => wordCloudHash(left.key) - wordCloudHash(right.key));
+  const laneCount = items.length < 32 ? 2 : wordCloudLaneCount;
   const lanes = Array.from({ length: laneCount }, (_, index) => {
-    const laneItems = shuffled.filter((_, itemIndex) => itemIndex % laneCount === index);
-    const rotated = [...shuffled.slice(index % shuffled.length), ...shuffled.slice(0, index % shuffled.length)];
     return {
       id: index,
       duration: 72 + index * 12,
       delay: -index * 3,
-      items: laneItems.length >= 3 ? laneItems : rotated.slice(0, Math.min(8, rotated.length))
+      items: ordered.filter((_, itemIndex) => itemIndex % laneCount === index)
     };
   });
   return lanes;
-}
-
-function cloudTone(key: string) {
-  let hash = 0;
-  for (let index = 0; index < key.length; index += 1) {
-    hash = (hash * 31 + key.charCodeAt(index)) % 9973;
-  }
-  return String((hash % 6) + 1);
-}
-
-const wordCloudLaneItemLimit = 18;
-
-function repeatedLaneItems(items: TranslationCloudItem[]) {
-  if (!items.length) return [];
-  if (items.length >= wordCloudLaneItemLimit) return items;
-  const repeated: TranslationCloudItem[] = [];
-  while (repeated.length < wordCloudLaneItemLimit) repeated.push(...items);
-  return repeated.slice(0, wordCloudLaneItemLimit);
 }
 
 function cloudLookupKey(text: string) {
@@ -640,19 +543,60 @@ function isTranslationDetailPending(entry: TranslationEntry) {
   return entry.detail_status === "queued" || entry.detail_status === "processing";
 }
 
+function WordCloudChip({
+  item,
+  activeId,
+  isCopy = false,
+  onOpen
+}: {
+  item: TranslationCloudItem;
+  activeId: number | null;
+  isCopy?: boolean;
+  onOpen: (item: TranslationCloudItem) => void;
+}) {
+  const reasonLabel = {
+    recent: "近期学习",
+    overdue: "久未复习",
+    weak: "低频补缺",
+    explore: "探索词条"
+  }[item.reason];
+  return (
+    <button
+      type="button"
+      className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
+      data-size={item.weight}
+      data-reason={item.reason}
+      data-label={item.label}
+      data-cloud-copy={isCopy ? "true" : undefined}
+      aria-hidden={isCopy || undefined}
+      aria-label={isCopy ? undefined : `${item.label}，${item.count} 次学习，${reasonLabel}`}
+      tabIndex={isCopy ? -1 : undefined}
+      title={isCopy ? undefined : `${reasonLabel} · ${item.count} 次学习`}
+      onClick={() => onOpen(item)}
+    >
+      <span>{item.label}</span>
+      {item.count > 1 ? <small aria-hidden="true">{item.count}</small> : null}
+    </button>
+  );
+}
+
 function TranslationWordCloud({
+  items,
   entries,
   activeId,
   onSelect,
-  onDictionaryEntry
+  onDictionaryEntry,
+  onReviewed
 }: {
+  items: TranslationCloudItem[];
   entries: TranslationEntry[];
   activeId: number | null;
   onSelect: (entry: TranslationEntry) => void;
   onDictionaryEntry: (entry: TranslationEntry) => void;
+  onReviewed: (key: string, reviewedAt: string) => void;
 }) {
-  const items = useMemo(() => translationCloudItems(entries), [entries]);
-  const lanes = useMemo(() => buildTranslationCloudLanes(items), [items]);
+  const animate = items.length >= wordCloudAnimatedMinimum;
+  const lanes = useMemo(() => (animate ? buildTranslationCloudLanes(items) : []), [animate, items]);
   const [detailState, setDetailState] = useState<{
     label: string;
     entry: TranslationEntry | null;
@@ -674,6 +618,10 @@ function TranslationWordCloud({
   async function openCloudDetail(item: TranslationCloudItem) {
     const existing = cloudDetailEntryForItem(item, entries);
     setDetailState({ label: item.label, entry: existing, error: "" });
+    void api
+      .reviewTranslationCloudItem(item.key, item.entry.id)
+      .then(({ reviewed_at: reviewedAt }) => onReviewed(item.key, reviewedAt))
+      .catch(() => undefined);
     if (existing) {
       if (existing.detail_status === "ready" || existing.result_markdown.trim()) onSelect(existing);
       if (existing.detail_status === "ready" || item.label.endsWith("...")) return;
@@ -700,12 +648,14 @@ function TranslationWordCloud({
 
   return (
     <>
-      <section className="translation-cloud">
+      <section className={animate ? "translation-cloud" : "translation-cloud is-static"}>
         {items.length ? (
-          <div className="word-cloud-stage">
-            {lanes.map((lane) => {
-              const laneItems = repeatedLaneItems(lane.items);
-              return (
+          <div
+            className={animate ? "word-cloud-stage" : "word-cloud-stage is-static"}
+            style={animate ? ({ "--word-cloud-lanes": lanes.length } as CSSProperties) : undefined}
+          >
+            {animate ? (
+              lanes.map((lane) => (
                 <div key={lane.id} className="word-cloud-lane">
                   <div
                     className="word-cloud-run"
@@ -716,28 +666,25 @@ function TranslationWordCloud({
                       } as CSSProperties
                     }
                   >
-                    {[...laneItems, ...laneItems].map((item, index) => {
-                      const isCopy = index >= laneItems.length;
-                      return (
-                        <button
-                          key={`${lane.id}-${item.key}-${index}`}
-                          className={activeId === item.entry.id ? "word-cloud-chip active" : "word-cloud-chip"}
-                          data-size={item.weight}
-                          data-tone={cloudTone(item.key)}
-                          data-label={item.label}
-                          data-cloud-copy={isCopy ? "true" : undefined}
-                          aria-hidden={isCopy ? true : undefined}
-                          tabIndex={isCopy ? -1 : undefined}
-                          onClick={() => openCloudDetail(item)}
-                        >
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
+                    {[...lane.items, ...lane.items].map((item, index) => (
+                      <WordCloudChip
+                        key={`${lane.id}-${item.key}-${index}`}
+                        item={item}
+                        activeId={activeId}
+                        isCopy={index >= lane.items.length}
+                        onOpen={openCloudDetail}
+                      />
+                    ))}
                   </div>
                 </div>
-              );
-            })}
+              ))
+            ) : (
+              <div className="word-cloud-static">
+                {items.map((item) => (
+                  <WordCloudChip key={item.key} item={item} activeId={activeId} onOpen={openCloudDetail} />
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <div className="translation-cloud-empty">翻译几次后，这里会积累词和短语。</div>
@@ -1996,6 +1943,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   const [input, setInput] = useState("");
   const [result, setResult] = useState<TranslationEntry | null>(null);
   const [entries, setEntries] = useState<TranslationEntry[]>([]);
+  const [cloudItems, setCloudItems] = useState<TranslationCloudItem[]>([]);
   const [promptDraft, setPromptDraft] = useState("");
   const [promptOpen, setPromptOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -2003,6 +1951,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   const [saved, setSaved] = useState("");
   const [error, setError] = useState("");
   const historyRequestId = useRef(0);
+  const cloudRequestId = useRef(0);
 
   async function refreshTranslationEntries() {
     const requestId = historyRequestId.current + 1;
@@ -2012,8 +1961,16 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
     setEntries(history);
   }
 
+  async function refreshTranslationWordCloud() {
+    const requestId = cloudRequestId.current + 1;
+    cloudRequestId.current = requestId;
+    const items = await api.translationWordCloud();
+    if (requestId !== cloudRequestId.current) return;
+    setCloudItems(items);
+  }
+
   useEffect(() => {
-    Promise.all([api.translationPrompt(), refreshTranslationEntries()])
+    Promise.all([api.translationPrompt(), refreshTranslationEntries(), refreshTranslationWordCloud()])
       .then(([prompt]) => {
         setPromptDraft(prompt.system_prompt);
       })
@@ -2024,6 +1981,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
   useEffect(() => {
     function handleEntriesCleared() {
       setEntries([]);
+      setCloudItems([]);
       setResult(null);
     }
 
@@ -2054,7 +2012,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
       const translated = await api.translate(text);
       setResult(translated);
       setEntries((current) => [translated, ...current.filter((item) => item.id !== translated.id)].slice(0, 30));
-      void refreshTranslationEntries();
+      void Promise.all([refreshTranslationEntries(), refreshTranslationWordCloud()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "翻译失败");
     } finally {
@@ -2209,11 +2167,17 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
 
         {wordCloudEnabled ? (
           <TranslationWordCloud
+            items={cloudItems}
             entries={entries}
             activeId={activeResult?.id || null}
             onSelect={setResult}
-            onDictionaryEntry={(entry) =>
-              setEntries((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 30))
+            onDictionaryEntry={(entry) => {
+              setEntries((current) => [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, 30));
+            }}
+            onReviewed={(key, reviewedAt) =>
+              setCloudItems((current) =>
+                current.map((item) => (item.key === key ? { ...item, last_reviewed_at: reviewedAt } : item))
+              )
             }
           />
         ) : null}

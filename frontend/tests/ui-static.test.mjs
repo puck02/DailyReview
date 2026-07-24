@@ -157,8 +157,12 @@ test("visual system keeps compact radii, quiet panels, and motion-safe word clou
   assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)\s*{[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;[^}]*transform:\s*none;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;[^}]*transform:\s*none;/s);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-chip\[data-cloud-copy="true"\]\s*{[^}]*display:\s*none;/s);
-  assert.ok(app.includes("const wordCloudLaneItemLimit = 18;"));
+  assert.ok(app.includes("const wordCloudAnimatedMinimum = 20;"));
+  assert.ok(app.includes("const laneCount = items.length < 32 ? 2 : wordCloudLaneCount;"));
   assert.ok(app.includes('data-cloud-copy={isCopy ? "true" : undefined}'));
+  assert.ok(app.includes('isCopy={index >= lane.items.length}'));
+  assert.doesNotMatch(app, /repeated\.length < wordCloudLaneItemLimit/);
+  assert.match(styles, /\.word-cloud-stage:hover \.word-cloud-run,[\s\S]*?\.word-cloud-stage:focus-within \.word-cloud-run\s*{[^}]*animation-play-state:\s*paused;/s);
   assert.ok(app.includes('className="secondary-button compact danger settings-clear-entries"'));
   assert.match(styles, /\.settings-clear-entries\s*{[^}]*white-space:\s*nowrap;/s);
   assert.doesNotMatch(styles, /\.essay-editor\s*{[^}]*font-family:\s*"Comic Sans MS"/s);
@@ -884,7 +888,12 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("api.translationPrompt()"));
   assert.ok(app.includes("api.updateTranslationPrompt(promptDraft)"));
   assert.ok(app.includes("api.translationEntries()"));
+  assert.ok(app.includes("api.translationWordCloud()"));
+  assert.match(app, /api\s*\.\s*reviewTranslationCloudItem\(item\.key,\s*item\.entry\.id\)/);
   assert.ok(app.includes("api.translationDictionaryEntry(item.label)"));
+  assert.ok(apiSource.includes('translationWordCloud: () => request<TranslationCloudItem[]>("/api/translation/word-cloud")'));
+  assert.ok(apiSource.includes("reviewTranslationCloudItem"));
+  assert.ok(apiSource.includes('export type TranslationCloudReason = "recent" | "overdue" | "weak" | "explore";'));
   assert.ok(app.includes("onDictionaryEntry"));
   assert.ok(app.includes("词条详解生成失败"));
   assert.ok(app.includes("const translationInputLimit = 2000;"));
@@ -892,15 +901,13 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("输入超过 2000 字，已超限，不予翻译。"));
   assert.ok(app.includes("prompt-editor"));
   assert.ok(app.includes("TranslationWordCloud"));
-  assert.ok(app.includes("translationCloudItems"));
-  assert.ok(app.includes("shuffleTranslationCloudItems"));
+  assert.ok(app.includes("cloudItems"));
+  assert.ok(app.includes("refreshTranslationWordCloud"));
+  assert.ok(app.includes("WordCloudChip"));
   assert.ok(app.includes("buildTranslationCloudLanes"));
-  assert.ok(app.includes('if (entry.source_kind === "chinese") return [];'));
-  assert.ok(app.includes('if (entry.source_kind === "word") return [compactCloudLabel(source)];'));
+  assert.ok(app.includes("wordCloudHash"));
   assert.ok(app.includes("const wordCloudLaneCount = 4;"));
-  assert.ok(app.includes("const laneCount = wordCloudLaneCount;"));
   assert.ok(app.includes("duration: 72 + index * 12"));
-  assert.ok(app.includes("function cloudTone"));
   assert.ok(app.includes("function cloudDetailEntryForItem"));
   assert.ok(apiSource.includes("phonetic: string | null;"));
   assert.ok(apiSource.includes("detail_status: \"queued\" | \"processing\" | \"ready\" | \"failed\";"));
@@ -915,8 +922,9 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("entry.detail_status === \"queued\" || entry.detail_status === \"processing\""));
   assert.ok(app.includes("const historyRequestId = useRef(0);"));
   assert.ok(app.includes("async function refreshTranslationEntries()"));
+  assert.ok(app.includes("async function refreshTranslationWordCloud()"));
   assert.ok(app.includes("if (requestId !== historyRequestId.current) return;"));
-  assert.ok(app.includes("void refreshTranslationEntries();"));
+  assert.ok(app.includes("void Promise.all([refreshTranslationEntries(), refreshTranslationWordCloud()]);"));
   assert.ok(app.includes("entries.some((entry) => isTranslationDetailPending(entry))"));
   assert.ok(app.includes("正在生成词条详解"));
   assert.ok(app.includes("const updatedResult = result ? entries.find((entry) => entry.id === result.id) || result : null;"));
@@ -927,11 +935,10 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("词条详解生成失败，稍后刷新或重新收录。"));
   assert.ok(app.includes("setDetailState({ label: item.label, entry: existing, error: \"\" });"));
   assert.ok(!app.includes("const translated = await api.translate(item.label);"));
-  assert.ok(app.includes("repeated.length < wordCloudLaneItemLimit"));
   assert.ok(app.includes("data-size={item.weight}"));
-  assert.ok(app.includes("data-tone={cloudTone(item.key)}"));
+  assert.ok(app.includes("data-reason={item.reason}"));
   assert.ok(app.includes("data-label={item.label}"));
-  assert.doesNotMatch(app, /<small>\{item\.count\}<\/small>/);
+  assert.match(app, /<small aria-hidden="true">\{item\.count\}<\/small>/);
   assert.ok(app.includes("word-cloud-stage"));
   assert.ok(app.includes("word-cloud-lane"));
   assert.ok(app.includes("word-cloud-run"));
@@ -971,20 +978,23 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-result\.is-loading \.translation-result-content\s*{[^}]*opacity:\s*0\.42;/s);
   assert.match(styles, /\.translation-phonetic\s*{[^}]*font-family:\s*"SFMono-Regular",\s*Consolas,\s*"Liberation Mono",\s*monospace;/s);
   assert.match(styles, /\.translation-input-meta\.over-limit\s*{[^}]*color:\s*#b42318;/s);
-  assert.match(app, /<section className="translation-cloud">\s*\{items\.length \? \(/);
+  assert.match(app, /<section className=\{animate \? "translation-cloud" : "translation-cloud is-static"\}>\s*\{items\.length \? \(/);
   assert.doesNotMatch(app, /<section className="translation-cloud">[\s\S]*?个词 \/ 短语/);
   assert.match(styles, /\.translation-cloud\s*{[^}]*position:\s*relative;[^}]*background:\s*transparent;[^}]*height:\s*clamp\(184px,\s*24vh,\s*260px\);[^}]*min-height:\s*0;[^}]*border:\s*0;[^}]*box-shadow:\s*none;/s);
-  assert.match(styles, /\.word-cloud-stage\s*{[^}]*width:\s*calc\(100% \+ 44px\);[^}]*margin-inline:\s*-22px;[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-template-rows:\s*repeat\(4,\s*minmax\(30px,\s*auto\)\);[^}]*overflow-y:\s*visible;[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.translation-cloud\.is-static\s*{[^}]*height:\s*auto;[^}]*min-height:\s*112px;[^}]*overflow:\s*visible;/s);
+  assert.match(styles, /\.word-cloud-stage\s*{[^}]*width:\s*calc\(100% \+ 44px\);[^}]*margin-inline:\s*-22px;[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-template-rows:\s*repeat\(var\(--word-cloud-lanes,\s*4\),\s*minmax\(30px,\s*auto\)\);[^}]*overflow-y:\s*visible;[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.word-cloud-stage\.is-static\s*{[^}]*width:\s*100%;[^}]*height:\s*auto;[^}]*margin-inline:\s*0;[^}]*display:\s*block;[^}]*overflow:\s*visible;/s);
+  assert.match(styles, /\.word-cloud-static\s*{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s);
   assert.match(styles, /\.word-cloud-lane\s*{[^}]*min-width:\s*0;[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*visible;[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*padding-left:\s*22px;[^}]*padding-right:\s*22px;[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*animation:\s*word-cloud-marquee var\(--lane-duration\) linear infinite;/s);
   for (const size of ["1", "2", "3", "4", "5"]) {
     assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-size="${size}"\\]`));
   }
-  for (const tone of ["1", "2", "3", "4", "5", "6"]) {
-    assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-tone="${tone}"\\]`));
-  }
-  assert.match(styles, /\.word-cloud-chip:hover,[\s\S]*?\.word-cloud-chip\.active\s*{[^}]*background:\s*color-mix\(in srgb,\s*var\(--word-chip-bg,\s*var\(--button-surface\)\) 78%,\s*var\(--surface-solid\)\);/s);
+  assert.doesNotMatch(styles, /\.word-cloud-chip\[data-tone="1"\]/);
+  assert.match(styles, /\.word-cloud-chip small\s*{[^}]*font-variant-numeric:\s*tabular-nums;/s);
+  assert.match(styles, /\.word-cloud-chip:hover,[\s\S]*?\.word-cloud-chip\.active\s*{[^}]*background:\s*color-mix\(in srgb,\s*var\(--button-surface\) 78%,\s*var\(--surface-solid\)\);/s);
+  assert.match(styles, /\.word-cloud-chip:focus-visible\s*{[^}]*outline:\s*2px solid var\(--accent\);/s);
   assert.match(styles, /\.word-cloud-detail-backdrop\s*{[^}]*position:\s*fixed;[^}]*backdrop-filter:\s*blur\(6px\);/s);
   assert.match(styles, /\.word-cloud-detail-card\s*{[^}]*backdrop-filter:\s*none;[^}]*max-height:\s*min\(72vh,\s*620px\);/s);
   assert.match(styles, /\.word-cloud-detail-content\s*{[^}]*overflow-y:\s*auto;/s);

@@ -227,6 +227,99 @@ describe("translation routes", () => {
     expect(body).toHaveLength(30);
   });
 
+  it("builds the word cloud from all history without counting automatic details twice", async () => {
+    const { env, cookie } = await loginUser();
+    const user = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind("user@example.com").first<{ id: number }>();
+    expect(user).not.toBeNull();
+
+    const recentAt = new Date().toISOString();
+    const oldAt = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
+    for (let index = 0; index < 45; index += 1) {
+      await env.DB.prepare(
+        `INSERT INTO translation_entries
+           (user_id, source_text, source_kind, result_markdown, detail_status, is_auto_detail, created_at)
+         VALUES (?, ?, 'word', '', 'ready', 0, ?)`
+      )
+        .bind(user?.id || 0, `recentword${index}`, recentAt)
+        .run();
+    }
+    for (let index = 0; index < 2; index += 1) {
+      await env.DB.prepare(
+        `INSERT INTO translation_entries
+           (user_id, source_text, source_kind, result_markdown, detail_status, is_auto_detail, created_at)
+         VALUES (?, 'legacy', 'word', 'legacy detail', 'ready', 0, ?)`
+      )
+        .bind(user?.id || 0, oldAt)
+        .run();
+    }
+    await env.DB.prepare(
+      `INSERT INTO translation_entries
+         (user_id, source_text, source_kind, result_markdown, detail_status, is_auto_detail, created_at)
+       VALUES (?, 'legacy', 'word', 'automatic detail', 'ready', 1, ?)`
+    )
+      .bind(user?.id || 0, oldAt)
+      .run();
+
+    const response = await fetchWorker(env, "/api/translation/word-cloud", { headers: { cookie } });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Array<{
+      key: string;
+      label: string;
+      count: number;
+      reason: string;
+      last_seen_at: string;
+      last_reviewed_at: string | null;
+    }>;
+    expect(body.length).toBeLessThanOrEqual(40);
+    expect(body.find((item) => item.label === "legacy")).toMatchObject({
+      key: "word:legacy",
+      count: 2,
+      reason: "overdue",
+      last_seen_at: oldAt,
+      last_reviewed_at: null
+    });
+
+    const legacyEntry = await env.DB.prepare(
+      "SELECT id FROM translation_entries WHERE user_id = ? AND source_text = 'legacy' AND is_auto_detail = 0 ORDER BY id DESC LIMIT 1"
+    )
+      .bind(user?.id || 0)
+      .first<{ id: number }>();
+    const reviewed = await fetchWorker(env, "/api/translation/word-cloud/review", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ key: "word:legacy", entry_id: legacyEntry?.id })
+    });
+    expect(reviewed.status).toBe(200);
+
+    const refreshed = await fetchWorker(env, "/api/translation/word-cloud", { headers: { cookie } });
+    const refreshedBody = (await refreshed.json()) as Array<{ label: string }>;
+    expect(refreshedBody.some((item) => item.label === "legacy")).toBe(false);
+  });
+
+  it("records word cloud review time without increasing the learning count", async () => {
+    const { env, cookie } = await loginUser();
+    const translated = await fetchWorker(env, "/api/translation", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ text: "retention" })
+    });
+    const entry = (await translated.json()) as { id: number };
+
+    const reviewed = await fetchWorker(env, "/api/translation/word-cloud/review", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ key: "word:retention", entry_id: entry.id })
+    });
+    expect(reviewed.status).toBe(200);
+
+    const cloud = await fetchWorker(env, "/api/translation/word-cloud", { headers: { cookie } });
+    const body = (await cloud.json()) as Array<{ label: string; count: number; last_reviewed_at: string | null }>;
+    const retention = body.find((item) => item.label === "retention");
+    expect(retention?.count).toBe(1);
+    expect(retention?.last_reviewed_at).not.toBeNull();
+  });
+
   it("clears only the current user's translation entries without deleting shared dictionary cache", async () => {
     const env = createTestEnv();
     const first = await loginUser({ DB: env.DB, BUCKET: env.BUCKET, REPORT_SCHEDULER: env.REPORT_SCHEDULER });

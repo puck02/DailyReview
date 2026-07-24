@@ -201,6 +201,20 @@ export type TranslationEntry = {
   created_at: string;
 };
 
+export type TranslationCloudReason = "recent" | "overdue" | "weak" | "explore";
+
+export type TranslationCloudItem = {
+  key: string;
+  label: string;
+  count: number;
+  weight: number;
+  reason: TranslationCloudReason;
+  first_seen_at: string;
+  last_seen_at: string;
+  last_reviewed_at: string | null;
+  entry: TranslationEntry;
+};
+
 export type TranslationPrompt = {
   system_prompt: string;
 };
@@ -352,6 +366,12 @@ export const api = {
       body: JSON.stringify({ system_prompt: systemPrompt })
     }),
   translationEntries: () => request<TranslationEntry[]>("/api/translation/entries"),
+  translationWordCloud: () => request<TranslationCloudItem[]>("/api/translation/word-cloud"),
+  reviewTranslationCloudItem: (key: string, entryId: number) =>
+    request<{ reviewed_at: string }>("/api/translation/word-cloud/review", {
+      method: "POST",
+      body: JSON.stringify({ key, entry_id: entryId })
+    }),
   clearTranslationEntries: () => request<{ status: string }>("/api/translation/entries", { method: "DELETE" }),
   translationDictionaryEntry: (text: string) =>
     request<TranslationEntry>("/api/translation/dictionary-entry", {

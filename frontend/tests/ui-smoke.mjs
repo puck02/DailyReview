@@ -487,7 +487,7 @@ async function checkTranslationLoadingLayout(client) {
 async function checkWordCloudDetail(client) {
   await waitFor(
     client,
-    "Boolean(document.querySelector('.word-cloud-stage') && document.querySelector('.word-cloud-run') && document.querySelector('.word-cloud-chip'))",
+    "Boolean(document.querySelector('.word-cloud-stage') && document.querySelector('.word-cloud-chip'))",
     "translation word cloud chips"
   );
   const cloud = await evaluate(
@@ -497,56 +497,59 @@ async function checkWordCloudDetail(client) {
       const laneElement = document.querySelector('.word-cloud-lane');
       const runElement = document.querySelector('.word-cloud-run');
       const stage = stageElement.getBoundingClientRect();
-      const run = runElement.getBoundingClientRect();
       const chip = document.querySelector('.word-cloud-chip');
       const stageStyle = getComputedStyle(stageElement);
       const cloudStyle = getComputedStyle(document.querySelector('.translation-cloud'));
-      const laneStyle = getComputedStyle(laneElement);
-      const runStyle = getComputedStyle(runElement);
       const chipStyle = getComputedStyle(chip);
+      const copies = [...document.querySelectorAll('.word-cloud-chip[data-cloud-copy="true"]')];
       return {
+        animated: Boolean(runElement),
+        static: stageElement.classList.contains('is-static'),
         stageWidth: Math.round(stage.width),
         stageHeight: Math.round(stage.height),
-        runWidth: Math.round(run.width),
+        runWidth: runElement ? Math.round(runElement.getBoundingClientRect().width) : 0,
         stageMarginLeft: stageStyle.marginLeft,
         cloudBackground: cloudStyle.backgroundColor,
         cloudBorder: cloudStyle.borderTopWidth,
         cloudShadow: cloudStyle.boxShadow,
         laneCount: document.querySelectorAll('.word-cloud-lane').length,
-        duration: runStyle.animationDuration,
+        duration: runElement ? getComputedStyle(runElement).animationDuration : '0s',
         stageOverflowY: stageStyle.overflowY,
-        laneOverflowY: laneStyle.overflowY,
-        laneBackground: laneStyle.backgroundColor,
-        runBackground: runStyle.backgroundColor,
-        tone: chip.dataset.tone,
+        laneOverflowY: laneElement ? getComputedStyle(laneElement).overflowY : null,
+        laneBackground: laneElement ? getComputedStyle(laneElement).backgroundColor : null,
+        runBackground: runElement ? getComputedStyle(runElement).backgroundColor : null,
+        copyCount: copies.length,
+        inaccessibleCopies: copies.every((copy) => copy.getAttribute('aria-hidden') === 'true' && copy.tabIndex === -1),
+        reason: chip.dataset.reason,
         color: chipStyle.color,
         background: chipStyle.backgroundColor
       };
     })()`
   );
-  if (cloud.runWidth < cloud.stageWidth * 2) {
-    throw new Error(`word cloud run does not fill the lane: ${JSON.stringify(cloud)}`);
+  if (!["recent", "overdue", "weak", "explore"].includes(cloud.reason)) {
+    throw new Error(`word cloud review reason is missing: ${JSON.stringify(cloud)}`);
   }
-  if (!["1", "2", "3", "4", "5", "6"].includes(cloud.tone)) {
-    throw new Error(`word cloud chip tone is missing: ${JSON.stringify(cloud)}`);
-  }
-  if (cloud.laneCount !== 4) throw new Error(`word cloud lane count is not four: ${JSON.stringify(cloud)}`);
   if (cloud.stageHeight > 270) throw new Error(`word cloud is too tall: ${JSON.stringify(cloud)}`);
-  if (Number.parseFloat(cloud.duration) < 70) throw new Error(`word cloud animation is too fast: ${JSON.stringify(cloud)}`);
-  if (cloud.stageOverflowY !== "visible" || cloud.laneOverflowY !== "visible") {
-    throw new Error(`word cloud lanes clip chips vertically: ${JSON.stringify(cloud)}`);
-  }
-  if (cloud.laneBackground !== "rgba(0, 0, 0, 0)" || cloud.runBackground !== "rgba(0, 0, 0, 0)") {
-    throw new Error(`word cloud lane background is visible: ${JSON.stringify(cloud)}`);
+  if (cloud.animated) {
+    if (![2, 4].includes(cloud.laneCount)) throw new Error(`word cloud lane count is invalid: ${JSON.stringify(cloud)}`);
+    if (Number.parseFloat(cloud.duration) < 70) throw new Error(`word cloud animation is too fast: ${JSON.stringify(cloud)}`);
+    if (!cloud.copyCount || !cloud.inaccessibleCopies) {
+      throw new Error(`word cloud copies are keyboard-accessible: ${JSON.stringify(cloud)}`);
+    }
+    if (cloud.stageOverflowY !== "visible" || cloud.laneOverflowY !== "visible") {
+      throw new Error(`word cloud lanes clip chips vertically: ${JSON.stringify(cloud)}`);
+    }
+    if (cloud.laneBackground !== "rgba(0, 0, 0, 0)" || cloud.runBackground !== "rgba(0, 0, 0, 0)") {
+      throw new Error(`word cloud lane background is visible: ${JSON.stringify(cloud)}`);
+    }
+    if (!cloud.stageMarginLeft.startsWith("-")) {
+      throw new Error(`word cloud stage does not extend to the edge: ${JSON.stringify(cloud)}`);
+    }
+  } else if (!cloud.static || cloud.laneCount !== 0 || cloud.copyCount !== 0) {
+    throw new Error(`small word cloud is not rendered statically: ${JSON.stringify(cloud)}`);
   }
   if (cloud.cloudBackground !== "rgba(0, 0, 0, 0)" || cloud.cloudBorder !== "0px" || cloud.cloudShadow !== "none") {
     throw new Error(`word cloud container is still card-like: ${JSON.stringify(cloud)}`);
-  }
-  if (!cloud.stageMarginLeft.startsWith("-")) {
-    throw new Error(`word cloud stage does not extend to the edge: ${JSON.stringify(cloud)}`);
-  }
-  if (cloud.background === "rgb(255, 255, 255)" || cloud.background === "rgba(0, 0, 0, 0)") {
-    throw new Error(`word cloud chip does not use a soft color: ${JSON.stringify(cloud)}`);
   }
   await evaluate(client, "document.querySelector('.word-cloud-chip').click()");
   await waitFor(client, "Boolean(document.querySelector('.word-cloud-detail-backdrop') && document.querySelector('.word-cloud-detail-card'))", "word cloud detail modal");
@@ -565,7 +568,7 @@ async function checkWordCloudDetail(client) {
     })()`
   );
   if (!detail.backdropFilter.includes("blur")) throw new Error(`detail backdrop is not glassy: ${JSON.stringify(detail)}`);
-  if (!detail.cardFilter.includes("blur")) throw new Error(`detail card is not glassy: ${JSON.stringify(detail)}`);
+  if (detail.cardFilter !== "none") throw new Error(`detail card content is blurred: ${JSON.stringify(detail)}`);
   if (detail.contentOverflow !== "auto") throw new Error(`detail content is not scrollable: ${JSON.stringify(detail)}`);
   if (detail.cardHeight <= 0) throw new Error(`detail card is not visible: ${JSON.stringify(detail)}`);
   await evaluate(client, "document.querySelector('.word-cloud-detail-close').click()");
@@ -583,55 +586,60 @@ async function checkWordCloudDetail(client) {
       window.fetch = (input, init) => {
         const url = typeof input === "string" ? input : input.url;
         const method = init?.method || (typeof input === "string" ? "GET" : input.method);
+        const now = new Date().toISOString();
+        const wordEntry = {
+          id: 880002,
+          source_text: "derivative",
+          source_kind: "word",
+          phonetic: "/dɪˈrɪvətɪv/",
+          result_markdown: "WORD DETAIL ONLY",
+          detail_status: "ready",
+          is_auto_detail: true,
+          created_at: now
+        };
         if (url.endsWith("/api/translation/entries")) {
+          return Promise.resolve(new Response(JSON.stringify([wordEntry]), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        if (url.endsWith("/api/translation/word-cloud") && method === "GET") {
           return Promise.resolve(new Response(JSON.stringify([{
+            key: "word:derivative",
+            label: "derivative",
+            count: 1,
+            weight: 3,
+            reason: "overdue",
+            first_seen_at: now,
+            last_seen_at: now,
+            last_reviewed_at: null,
+            entry: wordEntry
+          }]), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        if (url.endsWith("/api/translation/word-cloud/review") && method === "POST") {
+          return Promise.resolve(new Response(JSON.stringify({ reviewed_at: now }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        if (url.endsWith("/api/translation/dictionary-entry") && method === "POST") {
+          window.__dailyreviewWordCloudDictionaryText = JSON.parse(init.body).text;
+          return Promise.resolve(new Response(JSON.stringify(wordEntry), { status: 200, headers: { "Content-Type": "application/json" } }));
+        }
+        if (url.endsWith("/api/translation") && method === "POST") {
+          const body = JSON.parse(init.body);
+          return Promise.resolve(new Response(JSON.stringify({
             id: 880001,
-            source_text: "The derivative problem requires careful limits",
+            source_text: body.text,
             source_kind: "english",
             phonetic: null,
             result_markdown: "ORIGINAL SENTENCE DETAIL",
             detail_status: "ready",
             is_auto_detail: false,
-            created_at: new Date().toISOString()
-          }, {
-            id: 880000,
-            source_text: "中文词条不应收录",
-            source_kind: "chinese",
-            phonetic: null,
-            result_markdown: "CHINESE DETAIL",
-            detail_status: "ready",
-            is_auto_detail: false,
-            created_at: new Date().toISOString()
-          }, {
-            id: 880002,
-            source_text: "derivative",
-            source_kind: "word",
-            phonetic: "/dɪˈrɪvətɪv/",
-            result_markdown: "WORD DETAIL ONLY",
-            detail_status: "ready",
-            is_auto_detail: true,
-            created_at: new Date().toISOString()
-          }]), { status: 200, headers: { "Content-Type": "application/json" } }));
-        }
-        if (url.endsWith("/api/translation") && method === "POST") {
-          const body = JSON.parse(init.body);
-          window.__dailyreviewWordCloudTranslatedText = body.text;
-          return Promise.resolve(new Response(JSON.stringify({
-            id: 880002,
-            source_text: body.text,
-            source_kind: "word",
-            phonetic: null,
-            result_markdown: "WORD DETAIL ONLY",
-            detail_status: "ready",
-            is_auto_detail: false,
-            created_at: new Date().toISOString()
+            created_at: now
           }), { status: 200, headers: { "Content-Type": "application/json" } }));
         }
         return originalFetch(input, init);
       };
-      document.querySelector('.app-nav button[aria-label="翻译"]').click();
-      document.querySelector('.app-nav button[aria-label="问答"]').click();
-      window.setTimeout(() => document.querySelector('.app-nav button[aria-label="翻译"]').click(), 0);
+      const textarea = document.querySelector('.translation-input');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+      setter.call(textarea, "The derivative problem requires careful limits");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      window.setTimeout(() => document.querySelector('.translation-submit').click(), 0);
       return true;
     })()`,
     true
@@ -648,7 +656,7 @@ async function checkWordCloudDetail(client) {
   const splitWordDetail = await evaluate(
     client,
     `(() => ({
-      requestedText: window.__dailyreviewWordCloudTranslatedText,
+      requestedText: window.__dailyreviewWordCloudDictionaryText,
       phoneticText: document.querySelector('.word-cloud-detail-content .translation-phonetic')?.textContent || "",
       detailText: document.querySelector('.word-cloud-detail-content')?.textContent || ""
     }))()`
@@ -668,7 +676,7 @@ async function checkWordCloudDetail(client) {
       if (window.__dailyreviewWordCloudFetch) {
         window.fetch = window.__dailyreviewWordCloudFetch;
         delete window.__dailyreviewWordCloudFetch;
-        delete window.__dailyreviewWordCloudTranslatedText;
+        delete window.__dailyreviewWordCloudDictionaryText;
       }
       document.querySelector('.word-cloud-detail-backdrop')?.click();
       return true;

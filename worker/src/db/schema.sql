@@ -117,6 +117,16 @@ CREATE TABLE IF NOT EXISTS translation_entries (
 CREATE INDEX IF NOT EXISTS idx_translation_entries_user_created ON translation_entries(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_translation_entries_user_kind_created ON translation_entries(user_id, source_kind, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_translation_entries_status ON translation_entries(detail_status, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_translation_entries_user_cloud
+  ON translation_entries(user_id, is_auto_detail, source_kind, id);
+
+CREATE TABLE IF NOT EXISTS translation_word_reviews (
+  user_id INTEGER NOT NULL,
+  item_key TEXT NOT NULL,
+  entry_id INTEGER NOT NULL,
+  reviewed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY(user_id, item_key)
+);
 
 CREATE TABLE IF NOT EXISTS translation_dictionary_entries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

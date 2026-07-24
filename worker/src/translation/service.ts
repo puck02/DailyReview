@@ -36,6 +36,11 @@ export const DEFAULT_TRANSLATION_PROMPT = `你是一个面向考研英语一的�
 
 export type SourceKind = "chinese" | "word" | "english";
 
+export type WordCloudLabel = {
+  key: string;
+  label: string;
+};
+
 export function detectSourceKind(text: string): SourceKind {
   const stripped = text.trim();
   if (/[\u4e00-\u9fff]/.test(stripped)) {
@@ -156,4 +161,22 @@ export function labelsForAutoWordDetails(text: string): string[] {
     .map((word) => word.toLowerCase())
     .filter((word) => word.length > 2 && !ENGLISH_STOP_WORDS.has(word));
   return Array.from(new Set(labels)).slice(0, 8);
+}
+
+export function labelsForWordCloud(sourceText: string, sourceKind: SourceKind): WordCloudLabel[] {
+  const source = sourceText.trim().replace(/\s+/g, " ");
+  if (!source || sourceKind === "chinese") {
+    return [];
+  }
+  if (sourceKind === "word") {
+    const label = normalizeWord(source);
+    return label ? [{ key: `word:${label}`, label }] : [];
+  }
+
+  const words = source.match(/[A-Za-z][A-Za-z'-]*/g) || [];
+  if (words.length <= 3) {
+    const label = source.length > 28 ? `${source.slice(0, 28)}...` : source;
+    return [{ key: `phrase:${source.toLowerCase()}`, label }];
+  }
+  return labelsForAutoWordDetails(source).map((label) => ({ key: `word:${label}`, label }));
 }
