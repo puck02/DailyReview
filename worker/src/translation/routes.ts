@@ -71,7 +71,7 @@ type WordCloudSourceRow = Row & {
 };
 
 type WordCloudReviewRow = Row & {
-  item_key: string;
+  setting_key: string;
   reviewed_at: string;
 };
 
@@ -91,6 +91,7 @@ type WordCloudReason = "recent" | "overdue" | "weak" | "explore";
 
 const WORD_CLOUD_LIMIT = 40;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WORD_CLOUD_REVIEW_PREFIX = "translation_word_review:";
 
 function entryResponse(entry: TranslationEntryRow): Record<string, unknown> {
   return {
@@ -408,6 +409,7 @@ function chooseWordCloudCandidates(
 async function listWordCloud(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   const now = new Date();
+  const reviewPrefix = `${WORD_CLOUD_REVIEW_PREFIX}${user.id}:`;
   const dayKey = new Intl.DateTimeFormat("en-CA", {
     timeZone: env.APP_TIMEZONE || "UTC",
     year: "numeric",
@@ -426,11 +428,11 @@ async function listWordCloud(request: Request, env: Env): Promise<Response> {
     ),
     all<WordCloudReviewRow>(
       env.DB.prepare(
-        "SELECT item_key, reviewed_at FROM translation_word_reviews WHERE user_id = ?"
-      ).bind(user.id)
+        "SELECT key AS setting_key, value AS reviewed_at FROM app_settings WHERE key LIKE ?"
+      ).bind(`${reviewPrefix}%`)
     )
   ]);
-  const reviewTimes = new Map(reviews.map((row) => [row.item_key, row.reviewed_at]));
+  const reviewTimes = new Map(reviews.map((row) => [row.setting_key.slice(reviewPrefix.length), row.reviewed_at]));
   const candidates = new Map<string, WordCloudCandidate>();
   for (const source of sources) {
     const sourceTime = Date.parse(source.created_at);
@@ -522,22 +524,14 @@ async function reviewWordCloudItem(request: Request, env: Env): Promise<Response
     throw new HttpError(404, "词条不存在");
   }
   const reviewedAt = nowIso();
-  await env.DB.prepare(
-    `INSERT INTO translation_word_reviews (user_id, item_key, entry_id, reviewed_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(user_id, item_key) DO UPDATE SET
-       entry_id = excluded.entry_id,
-       reviewed_at = excluded.reviewed_at`
-  )
-    .bind(user.id, payload.key, entry.id, reviewedAt)
-    .run();
+  await setSetting(env, `${WORD_CLOUD_REVIEW_PREFIX}${user.id}:${payload.key}`, reviewedAt);
   return json({ reviewed_at: reviewedAt });
 }
 
 async function clearEntries(request: Request, env: Env): Promise<Response> {
   const user = await requireUser(request, env);
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM translation_word_reviews WHERE user_id = ?").bind(user.id),
+    env.DB.prepare("DELETE FROM app_settings WHERE key LIKE ?").bind(`${WORD_CLOUD_REVIEW_PREFIX}${user.id}:%`),
     env.DB.prepare("DELETE FROM translation_entries WHERE user_id = ?").bind(user.id)
   ]);
   return json({ status: "ok" });
