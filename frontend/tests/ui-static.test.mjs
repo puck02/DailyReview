@@ -93,6 +93,13 @@ test("chat model picker uses the full upstream model names", () => {
   assert.match(app, /chatModelOptions\.map\(\(option\) =>/);
 });
 
+test("translation submits with Enter while Shift+Enter inserts a newline", () => {
+  assert.match(app, /function handleTranslationKeyDown\(event: KeyboardEvent<HTMLTextAreaElement>\)/);
+  assert.match(app, /event\.key !== "Enter" \|\| event\.shiftKey \|\| event\.nativeEvent\.isComposing/);
+  assert.match(app, /event\.preventDefault\(\);[\s\S]*void submitTranslation\(\);/);
+  assert.match(app, /className="translation-input"[\s\S]*onKeyDown=\{handleTranslationKeyDown\}/);
+});
+
 test("desktop global sidebar is a narrow icon rail", () => {
   assert.match(styles, /\.app-shell\s*{[^}]*grid-template-columns:\s*56px minmax\(0,\s*1fr\);/s);
   assert.match(styles, /\.app-nav button\s*{[^}]*width:\s*40px;[^}]*place-items:\s*center;/s);

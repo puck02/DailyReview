@@ -2062,6 +2062,12 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
     }
   }
 
+  function handleTranslationKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    void submitTranslation();
+  }
+
   async function savePrompt() {
     setError("");
     setSaved("");
@@ -2120,6 +2126,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
                   setError("");
                 }
               }}
+              onKeyDown={handleTranslationKeyDown}
               placeholder="输入中文、英文单词、短语或句子..."
             />
             <div className={isTranslationOverLimit ? "translation-input-meta over-limit" : "translation-input-meta"}>
