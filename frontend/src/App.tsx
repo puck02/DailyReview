@@ -99,7 +99,8 @@ type TranslationCloudLane = {
   id: number;
   duration: number;
   delay: number;
-  items: TranslationCloudItem[];
+  isDuplicate: boolean;
+  items: Array<{ item: TranslationCloudItem; isCopy: boolean }>;
 };
 type PdfWritable = {
   write: (data: Blob) => Promise<void>;
@@ -148,7 +149,8 @@ const translationInputLimit = 2000;
 const translationEntriesClearedEvent = "dailyreview:translation-entries-cleared";
 const aiConfigChangedEvent = "dailyreview:ai-config-changed";
 const wordCloudLaneCount = 4;
-const wordCloudAnimatedMinimum = 20;
+const wordCloudMinimumLaneCount = 3;
+const wordCloudMinimumLaneItems = 18;
 const MarkdownRenderer = lazy(() => import("./MarkdownRenderer"));
 const DAILY_QUOTES = [
   { text: "面朝大海，春暖花开。", source: "海子" },
@@ -504,16 +506,37 @@ function wordCloudHash(value: string) {
   return hash >>> 0;
 }
 
-function buildTranslationCloudLanes(items: TranslationCloudItem[]): TranslationCloudLane[] {
+function shuffleTranslationCloudItems(items: TranslationCloudItem[], seed: string) {
+  return [...items].sort((left, right) => {
+    const rank = wordCloudHash(`${seed}:${left.key}`) - wordCloudHash(`${seed}:${right.key}`);
+    return rank || left.key.localeCompare(right.key);
+  });
+}
+
+function buildTranslationCloudLanes(items: TranslationCloudItem[], laneCycles: number[]): TranslationCloudLane[] {
   if (!items.length) return [];
-  const ordered = [...items].sort((left, right) => wordCloudHash(left.key) - wordCloudHash(right.key));
-  const laneCount = items.length < 32 ? 2 : wordCloudLaneCount;
+  const ordered = shuffleTranslationCloudItems(items, "lanes");
+  const laneCount = items.length < wordCloudLaneCount ? wordCloudMinimumLaneCount : wordCloudLaneCount;
   const lanes = Array.from({ length: laneCount }, (_, index) => {
+    const assignedItems = ordered.filter((_, itemIndex) => itemIndex % laneCount === index);
+    const isDuplicate = !assignedItems.length;
+    const sourceItems = assignedItems.length ? assignedItems : ordered;
+    const repetitions = Math.ceil(wordCloudMinimumLaneItems / sourceItems.length);
+    const cycle = laneCycles[index] || 0;
+    const seen = new Set<string>();
+    const repeatedItems = Array.from({ length: repetitions }, (_, repetition) => {
+      return shuffleTranslationCloudItems(sourceItems, `${index}:${cycle}:${repetition}`);
+    }).flat();
     return {
       id: index,
-      duration: 72 + index * 12,
-      delay: -index * 3,
-      items: ordered.filter((_, itemIndex) => itemIndex % laneCount === index)
+      duration: 54 + index * 7,
+      delay: -index * 8,
+      isDuplicate,
+      items: repeatedItems.map((item) => {
+        const isCopy = isDuplicate || seen.has(item.key);
+        seen.add(item.key);
+        return { item, isCopy };
+      })
     };
   });
   return lanes;
@@ -595,8 +618,8 @@ function TranslationWordCloud({
   onDictionaryEntry: (entry: TranslationEntry) => void;
   onReviewed: (key: string, reviewedAt: string) => void;
 }) {
-  const animate = items.length >= wordCloudAnimatedMinimum;
-  const lanes = useMemo(() => (animate ? buildTranslationCloudLanes(items) : []), [animate, items]);
+  const [laneCycles, setLaneCycles] = useState<number[]>([]);
+  const lanes = useMemo(() => buildTranslationCloudLanes(items, laneCycles), [items, laneCycles]);
   const [detailState, setDetailState] = useState<{
     label: string;
     entry: TranslationEntry | null;
@@ -648,43 +671,42 @@ function TranslationWordCloud({
 
   return (
     <>
-      <section className={animate ? "translation-cloud" : "translation-cloud is-static"}>
+      <section className="translation-cloud">
         {items.length ? (
           <div
-            className={animate ? "word-cloud-stage" : "word-cloud-stage is-static"}
-            style={animate ? ({ "--word-cloud-lanes": lanes.length } as CSSProperties) : undefined}
+            className="word-cloud-stage"
+            style={{ "--word-cloud-lanes": lanes.length } as CSSProperties}
           >
-            {animate ? (
-              lanes.map((lane) => (
-                <div key={lane.id} className="word-cloud-lane">
-                  <div
-                    className="word-cloud-run"
-                    style={
-                      {
-                        "--lane-duration": `${lane.duration}s`,
-                        "--lane-delay": `${lane.delay}s`
-                      } as CSSProperties
-                    }
-                  >
-                    {[...lane.items, ...lane.items].map((item, index) => (
-                      <WordCloudChip
-                        key={`${lane.id}-${item.key}-${index}`}
-                        item={item}
-                        activeId={activeId}
-                        isCopy={index >= lane.items.length}
-                        onOpen={openCloudDetail}
-                      />
-                    ))}
-                  </div>
+            {lanes.map((lane) => (
+              <div key={lane.id} className={lane.id % 2 ? "word-cloud-lane is-reverse" : "word-cloud-lane"}>
+                <div
+                  className="word-cloud-run"
+                  style={
+                    {
+                      "--lane-duration": `${lane.duration}s`,
+                      "--lane-delay": `${lane.delay}s`
+                    } as CSSProperties
+                  }
+                  onAnimationIteration={() => {
+                    setLaneCycles((current) => {
+                      const next = [...current];
+                      next[lane.id] = (next[lane.id] || 0) + 1;
+                      return next;
+                    });
+                  }}
+                >
+                  {[...lane.items, ...lane.items].map(({ item, isCopy }, index) => (
+                    <WordCloudChip
+                      key={`${lane.id}-${item.key}-${index}`}
+                      item={item}
+                      activeId={activeId}
+                      isCopy={isCopy || index >= lane.items.length}
+                      onOpen={openCloudDetail}
+                    />
+                  ))}
                 </div>
-              ))
-            ) : (
-              <div className="word-cloud-static">
-                {items.map((item) => (
-                  <WordCloudChip key={item.key} item={item} activeId={activeId} onOpen={openCloudDetail} />
-                ))}
               </div>
-            )}
+            ))}
           </div>
         ) : (
           <div className="translation-cloud-empty">翻译几次后，这里会积累词和短语。</div>

@@ -504,7 +504,6 @@ async function checkWordCloudDetail(client) {
       const copies = [...document.querySelectorAll('.word-cloud-chip[data-cloud-copy="true"]')];
       return {
         animated: Boolean(runElement),
-        static: stageElement.classList.contains('is-static'),
         stageWidth: Math.round(stage.width),
         stageHeight: Math.round(stage.height),
         runWidth: runElement ? Math.round(runElement.getBoundingClientRect().width) : 0,
@@ -522,7 +521,8 @@ async function checkWordCloudDetail(client) {
         inaccessibleCopies: copies.every((copy) => copy.getAttribute('aria-hidden') === 'true' && copy.tabIndex === -1),
         reason: chip.dataset.reason,
         color: chipStyle.color,
-        background: chipStyle.backgroundColor
+        background: chipStyle.backgroundColor,
+        chipFilter: chipStyle.backdropFilter
       };
     })()`
   );
@@ -531,8 +531,8 @@ async function checkWordCloudDetail(client) {
   }
   if (cloud.stageHeight > 270) throw new Error(`word cloud is too tall: ${JSON.stringify(cloud)}`);
   if (cloud.animated) {
-    if (![2, 4].includes(cloud.laneCount)) throw new Error(`word cloud lane count is invalid: ${JSON.stringify(cloud)}`);
-    if (Number.parseFloat(cloud.duration) < 70) throw new Error(`word cloud animation is too fast: ${JSON.stringify(cloud)}`);
+    if (![3, 4].includes(cloud.laneCount)) throw new Error(`word cloud lane count is invalid: ${JSON.stringify(cloud)}`);
+    if (Number.parseFloat(cloud.duration) < 48) throw new Error(`word cloud animation is too fast: ${JSON.stringify(cloud)}`);
     if (!cloud.copyCount || !cloud.inaccessibleCopies) {
       throw new Error(`word cloud copies are keyboard-accessible: ${JSON.stringify(cloud)}`);
     }
@@ -545,12 +545,11 @@ async function checkWordCloudDetail(client) {
     if (!cloud.stageMarginLeft.startsWith("-")) {
       throw new Error(`word cloud stage does not extend to the edge: ${JSON.stringify(cloud)}`);
     }
-  } else if (!cloud.static || cloud.laneCount !== 0 || cloud.copyCount !== 0) {
-    throw new Error(`small word cloud is not rendered statically: ${JSON.stringify(cloud)}`);
   }
   if (cloud.cloudBackground !== "rgba(0, 0, 0, 0)" || cloud.cloudBorder !== "0px" || cloud.cloudShadow !== "none") {
     throw new Error(`word cloud container is still card-like: ${JSON.stringify(cloud)}`);
   }
+  if (!cloud.chipFilter.includes("blur")) throw new Error(`word cloud chips are not frosted: ${JSON.stringify(cloud)}`);
   await evaluate(client, "document.querySelector('.word-cloud-chip').click()");
   await waitFor(client, "Boolean(document.querySelector('.word-cloud-detail-backdrop') && document.querySelector('.word-cloud-detail-card'))", "word cloud detail modal");
   const detail = await evaluate(
@@ -568,7 +567,7 @@ async function checkWordCloudDetail(client) {
     })()`
   );
   if (!detail.backdropFilter.includes("blur")) throw new Error(`detail backdrop is not glassy: ${JSON.stringify(detail)}`);
-  if (detail.cardFilter !== "none") throw new Error(`detail card content is blurred: ${JSON.stringify(detail)}`);
+  if (!detail.cardFilter.includes("blur")) throw new Error(`detail card is not glassy: ${JSON.stringify(detail)}`);
   if (detail.contentOverflow !== "auto") throw new Error(`detail content is not scrollable: ${JSON.stringify(detail)}`);
   if (detail.cardHeight <= 0) throw new Error(`detail card is not visible: ${JSON.stringify(detail)}`);
   await evaluate(client, "document.querySelector('.word-cloud-detail-close').click()");

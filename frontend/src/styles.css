@@ -2599,12 +2599,6 @@ textarea:focus {
   padding: 0;
 }
 
-.translation-cloud.is-static {
-  height: auto;
-  min-height: 112px;
-  overflow: visible;
-}
-
 .word-cloud-stage {
   width: calc(100% + 44px);
   margin-inline: -22px;
@@ -2619,28 +2613,15 @@ textarea:focus {
   background: transparent;
 }
 
-.word-cloud-stage.is-static {
-  width: 100%;
-  height: auto;
-  margin-inline: 0;
-  display: block;
-  overflow: visible;
-}
-
-.word-cloud-static {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: center;
-  gap: 10px;
-  min-height: 112px;
-  padding: 12px 0;
-}
-
 .word-cloud-lane {
   min-width: 0;
   overflow-x: clip;
   overflow-y: visible;
   background: transparent;
+}
+
+.word-cloud-lane.is-reverse .word-cloud-run {
+  animation-direction: reverse;
 }
 
 .word-cloud-run {
@@ -2672,21 +2653,61 @@ textarea:focus {
 }
 
 .word-cloud-chip {
+  --cloud-rgb: 59, 130, 246;
+  --cloud-ink: 30, 64, 175;
   min-height: 30px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--text);
-  background: var(--button-surface);
-  border: 1px solid var(--stroke);
+  color: rgb(var(--cloud-ink));
+  background: rgba(var(--cloud-rgb), 0.14);
+  border: 1px solid rgba(var(--cloud-rgb), 0.34);
   border-radius: 999px;
   padding: 0 12px;
   font-size: 13px;
   font-weight: 720;
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), 0 5px 16px rgba(0, 0, 0, 0.09);
+  -webkit-backdrop-filter: blur(14px) saturate(1.35);
+  backdrop-filter: blur(14px) saturate(1.35);
   user-select: none;
   white-space: nowrap;
   transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.word-cloud-chip[data-reason="recent"] {
+  --cloud-rgb: 59, 130, 246;
+  --cloud-ink: 30, 64, 175;
+}
+
+.word-cloud-chip[data-reason="overdue"] {
+  --cloud-rgb: 249, 115, 22;
+  --cloud-ink: 154, 52, 18;
+}
+
+.word-cloud-chip[data-reason="weak"] {
+  --cloud-rgb: 139, 92, 246;
+  --cloud-ink: 91, 33, 182;
+}
+
+.word-cloud-chip[data-reason="explore"] {
+  --cloud-rgb: 16, 185, 129;
+  --cloud-ink: 5, 112, 77;
+}
+
+:root[data-theme="dark"] .word-cloud-chip {
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(var(--cloud-rgb), 0.23);
+  border-color: rgba(var(--cloud-rgb), 0.56);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 6px 20px rgba(0, 0, 0, 0.24);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .word-cloud-chip {
+    color: rgba(255, 255, 255, 0.94);
+    background: rgba(var(--cloud-rgb), 0.23);
+    border-color: rgba(var(--cloud-rgb), 0.56);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 6px 20px rgba(0, 0, 0, 0.24);
+  }
 }
 
 .word-cloud-chip small {
@@ -2695,8 +2716,9 @@ textarea:focus {
   min-height: 16px;
   place-items: center;
   padding-inline: 4px;
-  color: var(--muted-text);
-  background: var(--surface-solid);
+  color: currentColor;
+  background: rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
@@ -2735,9 +2757,9 @@ textarea:focus {
 
 .word-cloud-chip:hover,
 .word-cloud-chip.active {
-  background: color-mix(in srgb, var(--button-surface) 78%, var(--surface-solid));
-  border-color: var(--stroke-strong);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.07);
+  background: rgba(var(--cloud-rgb), 0.25);
+  border-color: rgba(var(--cloud-rgb), 0.64);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
   transform: translateY(-1px);
 }
 
@@ -2763,22 +2785,24 @@ textarea:focus {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(23, 23, 26, 0.42);
-  backdrop-filter: blur(6px);
+  background: rgba(16, 18, 27, 0.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
 }
 
 .word-cloud-detail-card {
   width: min(620px, 100%);
-  backdrop-filter: none;
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
   max-height: min(72vh, 620px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   color: var(--headline);
-  background: var(--surface-solid);
-  border: 1px solid var(--stroke-strong);
+  background: color-mix(in srgb, var(--surface-solid) 74%, transparent);
+  border: 1px solid color-mix(in srgb, var(--stroke-strong) 62%, rgba(255, 255, 255, 0.64));
   border-radius: var(--radius-dialog);
-  box-shadow: var(--shadow-pop);
+  box-shadow: 0 28px 80px rgba(5, 7, 14, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .word-cloud-detail-head {
@@ -2787,7 +2811,7 @@ textarea:focus {
   justify-content: space-between;
   gap: 14px;
   padding: 16px 16px 12px 18px;
-  border-bottom: 1px solid var(--stroke);
+  border-bottom: 1px solid color-mix(in srgb, var(--stroke) 74%, rgba(255, 255, 255, 0.34));
 }
 
 .word-cloud-detail-head div {
@@ -2818,14 +2842,14 @@ textarea:focus {
   display: grid;
   place-items: center;
   color: var(--headline);
-  background: var(--button-surface);
-  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.34);
   border-radius: 50%;
   transition: background 160ms ease, transform 160ms ease;
 }
 
 .word-cloud-detail-close:hover {
-  background: var(--button-surface-hover);
+  background: rgba(255, 255, 255, 0.34);
   transform: scale(1.03);
 }
 
@@ -3601,39 +3625,16 @@ textarea:focus {
     mask-image: none;
   }
 
-  .word-cloud-stage.is-static {
-    display: block;
-    grid-template-rows: none;
-  }
-
-  .word-cloud-static {
-    min-height: 0;
-    padding-block: 4px;
-  }
-
   .word-cloud-stage .word-cloud-chip {
     min-height: 44px;
   }
 
   .word-cloud-lane {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .word-cloud-lane::-webkit-scrollbar {
-    display: none;
+    overflow-x: clip;
   }
 
   .word-cloud-run {
-    animation: none;
-    transform: none;
-    will-change: auto;
-    padding-inline: 2px;
-  }
-
-  .word-cloud-chip[data-cloud-copy="true"] {
-    display: none;
+    padding-inline: 12px;
   }
 
   .chat-pane {

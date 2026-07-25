@@ -155,13 +155,12 @@ test("visual system keeps compact radii, quiet panels, and motion-safe word clou
   assert.match(styles, /\.settings-card\s*{[^}]*border-radius:\s*var\(--radius-panel\);[^}]*box-shadow:\s*none;[^}]*backdrop-filter:\s*none;/s);
   assert.match(styles, /\.essay-topic-card,[\s\S]*?\.essay-suggestion-rail\s*{[^}]*border-radius:\s*var\(--radius-panel\);[^}]*box-shadow:\s*none;[^}]*backdrop-filter:\s*none;/s);
   assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)\s*{[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;[^}]*transform:\s*none;/s);
-  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;[^}]*transform:\s*none;/s);
-  assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-chip\[data-cloud-copy="true"\]\s*{[^}]*display:\s*none;/s);
-  assert.ok(app.includes("const wordCloudAnimatedMinimum = 20;"));
-  assert.ok(app.includes("const laneCount = items.length < 32 ? 2 : wordCloudLaneCount;"));
+  assert.doesNotMatch(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;/s);
+  assert.ok(app.includes("const laneCount = items.length < wordCloudLaneCount ? wordCloudMinimumLaneCount : wordCloudLaneCount;"));
   assert.ok(app.includes('data-cloud-copy={isCopy ? "true" : undefined}'));
-  assert.ok(app.includes('isCopy={index >= lane.items.length}'));
-  assert.doesNotMatch(app, /repeated\.length < wordCloudLaneItemLimit/);
+  assert.ok(app.includes('isCopy={isCopy || index >= lane.items.length}'));
+  assert.ok(app.includes("isDuplicate"));
+  assert.ok(app.includes("wordCloudMinimumLaneItems"));
   assert.match(styles, /\.word-cloud-stage:hover \.word-cloud-run,[\s\S]*?\.word-cloud-stage:focus-within \.word-cloud-run\s*{[^}]*animation-play-state:\s*paused;/s);
   assert.ok(app.includes('className="secondary-button compact danger settings-clear-entries"'));
   assert.match(styles, /\.settings-clear-entries\s*{[^}]*white-space:\s*nowrap;/s);
@@ -907,7 +906,7 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.ok(app.includes("buildTranslationCloudLanes"));
   assert.ok(app.includes("wordCloudHash"));
   assert.ok(app.includes("const wordCloudLaneCount = 4;"));
-  assert.ok(app.includes("duration: 72 + index * 12"));
+  assert.ok(app.includes("duration: 54 + index * 7"));
   assert.ok(app.includes("function cloudDetailEntryForItem"));
   assert.ok(apiSource.includes("phonetic: string | null;"));
   assert.ok(apiSource.includes("detail_status: \"queued\" | \"processing\" | \"ready\" | \"failed\";"));
@@ -978,29 +977,35 @@ test("translation panel is a designed first-stage tool with editable prompt", ()
   assert.match(styles, /\.translation-result\.is-loading \.translation-result-content\s*{[^}]*opacity:\s*0\.42;/s);
   assert.match(styles, /\.translation-phonetic\s*{[^}]*font-family:\s*"SFMono-Regular",\s*Consolas,\s*"Liberation Mono",\s*monospace;/s);
   assert.match(styles, /\.translation-input-meta\.over-limit\s*{[^}]*color:\s*#b42318;/s);
-  assert.match(app, /<section className=\{animate \? "translation-cloud" : "translation-cloud is-static"\}>\s*\{items\.length \? \(/);
+  assert.match(app, /<section className="translation-cloud">\s*\{items\.length \? \(/);
   assert.doesNotMatch(app, /<section className="translation-cloud">[\s\S]*?个词 \/ 短语/);
   assert.match(styles, /\.translation-cloud\s*{[^}]*position:\s*relative;[^}]*background:\s*transparent;[^}]*height:\s*clamp\(184px,\s*24vh,\s*260px\);[^}]*min-height:\s*0;[^}]*border:\s*0;[^}]*box-shadow:\s*none;/s);
-  assert.match(styles, /\.translation-cloud\.is-static\s*{[^}]*height:\s*auto;[^}]*min-height:\s*112px;[^}]*overflow:\s*visible;/s);
   assert.match(styles, /\.word-cloud-stage\s*{[^}]*width:\s*calc\(100% \+ 44px\);[^}]*margin-inline:\s*-22px;[^}]*height:\s*100%;[^}]*align-content:\s*space-evenly;[^}]*grid-template-rows:\s*repeat\(var\(--word-cloud-lanes,\s*4\),\s*minmax\(30px,\s*auto\)\);[^}]*overflow-y:\s*visible;[^}]*background:\s*transparent;/s);
-  assert.match(styles, /\.word-cloud-stage\.is-static\s*{[^}]*width:\s*100%;[^}]*height:\s*auto;[^}]*margin-inline:\s*0;[^}]*display:\s*block;[^}]*overflow:\s*visible;/s);
-  assert.match(styles, /\.word-cloud-static\s*{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;/s);
   assert.match(styles, /\.word-cloud-lane\s*{[^}]*min-width:\s*0;[^}]*overflow-x:\s*clip;[^}]*overflow-y:\s*visible;[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*padding-left:\s*22px;[^}]*padding-right:\s*22px;[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.word-cloud-run\s*{[^}]*animation:\s*word-cloud-marquee var\(--lane-duration\) linear infinite;/s);
   for (const size of ["1", "2", "3", "4", "5"]) {
     assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-size="${size}"\\]`));
   }
-  assert.doesNotMatch(styles, /\.word-cloud-chip\[data-tone="1"\]/);
+  for (const reason of ["recent", "overdue", "weak", "explore"]) {
+    assert.match(styles, new RegExp(`\\.word-cloud-chip\\[data-reason="${reason}"\\]`));
+  }
   assert.match(styles, /\.word-cloud-chip small\s*{[^}]*font-variant-numeric:\s*tabular-nums;/s);
-  assert.match(styles, /\.word-cloud-chip:hover,[\s\S]*?\.word-cloud-chip\.active\s*{[^}]*background:\s*color-mix\(in srgb,\s*var\(--button-surface\) 78%,\s*var\(--surface-solid\)\);/s);
+  assert.match(styles, /\.word-cloud-chip\s*{[^}]*backdrop-filter:\s*blur\(14px\) saturate\(1\.35\);/s);
+  assert.match(styles, /\.word-cloud-chip:hover,[\s\S]*?\.word-cloud-chip\.active\s*{[^}]*box-shadow:\s*0 12px 28px rgba\(0, 0, 0, 0\.16\);/s);
   assert.match(styles, /\.word-cloud-chip:focus-visible\s*{[^}]*outline:\s*2px solid var\(--accent\);/s);
-  assert.match(styles, /\.word-cloud-detail-backdrop\s*{[^}]*position:\s*fixed;[^}]*backdrop-filter:\s*blur\(6px\);/s);
-  assert.match(styles, /\.word-cloud-detail-card\s*{[^}]*backdrop-filter:\s*none;[^}]*max-height:\s*min\(72vh,\s*620px\);/s);
+  assert.match(styles, /\.word-cloud-detail-backdrop\s*{[^}]*position:\s*fixed;[^}]*backdrop-filter:\s*blur\(14px\) saturate\(1\.2\);/s);
+  assert.match(styles, /\.word-cloud-detail-card\s*{[^}]*backdrop-filter:\s*blur\(24px\) saturate\(1\.6\);[^}]*max-height:\s*min\(72vh,\s*620px\);/s);
   assert.match(styles, /\.word-cloud-detail-content\s*{[^}]*overflow-y:\s*auto;/s);
   assert.match(styles, /\.word-cloud-detail-loading\s*{[^}]*min-height:\s*180px;/s);
+  assert.ok(app.includes("const wordCloudMinimumLaneItems = 18;"));
+  assert.ok(app.includes("const wordCloudMinimumLaneCount = 3;"));
+  assert.ok(app.includes("const [laneCycles, setLaneCycles] = useState<number[]>([])"));
+  assert.ok(app.includes("buildTranslationCloudLanes(items, laneCycles)"));
+  assert.ok(app.includes("onAnimationIteration={() =>"));
+  assert.doesNotMatch(app, /wordCloudAnimatedMinimum/);
   assert.match(styles, /@media \(max-width:\s*980px\)[\s\S]*\.translation-workbench\s*{[\s\S]*grid-template-columns:\s*1fr;/);
-  assert.doesNotMatch(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-stage\s*{[^}]*min-height:\s*clamp\(190px,\s*30vh,\s*260px\);/);
+  assert.doesNotMatch(styles, /@media \(max-width:\s*980px\)[\s\S]*\.word-cloud-run\s*{[^}]*animation:\s*none;/s);
   assert.doesNotMatch(styles, /@media \(max-width:\s*620px\)[\s\S]*\.translation-empty,\s*\.translation-result-loading\s*{/);
 });
 
