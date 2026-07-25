@@ -805,8 +805,9 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("GPT"));
   assert.ok(app.includes("ZHIPU"));
   assert.ok(app.includes("DeepSeek"));
+  assert.ok(app.includes("Grok"));
   assert.ok(app.includes("api_key_preview"));
-  assert.ok(apiSource.includes('export type AiProviderName = "gpt" | "zhipu" | "deepseek";'));
+  assert.ok(apiSource.includes('export type AiProviderName = "gpt" | "zhipu" | "deepseek" | "grok";'));
   assert.ok(apiSource.includes("providers: Record<AiProviderName, AiProviderConfig>;"));
   assert.ok(apiSource.includes("text_model: string;"));
   assert.ok(apiSource.includes("vision_model: string;"));
@@ -817,6 +818,8 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("providerStateFromConfig(config, \"gpt\")"));
   assert.ok(app.includes("providerStateFromConfig(config, \"zhipu\")"));
   assert.ok(app.includes("providerStateFromConfig(config, \"deepseek\")"));
+  assert.ok(app.includes("providerStateFromConfig(config, \"grok\")"));
+  assert.ok(app.includes('provider === "grok" ? "https://api.x.ai/v1"'));
   assert.ok(app.includes("text_model"));
   assert.ok(app.includes("vision_model"));
   assert.ok(app.includes("translation_model"));
@@ -826,6 +829,7 @@ test("admin page can update AI config without echoing the key", () => {
   assert.ok(app.includes("glm-5"));
   assert.ok(app.includes("glm-4.6v"));
   assert.ok(app.includes("deepseek-chat"));
+  assert.ok(app.includes("grok-4"));
   assert.ok(app.includes("当前密钥"));
   assert.ok(app.includes("新密钥待保存"));
   assert.ok(app.includes("留空则保持当前密钥"));

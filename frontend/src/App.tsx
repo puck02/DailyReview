@@ -138,11 +138,12 @@ const complexModel = "gpt-5.5";
 const emptyAssistantReplyMessage = "AI 没有返回内容，请重试或切换模型。";
 const interruptedAssistantReplyMessage = "连接中断，AI 回复可能不完整。";
 const reportModels = [defaultModel, complexModel];
-const providerNames: AiProviderName[] = ["gpt", "zhipu", "deepseek"];
+const providerNames: AiProviderName[] = ["gpt", "zhipu", "deepseek", "grok"];
 const fallbackProviderModels: Record<AiProviderName, { text: string[]; vision: string[] }> = {
   gpt: { text: reportModels, vision: reportModels },
   zhipu: { text: ["glm-5"], vision: ["glm-4.6v"] },
-  deepseek: { text: ["deepseek-chat", "deepseek-reasoner"], vision: [] }
+  deepseek: { text: ["deepseek-chat", "deepseek-reasoner"], vision: [] },
+  grok: { text: ["grok-4", "grok-4-fast-reasoning"], vision: [] }
 };
 const themeStorageKey = "dailyreview.theme";
 const translationInputLimit = 2000;
@@ -3287,7 +3288,12 @@ function AdminView() {
     availableVisionModels: string[];
   };
   const emptyProviderState = (provider: AiProviderName): ProviderFormState => ({
-    baseUrl: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4" : provider === "deepseek" ? "https://api.deepseek.com" : "",
+    baseUrl:
+      provider === "zhipu"
+        ? "https://open.bigmodel.cn/api/paas/v4"
+        : provider === "deepseek"
+          ? "https://api.deepseek.com"
+          : provider === "grok" ? "https://api.x.ai/v1" : "",
     apiKey: "",
     textModel: fallbackProviderModels[provider].text[0] || "",
     visionModel: fallbackProviderModels[provider].vision[0] || "",
@@ -3301,7 +3307,8 @@ function AdminView() {
   const [providerStates, setProviderStates] = useState<Record<AiProviderName, ProviderFormState>>(() => ({
     gpt: emptyProviderState("gpt"),
     zhipu: emptyProviderState("zhipu"),
-    deepseek: emptyProviderState("deepseek")
+    deepseek: emptyProviderState("deepseek"),
+    grok: emptyProviderState("grok")
   }));
   const [expandedProvider, setExpandedProvider] = useState<AiProviderName | null>(null);
   const [defaultTextModel, setDefaultTextModel] = useState(complexModel);
@@ -3323,6 +3330,7 @@ function AdminView() {
   function providerDisplayName(provider: AiProviderName) {
     if (provider === "zhipu") return "ZHIPU";
     if (provider === "deepseek") return "DeepSeek";
+    if (provider === "grok") return "Grok";
     return "GPT";
   }
 
@@ -3360,7 +3368,8 @@ function AdminView() {
     setProviderStates({
       gpt: providerStateFromConfig(config, "gpt"),
       zhipu: providerStateFromConfig(config, "zhipu"),
-      deepseek: providerStateFromConfig(config, "deepseek")
+      deepseek: providerStateFromConfig(config, "deepseek"),
+      grok: providerStateFromConfig(config, "grok")
     });
   }
 

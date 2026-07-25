@@ -40,6 +40,8 @@ const DEFAULT_ZHIPU_TEXT_MODEL = "glm-5";
 const DEFAULT_ZHIPU_VISION_MODEL = "glm-4.6v";
 const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_TEXT_MODEL = "deepseek-chat";
+const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
+const DEFAULT_GROK_TEXT_MODEL = "grok-4";
 
 type ProviderSettingKeys = {
   base_url: string;
@@ -82,6 +84,16 @@ const PROVIDER_SETTING_KEYS: Record<AiProviderName, ProviderSettingKeys> = {
     report_model: "ai_provider_deepseek_report_model",
     enabled_text_models: "ai_provider_deepseek_enabled_text_models",
     enabled_vision_models: "ai_provider_deepseek_enabled_vision_models"
+  },
+  grok: {
+    base_url: "ai_provider_grok_base_url",
+    api_key: "ai_provider_grok_api_key",
+    text_model: "ai_provider_grok_text_model",
+    vision_model: "ai_provider_grok_vision_model",
+    translation_model: "ai_provider_grok_translation_model",
+    report_model: "ai_provider_grok_report_model",
+    enabled_text_models: "ai_provider_grok_enabled_text_models",
+    enabled_vision_models: "ai_provider_grok_enabled_vision_models"
   }
 };
 
@@ -109,7 +121,8 @@ const adminAiConfigSchema = z.object({
     .object({
       gpt: providerPatchSchema.optional(),
       zhipu: providerPatchSchema.optional(),
-      deepseek: providerPatchSchema.optional()
+      deepseek: providerPatchSchema.optional(),
+      grok: providerPatchSchema.optional()
     })
     .optional(),
   base_url: z.string().max(2048).optional(),
@@ -249,6 +262,18 @@ function providerDefaults(provider: AiProviderName, env: Env): AiProviderConfig 
       enabled_vision_models: defaultProviderModels(provider, "vision")
     };
   }
+  if (provider === "grok") {
+    return {
+      base_url: DEFAULT_GROK_BASE_URL,
+      api_key: "",
+      text_model: DEFAULT_GROK_TEXT_MODEL,
+      vision_model: "",
+      translation_model: DEFAULT_GROK_TEXT_MODEL,
+      report_model: DEFAULT_GROK_TEXT_MODEL,
+      enabled_text_models: defaultProviderModels(provider, "text"),
+      enabled_vision_models: defaultProviderModels(provider, "vision")
+    };
+  }
   const gptText = normalizeKnownModel("gpt", "text", env.AI_COMPLEX_MODEL || DEFAULT_GPT_TEXT_MODEL, DEFAULT_GPT_TEXT_MODEL);
   const gptVision = normalizeKnownModel("gpt", "vision", env.AI_VISION_MODEL || gptText || DEFAULT_GPT_VISION_MODEL, gptText);
   return {
@@ -344,11 +369,13 @@ export async function getAiConfig(env: Env): Promise<AiConfig> {
   const gptDefaults = providerDefaults("gpt", env);
   const zhipuDefaults = providerDefaults("zhipu", env);
   const deepseekDefaults = providerDefaults("deepseek", env);
+  const grokDefaults = providerDefaults("grok", env);
   const activeProvider = normalizeProviderName(settings.get(ACTIVE_PROVIDER_KEY), "gpt");
   const providers: Record<AiProviderName, AiProviderConfig> = {
     gpt: pickProviderConfig("gpt", env, settings, gptDefaults),
     zhipu: pickProviderConfig("zhipu", env, settings, zhipuDefaults),
-    deepseek: pickProviderConfig("deepseek", env, settings, deepseekDefaults)
+    deepseek: pickProviderConfig("deepseek", env, settings, deepseekDefaults),
+    grok: pickProviderConfig("grok", env, settings, grokDefaults)
   };
   const config: AiConfig = {
     active_provider: activeProvider,
@@ -499,6 +526,12 @@ function configuredModelRecord(config: AiConfig): Record<AiProviderName, { text:
           text: [...config.providers.deepseek.enabled_text_models],
           vision: [...config.providers.deepseek.enabled_vision_models]
         }
+      : { text: [], vision: [] },
+    grok: isProviderConfigured(config, "grok")
+      ? {
+          text: [...config.providers.grok.enabled_text_models],
+          vision: [...config.providers.grok.enabled_vision_models]
+        }
       : { text: [], vision: [] }
   };
 }
@@ -557,7 +590,8 @@ function withLegacyPatch(config: AiConfig, payload: z.infer<typeof adminAiConfig
     providers: {
       gpt: config.providers.gpt,
       zhipu: config.providers.zhipu,
-      deepseek: config.providers.deepseek
+      deepseek: config.providers.deepseek,
+      grok: config.providers.grok
     }
   };
   const legacyPatch = buildLegacyPatch(payload);

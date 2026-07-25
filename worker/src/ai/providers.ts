@@ -1,13 +1,15 @@
-export type AiProviderName = "gpt" | "zhipu" | "deepseek";
+export type AiProviderName = "gpt" | "zhipu" | "deepseek" | "grok";
 export type AiModelKind = "text" | "vision";
 
-export const AI_PROVIDER_NAMES = ["gpt", "zhipu", "deepseek"] as const;
+export const AI_PROVIDER_NAMES = ["gpt", "zhipu", "deepseek", "grok"] as const;
 export const GPT_TEXT_MODELS = ["gpt-5.4-mini", "gpt-5.5"] as const;
 export const GPT_VISION_MODELS = ["gpt-5.4-mini", "gpt-5.5"] as const;
 export const ZHIPU_TEXT_MODELS = ["glm-5"] as const;
 export const ZHIPU_VISION_MODELS = ["glm-4.6v"] as const;
 export const DEEPSEEK_TEXT_MODELS = ["deepseek-chat", "deepseek-reasoner"] as const;
 export const DEEPSEEK_VISION_MODELS = [] as const;
+export const GROK_TEXT_MODELS = ["grok-4", "grok-4-fast-reasoning"] as const;
+export const GROK_VISION_MODELS = [] as const;
 
 export type AiModelSet = { text: string[]; vision: string[] };
 
@@ -62,7 +64,7 @@ export type AiConfigResponse = {
 };
 
 export function normalizeProviderName(value: string | null | undefined, fallback: AiProviderName = "gpt"): AiProviderName {
-  if (value === "gpt" || value === "zhipu" || value === "deepseek") {
+  if (value === "gpt" || value === "zhipu" || value === "deepseek" || value === "grok") {
     return value;
   }
   return fallback;
@@ -74,6 +76,9 @@ export function providerModels(provider: AiProviderName): { text: readonly strin
   }
   if (provider === "deepseek") {
     return { text: DEEPSEEK_TEXT_MODELS, vision: DEEPSEEK_VISION_MODELS };
+  }
+  if (provider === "grok") {
+    return { text: GROK_TEXT_MODELS, vision: GROK_VISION_MODELS };
   }
   return { text: GPT_TEXT_MODELS, vision: GPT_VISION_MODELS };
 }
@@ -190,6 +195,10 @@ export function enabledModelRecord(config: AiConfig): Record<AiProviderName, AiM
     deepseek: {
       text: [...config.providers.deepseek.enabled_text_models],
       vision: [...config.providers.deepseek.enabled_vision_models]
+    },
+    grok: {
+      text: [...config.providers.grok.enabled_text_models],
+      vision: [...config.providers.grok.enabled_vision_models]
     }
   };
 }
@@ -198,7 +207,8 @@ export function availableModelRecord(): Record<AiProviderName, AiModelSet> {
   return {
     gpt: defaultEnabledModels("gpt"),
     zhipu: defaultEnabledModels("zhipu"),
-    deepseek: defaultEnabledModels("deepseek")
+    deepseek: defaultEnabledModels("deepseek"),
+    grok: defaultEnabledModels("grok")
   };
 }
 
@@ -211,7 +221,8 @@ export function configResponse(config: AiConfig): AiConfigResponse {
     providers: {
       gpt: providerResponse(config.providers.gpt),
       zhipu: providerResponse(config.providers.zhipu),
-      deepseek: providerResponse(config.providers.deepseek)
+      deepseek: providerResponse(config.providers.deepseek),
+      grok: providerResponse(config.providers.grok)
     },
     available_models: availableModelRecord(),
     enabled_models: enabledModelRecord(config),

@@ -101,7 +101,7 @@ export type ReportGenerationStatus = {
   updated_at: string;
 };
 
-export type AiProviderName = "gpt" | "zhipu" | "deepseek";
+export type AiProviderName = "gpt" | "zhipu" | "deepseek" | "grok";
 
 export type AiModelSet = { text: string[]; vision: string[] };
 

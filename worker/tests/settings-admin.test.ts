@@ -15,7 +15,7 @@ async function adminCookie(env = createTestEnv()): Promise<string> {
 }
 
 function aiConfigPayload(overrides: Partial<{
-  active_provider: "gpt" | "zhipu" | "deepseek";
+  active_provider: "gpt" | "zhipu" | "deepseek" | "grok";
   default_text_model: string;
   default_vision_model: string;
   translation_model: string;
@@ -42,6 +42,16 @@ function aiConfigPayload(overrides: Partial<{
       enabled_vision_models: string[];
     };
     deepseek: {
+      base_url: string;
+      api_key: string;
+      text_model: string;
+      vision_model: string;
+      translation_model: string;
+      report_model: string;
+      enabled_text_models: string[];
+      enabled_vision_models: string[];
+    };
+    grok: {
       base_url: string;
       api_key: string;
       text_model: string;
@@ -85,6 +95,16 @@ function aiConfigPayload(overrides: Partial<{
         report_model: "deepseek-chat",
         enabled_text_models: ["deepseek-chat", "deepseek-reasoner"],
         enabled_vision_models: []
+      },
+      grok: {
+        base_url: "https://api.x.ai/v1",
+        api_key: "",
+        text_model: "grok-4",
+        vision_model: "",
+        translation_model: "grok-4",
+        report_model: "grok-4-fast-reasoning",
+        enabled_text_models: ["grok-4", "grok-4-fast-reasoning"],
+        enabled_vision_models: []
       }
     },
     ...overrides,
@@ -121,6 +141,17 @@ function aiConfigPayload(overrides: Partial<{
         enabled_text_models: ["deepseek-chat", "deepseek-reasoner"],
         enabled_vision_models: [],
         ...(overrides.providers?.deepseek || {})
+      },
+      grok: {
+        base_url: "https://api.x.ai/v1",
+        api_key: "",
+        text_model: "grok-4",
+        vision_model: "",
+        translation_model: "grok-4",
+        report_model: "grok-4-fast-reasoning",
+        enabled_text_models: ["grok-4", "grok-4-fast-reasoning"],
+        enabled_vision_models: [],
+        ...(overrides.providers?.grok || {})
       }
     }
   };
@@ -426,6 +457,59 @@ describe("settings and admin routes", () => {
     });
   });
 
+  it("saves Grok settings and makes its selected model available for chat", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+
+    const saved = await fetchWorker(env, "/api/admin/ai-config", {
+      method: "PUT",
+      headers: { cookie },
+      body: JSON.stringify(
+        aiConfigPayload({
+          default_text_model: "grok-4",
+          translation_model: "grok-4",
+          report_model: "grok-4-fast-reasoning",
+          providers: {
+            grok: {
+              base_url: "https://grok.example.test/v1",
+              api_key: "grok1234567890",
+              text_model: "grok-4",
+              translation_model: "grok-4",
+              report_model: "grok-4-fast-reasoning"
+            }
+          }
+        })
+      )
+    });
+
+    expect(saved.status).toBe(200);
+    await expect(saved.json()).resolves.toMatchObject({
+      active_provider: "grok",
+      text_model: "grok-4",
+      translation_model: "grok-4",
+      report_model: "grok-4-fast-reasoning",
+      providers: {
+        grok: {
+          base_url: "https://grok.example.test/v1",
+          has_api_key: true,
+          api_key_preview: "grok12****7890",
+          enabled_text_models: ["grok-4", "grok-4-fast-reasoning"]
+        }
+      }
+    });
+
+    const models = await fetchWorker(env, "/api/ai-models", { headers: { cookie } });
+    expect(models.status).toBe(200);
+    await expect(models.json()).resolves.toMatchObject({
+      active_provider: "grok",
+      text_model: "grok-4",
+      text_models: expect.arrayContaining(["grok-4", "grok-4-fast-reasoning"]),
+      enabled_models: {
+        grok: { text: ["grok-4", "grok-4-fast-reasoning"] }
+      }
+    });
+  });
+
   it("treats DeepSeek worker secrets as a configured provider", async () => {
     const env = createTestEnv({
       AI_BASE_URL: "",
@@ -518,6 +602,39 @@ describe("settings and admin routes", () => {
         ok: true,
         provider: "deepseek",
         models: ["deepseek-chat", "deepseek-reasoner"],
+        message: "检测到 2 个模型"
+      });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it("detects Grok models from the configured OpenAI-compatible endpoint", async () => {
+    const env = createTestEnv({ AI_BASE_URL: "", AI_API_KEY: "" });
+    const cookie = await adminCookie(env);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      expect(String(input)).toBe("https://api.x.ai/v1/models");
+      return new Response(JSON.stringify({ data: [{ id: "grok-4" }, { id: "grok-4-fast-reasoning" }] }), {
+        headers: { "content-type": "application/json" }
+      });
+    });
+
+    try {
+      const response = await fetchWorker(env, "/api/admin/ai-config/models", {
+        method: "POST",
+        headers: { cookie },
+        body: JSON.stringify({
+          provider: "grok",
+          base_url: "https://api.x.ai/v1",
+          api_key: "grok1234567890"
+        })
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        ok: true,
+        provider: "grok",
+        models: ["grok-4", "grok-4-fast-reasoning"],
         message: "检测到 2 个模型"
       });
     } finally {
