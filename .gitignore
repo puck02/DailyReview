@@ -18,4 +18,5 @@ worker/.mf/
 worker/.d1/
 worker/dist/
 .wrangler/
+.worktrees/
 *.pyc
