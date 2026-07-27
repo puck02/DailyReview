@@ -11,6 +11,7 @@ import { aiTextModel } from "../ai/client";
 import { withMathMarkdownProtocol } from "../ai/prompting";
 import { resolveChatModel } from "../ai/providers";
 import { scheduleTokenUsage } from "../ai/usage";
+import { acquireGenerationLock, activeGenerationLock, releaseGenerationLock } from "./generation-lock";
 
 type SessionRow = Row & {
   id: number;
@@ -196,12 +197,23 @@ async function deleteSession(request: Request, env: Env, params: Record<string, 
   if (!session || session.user_id !== user.id) {
     throw new HttpError(404, "会话不存在");
   }
-  await env.DB.prepare("UPDATE attachments SET message_id = NULL WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)")
-    .bind(session.id)
-    .run();
-  await env.DB.prepare("DELETE FROM messages WHERE session_id = ?").bind(session.id).run();
-  await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ?").bind(session.id).run();
-  return json({ status: "ok" });
+  if (await activeGenerationLock(env, session.id)) {
+    throw new HttpError(409, "当前会话正在生成回复");
+  }
+  const deletionTurnId = `delete:${crypto.randomUUID()}`;
+  if (!(await acquireGenerationLock(env, session.id, deletionTurnId))) {
+    throw new HttpError(409, "当前会话正在生成回复");
+  }
+  try {
+    await env.DB.prepare("UPDATE attachments SET message_id = NULL WHERE message_id IN (SELECT id FROM messages WHERE session_id = ?)")
+      .bind(session.id)
+      .run();
+    await env.DB.prepare("DELETE FROM messages WHERE session_id = ?").bind(session.id).run();
+    await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ?").bind(session.id).run();
+    return json({ status: "ok" });
+  } finally {
+    await releaseGenerationLock(env, session.id, deletionTurnId);
+  }
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -309,6 +321,7 @@ function isRequestAbort(error: unknown, signal?: AbortSignal): boolean {
 
 type StreamAssistantOptions = {
   assistantMessageId: number;
+  generationTurnId: string;
   requestSignal?: AbortSignal;
   imageContextUserContent?: string | null;
   ctx?: ExecutionContext;
@@ -343,64 +356,67 @@ async function streamAssistantResponse(
       };
       const heartbeatMs = Number.parseInt(env.CHAT_HEARTBEAT_MS || "", 10) || 15_000;
       const heartbeat = setInterval(() => enqueue(": ping\n\n"), heartbeatMs);
-      await env.DB.prepare("UPDATE messages SET content = '', model = ?, status = 'streaming', created_at = ? WHERE id = ? AND session_id = ?")
-        .bind(aiModel, nowIso(), options.assistantMessageId, sessionId)
-        .run();
       try {
-        for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig, {
-          allowProviderFallback: false,
-          ...(options.requestSignal ? { signal: options.requestSignal } : {})
-        })) {
-          if (chunk.model) {
-            actualModel = chunk.model;
+        await env.DB.prepare("UPDATE messages SET content = '', model = ?, status = 'streaming', created_at = ? WHERE id = ? AND session_id = ?")
+          .bind(aiModel, nowIso(), options.assistantMessageId, sessionId)
+          .run();
+        try {
+          for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig, {
+            allowProviderFallback: false,
+            ...(options.requestSignal ? { signal: options.requestSignal } : {})
+          })) {
+            if (chunk.model) {
+              actualModel = chunk.model;
+            }
+            if (typeof chunk.totalTokens === "number") {
+              totalTokens = chunk.totalTokens;
+            }
+            if (!chunk.content) {
+              continue;
+            }
+            parts.push(chunk.content);
+            enqueue(`data: ${JSON.stringify(chunk.content)}\n\n`);
           }
-          if (typeof chunk.totalTokens === "number") {
-            totalTokens = chunk.totalTokens;
+        } catch (error) {
+          abortedByRequest = isRequestAbort(error, options.requestSignal);
+          if (!abortedByRequest) {
+            failed = true;
+            const token = "AI 服务连接失败，请稍后重试。";
+            if (parts.length) {
+              parts.push("\n\n");
+            }
+            parts.push(token);
+            enqueue(`data: ${JSON.stringify(token)}\n\n`);
           }
-          if (!chunk.content) {
-            continue;
-          }
-          parts.push(chunk.content);
-          enqueue(`data: ${JSON.stringify(chunk.content)}\n\n`);
         }
-      } catch (error) {
-        abortedByRequest = isRequestAbort(error, options.requestSignal);
-        if (!abortedByRequest) {
+        const assistantContent = parts.join("");
+        if (!assistantContent && !failed && !abortedByRequest) {
           failed = true;
-          const token = "AI 服务连接失败，请稍后重试。";
-          if (parts.length) {
-            parts.push("\n\n");
-          }
-          parts.push(token);
-          enqueue(`data: ${JSON.stringify(token)}\n\n`);
+          parts.push(emptyAssistantReplyMessage);
+          enqueue(`data: ${JSON.stringify(emptyAssistantReplyMessage)}\n\n`);
+        }
+        if (!parts.length && abortedByRequest) {
+          parts.push("已停止生成。");
+        }
+        const finalAssistantContent = parts.join("");
+        const finalStatus = abortedByRequest ? "cancelled" : failed ? "failed" : "complete";
+        await env.DB.prepare("UPDATE messages SET content = ?, model = ?, status = ?, created_at = ? WHERE id = ? AND session_id = ?")
+          .bind(finalAssistantContent, actualModel, finalStatus, nowIso(), options.assistantMessageId, sessionId)
+          .run();
+        if (options.imageContextUserContent && finalStatus === "complete") {
+          await appendSessionImageContext(env, sessionId, options.imageContextUserContent, finalAssistantContent);
+        }
+        await scheduleTokenUsage(options.ctx, env, userId, aiConfig, actualModel, totalTokens);
+        await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+        enqueue("data: [DONE]\n\n");
+        try {
+          controller.close();
+        } catch {
+          // The browser may already have closed the response after an explicit abort.
         }
       } finally {
         clearInterval(heartbeat);
-      }
-      const assistantContent = parts.join("");
-      if (!assistantContent && !failed && !abortedByRequest) {
-        failed = true;
-        parts.push(emptyAssistantReplyMessage);
-        enqueue(`data: ${JSON.stringify(emptyAssistantReplyMessage)}\n\n`);
-      }
-      if (!parts.length && abortedByRequest) {
-        parts.push("已停止生成。");
-      }
-      const finalAssistantContent = parts.join("");
-      const finalStatus = abortedByRequest ? "cancelled" : failed ? "failed" : "complete";
-      await env.DB.prepare("UPDATE messages SET content = ?, model = ?, status = ?, created_at = ? WHERE id = ? AND session_id = ?")
-        .bind(finalAssistantContent, actualModel, finalStatus, nowIso(), options.assistantMessageId, sessionId)
-        .run();
-      if (options.imageContextUserContent && finalStatus === "complete") {
-        await appendSessionImageContext(env, sessionId, options.imageContextUserContent, finalAssistantContent);
-      }
-      await scheduleTokenUsage(options.ctx, env, userId, aiConfig, actualModel, totalTokens);
-      await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
-      enqueue("data: [DONE]\n\n");
-      try {
-        controller.close();
-      } catch {
-        // The browser may already have closed the response after an explicit abort.
+        await releaseGenerationLock(env, sessionId, options.generationTurnId);
       }
     }
   });
@@ -474,52 +490,61 @@ async function streamChat(request: Request, env: Env, ctx?: ExecutionContext): P
   const aiConfig = await getAiConfig(env);
   const hasImages = payload.attachment_ids.length > 0 || payload.image_data_urls.length > 0;
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
-  const now = nowIso();
-  const title = session.title === "新会话" ? payload.content.slice(0, 32) : session.title;
-  await env.DB.batch([
-    env.DB.prepare(
-      "INSERT OR IGNORE INTO messages (session_id, role, content, model, turn_id, status, created_at) VALUES (?, 'user', ?, ?, ?, 'complete', ?)"
-    ).bind(session.id, payload.content, aiModel, turnId, now),
-    env.DB.prepare(
-      "INSERT OR IGNORE INTO messages (session_id, role, content, model, turn_id, status, created_at) VALUES (?, 'assistant', '', ?, ?, 'pending', ?)"
-    ).bind(session.id, aiModel, turnId, now),
-    env.DB.prepare("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?").bind(title, now, session.id)
-  ]);
-  const storedTurn = await messagesForTurn(env, session.id, turnId);
-  if (!storedTurn.user || !storedTurn.assistant || storedTurn.user.content !== payload.content) {
-    throw new HttpError(409, "消息标识冲突");
+  if (!(await acquireGenerationLock(env, session.id, turnId))) {
+    throw new HttpError(409, "当前会话正在生成回复");
   }
-  if (storedTurn.assistant.status !== "pending") {
-    return storedTurn.assistant.status === "streaming"
-      ? json({ detail: "该消息正在生成" }, { status: 409 })
-      : storedAssistantResponse(storedTurn.assistant);
-  }
-  const userMessageId = storedTurn.user.id;
+  try {
+    const now = nowIso();
+    const title = session.title === "新会话" ? payload.content.slice(0, 32) : session.title;
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT OR IGNORE INTO messages (session_id, role, content, model, turn_id, status, created_at) VALUES (?, 'user', ?, ?, ?, 'complete', ?)"
+      ).bind(session.id, payload.content, aiModel, turnId, now),
+      env.DB.prepare(
+        "INSERT OR IGNORE INTO messages (session_id, role, content, model, turn_id, status, created_at) VALUES (?, 'assistant', '', ?, ?, 'pending', ?)"
+      ).bind(session.id, aiModel, turnId, now),
+      env.DB.prepare("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?").bind(title, now, session.id)
+    ]);
+    const storedTurn = await messagesForTurn(env, session.id, turnId);
+    if (!storedTurn.user || !storedTurn.assistant || storedTurn.user.content !== payload.content) {
+      throw new HttpError(409, "消息标识冲突");
+    }
+    if (storedTurn.assistant.status !== "pending") {
+      return storedTurn.assistant.status === "streaming"
+        ? json({ detail: "该消息正在生成" }, { status: 409 })
+        : storedAssistantResponse(storedTurn.assistant);
+    }
+    const userMessageId = storedTurn.user.id;
 
-  if (attachments.length > 0) {
-    await env.DB.batch(
-      attachments.map((attachment) =>
-        env.DB.prepare("UPDATE attachments SET message_id = ? WHERE id = ?").bind(userMessageId, attachment.id)
-      )
+    if (attachments.length > 0) {
+      await env.DB.batch(
+        attachments.map((attachment) =>
+          env.DB.prepare("UPDATE attachments SET message_id = ? WHERE id = ?").bind(userMessageId, attachment.id)
+        )
+      );
+    }
+
+    await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
+    const history = await historyForSession(
+      env,
+      session,
+      aiConfig,
+      hasImages ? userMessageId : null,
+      payload.image_data_urls,
+      storedTurn.assistant.id
     );
+    const streamOptions: StreamAssistantOptions = {
+      assistantMessageId: storedTurn.assistant.id,
+      generationTurnId: turnId,
+      requestSignal: request.signal,
+      ...(ctx ? { ctx } : {}),
+      ...(hasImages ? { imageContextUserContent: payload.content } : {})
+    };
+    return await streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, streamOptions);
+  } catch (error) {
+    await releaseGenerationLock(env, session.id, turnId);
+    throw error;
   }
-
-  await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
-  const history = await historyForSession(
-    env,
-    session,
-    aiConfig,
-    hasImages ? userMessageId : null,
-    payload.image_data_urls,
-    storedTurn.assistant.id
-  );
-  const streamOptions: StreamAssistantOptions = {
-    assistantMessageId: storedTurn.assistant.id,
-    requestSignal: request.signal,
-    ...(ctx ? { ctx } : {}),
-    ...(hasImages ? { imageContextUserContent: payload.content } : {})
-  };
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, streamOptions);
 }
 
 async function regenerateChat(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
@@ -563,15 +588,25 @@ async function regenerateChat(request: Request, env: Env, ctx?: ExecutionContext
   );
   const hasImages = attachments.length > 0;
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
-  await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, lastUserMessage.id).run();
-  const history = await historyForSession(env, session, aiConfig, hasImages ? lastUserMessage.id : null, [], assistantMessage.id);
-  const streamOptions: StreamAssistantOptions = {
-    assistantMessageId: assistantMessage.id,
-    requestSignal: request.signal,
-    ...(ctx ? { ctx } : {}),
-    ...(hasImages ? { imageContextUserContent: lastUserMessage.content } : {})
-  };
-  return streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, streamOptions);
+  const generationTurnId = assistantMessage.turn_id || crypto.randomUUID();
+  if (!(await acquireGenerationLock(env, session.id, generationTurnId))) {
+    throw new HttpError(409, "当前会话正在生成回复");
+  }
+  try {
+    await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, lastUserMessage.id).run();
+    const history = await historyForSession(env, session, aiConfig, hasImages ? lastUserMessage.id : null, [], assistantMessage.id);
+    const streamOptions: StreamAssistantOptions = {
+      assistantMessageId: assistantMessage.id,
+      generationTurnId,
+      requestSignal: request.signal,
+      ...(ctx ? { ctx } : {}),
+      ...(hasImages ? { imageContextUserContent: lastUserMessage.content } : {})
+    };
+    return await streamAssistantResponse(env, session.id, aiConfig, aiModel, withMathMarkdownProtocol(history), user.id, streamOptions);
+  } catch (error) {
+    await releaseGenerationLock(env, session.id, generationTurnId);
+    throw error;
+  }
 }
 
 export function chatRoutes(env: Env): Route[] {

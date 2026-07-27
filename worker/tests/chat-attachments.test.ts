@@ -482,6 +482,152 @@ describe("chat sessions and attachments", () => {
     ]);
   });
 
+  it("rejects a different turn while the same session is generating", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    const upstreamControllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        upstreamControllers.push(controller);
+      }
+    }), { headers: { "content-type": "text/event-stream" } }));
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "并发会话", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const firstResponse = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        turn_id: "concurrent-turn-1",
+        content: "第一个问题",
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    await vi.waitFor(() => expect(upstreamControllers).toHaveLength(1));
+    const secondResponse = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        turn_id: "concurrent-turn-2",
+        content: "第二个问题",
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    if (secondResponse.status === 200) {
+      await vi.waitFor(() => expect(upstreamControllers).toHaveLength(2));
+    }
+    const encoder = new TextEncoder();
+    for (const controller of upstreamControllers) {
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"完成"}}]}\n\ndata: [DONE]\n\n'));
+      controller.close();
+    }
+    await readSse(firstResponse);
+    if (secondResponse.status === 200) await readSse(secondResponse);
+
+    expect(secondResponse.status).toBe(409);
+    await expect(secondResponse.json()).resolves.toEqual({ detail: "当前会话正在生成回复" });
+  });
+
+  it("takes over an expired generation lease", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    let upstreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        upstreamController = controller;
+      }
+    }), { headers: { "content-type": "text/event-stream" } }));
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "过期租约", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    await env.DB.prepare(
+      "INSERT INTO chat_generation_locks (session_id, turn_id, expires_at, created_at) VALUES (?, ?, ?, ?)"
+    ).bind(session.id, "expired-turn", "2000-01-01T00:00:00.000Z", "2000-01-01T00:00:00.000Z").run();
+
+    const response = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        turn_id: "replacement-turn",
+        content: "接管生成",
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    await vi.waitFor(() => expect(upstreamController).not.toBeNull());
+    const activeLease = await env.DB.prepare(
+      "SELECT turn_id, expires_at FROM chat_generation_locks WHERE session_id = ?"
+    ).bind(session.id).first<{ turn_id: string; expires_at: string }>();
+    const controller = upstreamController as ReadableStreamDefaultController<Uint8Array>;
+    controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"已接管"}}]}\n\ndata: [DONE]\n\n'));
+    controller.close();
+    await readSse(response);
+    const releasedLease = await env.DB.prepare(
+      "SELECT turn_id FROM chat_generation_locks WHERE session_id = ?"
+    ).bind(session.id).first<{ turn_id: string }>();
+
+    expect(response.status).toBe(200);
+    expect(activeLease?.turn_id).toBe("replacement-turn");
+    expect(Date.parse(activeLease?.expires_at || "")).toBeGreaterThan(Date.now());
+    expect(releasedLease).toBeNull();
+  });
+
+  it("blocks session deletion while a reply is generating", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    let upstreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        upstreamController = controller;
+      }
+    }), { headers: { "content-type": "text/event-stream" } }));
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "删除保护", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const streamResponse = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        turn_id: "delete-protected-turn",
+        content: "生成期间不要删除",
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    await vi.waitFor(() => expect(upstreamController).not.toBeNull());
+    const deleteResponse = await fetchWorker(env, `/api/sessions/${session.id}`, {
+      method: "DELETE",
+      headers: { cookie }
+    });
+    const deletePayload = await deleteResponse.json();
+    const controller = upstreamController as ReadableStreamDefaultController<Uint8Array>;
+    controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"完成"}}]}\n\ndata: [DONE]\n\n'));
+    controller.close();
+    await readSse(streamResponse);
+
+    expect(deleteResponse.status).toBe(409);
+    expect(deletePayload).toEqual({ detail: "当前会话正在生成回复" });
+  });
+
   it("records total token usage returned by streaming chat completions", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";
