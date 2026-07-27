@@ -2,18 +2,45 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { api, streamChat } from "/tmp/dailyreview-frontend-tests/frontend/src/api.js";
 
-test("api GET requests retry one transient network failure", async () => {
+test("api GET requests recover from consecutive transient network failures", async () => {
   let calls = 0;
   globalThis.fetch = async () => {
     calls += 1;
-    if (calls === 1) {
+    if (calls <= 2) {
       throw new TypeError("Failed to fetch");
     }
     return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
   };
 
   await assert.deepEqual(await api.sessions(), []);
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
+});
+
+test("idle unsafe requests recover the connection before sending once", async () => {
+  const originalNow = Date.now;
+  const paths = [];
+  let healthAttempts = 0;
+  let writes = 0;
+  Date.now = () => originalNow() + 10 * 60 * 1000;
+  globalThis.fetch = async (path) => {
+    paths.push(path);
+    if (path === "/api/health") {
+      healthAttempts += 1;
+      if (healthAttempts <= 2) throw new TypeError("Failed to fetch");
+      return new Response('{"status":"ok"}', { status: 200, headers: { "content-type": "application/json" } });
+    }
+    writes += 1;
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    await api.translate("test");
+  } finally {
+    Date.now = originalNow;
+  }
+
+  assert.deepEqual(paths, ["/api/health", "/api/health", "/api/health", "/api/translation"]);
+  assert.equal(writes, 1);
 });
 
 test("api requests translate network failures into a readable message", async () => {

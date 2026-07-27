@@ -220,24 +220,40 @@ export type TranslationPrompt = {
 };
 
 const networkErrorMessage = "网络连接失败，请检查网络后重试";
+const networkRetryDelaysMs = [300, 900, 1800];
+const idleConnectionThresholdMs = 60_000;
+let lastSuccessfulRequestAt = Date.now();
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-async function fetchWithRecovery(path: string, init?: RequestInit): Promise<Response> {
-  const canRetry = (init?.method || "GET").toUpperCase() === "GET";
-  const attempts = canRetry ? 2 : 1;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+async function fetchWithRetries(path: string, init: RequestInit | undefined, retryDelays: number[]): Promise<Response> {
+  for (let attempt = 0; attempt <= retryDelays.length; attempt += 1) {
     try {
-      return await fetch(path, init);
+      const response = await fetch(path, init);
+      lastSuccessfulRequestAt = Date.now();
+      return response;
     } catch (error) {
       if (isAbortError(error)) throw error;
-      if (attempt + 1 === attempts) throw new Error(networkErrorMessage);
-      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      if (attempt === retryDelays.length) throw new Error(networkErrorMessage);
+      await new Promise<void>((resolve) => setTimeout(resolve, retryDelays[attempt]));
     }
   }
   throw new Error(networkErrorMessage);
+}
+
+async function fetchWithRecovery(path: string, init?: RequestInit): Promise<Response> {
+  const method = (init?.method || "GET").toUpperCase();
+  const canRetry = method === "GET";
+  if (!canRetry && Date.now() - lastSuccessfulRequestAt >= idleConnectionThresholdMs) {
+    await fetchWithRetries(
+      "/api/health",
+      { credentials: "include", cache: "no-store", signal: init?.signal },
+      networkRetryDelaysMs
+    );
+  }
+  return fetchWithRetries(path, init, canRetry ? networkRetryDelaysMs : []);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
