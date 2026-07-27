@@ -95,7 +95,36 @@ describe("chat sessions and attachments", () => {
     expect(stored?.count).toBe(0);
   });
 
-  it("sends only the latest 60 chat messages upstream in chronological order", async () => {
+  it("rejects user messages longer than 20000 characters before storing them", async () => {
+    const { env, cookie } = await loginUser();
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "输入限制", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const response = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({
+        session_id: session.id,
+        turn_id: "oversized-input",
+        content: "x".repeat(20_001),
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    if (response.status === 200) await readSse(response);
+    const stored = await env.DB.prepare("SELECT COUNT(*) AS count FROM messages WHERE session_id = ?")
+      .bind(session.id)
+      .first<{ count: number }>();
+
+    expect(response.status).toBe(400);
+    expect(stored?.count).toBe(0);
+  });
+
+  it("sends only the latest 120 chat messages upstream in chronological order", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";
     env.AI_API_KEY = "test-key";
@@ -113,11 +142,11 @@ describe("chat sessions and attachments", () => {
       body: JSON.stringify({ title: "历史窗口", model: "gpt-5.4-mini" })
     });
     const session = (await sessionResponse.json()) as { id: number };
-    for (let index = 0; index < 65; index += 1) {
+    for (let index = 0; index < 130; index += 1) {
       await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'user', ?, ?, ?)")
         .bind(
           session.id,
-          `history-${String(index).padStart(2, "0")}`,
+          `history-${String(index).padStart(3, "0")}`,
           "gpt-5.4-mini",
           new Date(Date.UTC(2026, 6, 17, 0, 0, index)).toISOString()
         )
@@ -137,8 +166,8 @@ describe("chat sessions and attachments", () => {
     await readSse(stream);
 
     const nonSystemMessages = requestBody?.messages?.filter((message) => message.role !== "system") || [];
-    expect(nonSystemMessages).toHaveLength(60);
-    expect(nonSystemMessages[0]).toMatchObject({ role: "user", content: "history-06" });
+    expect(nonSystemMessages).toHaveLength(120);
+    expect(nonSystemMessages[0]).toMatchObject({ role: "user", content: "history-011" });
     expect(nonSystemMessages.at(-1)).toMatchObject({ role: "user", content: "latest-question" });
   });
 

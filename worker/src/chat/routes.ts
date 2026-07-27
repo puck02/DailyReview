@@ -11,6 +11,7 @@ import { aiTextModel } from "../ai/client";
 import { withMathMarkdownProtocol } from "../ai/prompting";
 import { resolveChatModel } from "../ai/providers";
 import { scheduleTokenUsage } from "../ai/usage";
+import { selectChatContext, type ContextMessage } from "./context";
 import { acquireGenerationLock, activeGenerationLock, releaseGenerationLock } from "./generation-lock";
 
 type SessionRow = Row & {
@@ -47,7 +48,7 @@ const archiveSchema = z.object({
 const chatStreamSchema = z.object({
   session_id: z.number().int(),
   turn_id: z.string().min(1).max(100).optional(),
-  content: z.string().default(""),
+  content: z.string().max(20_000).default(""),
   model: z.string().default("gpt-5.4-mini"),
   attachment_ids: z.array(z.number().int()).default([]),
   image_data_urls: z.array(z.string().startsWith("data:image/")).default([])
@@ -60,7 +61,7 @@ const chatRegenerateSchema = z.object({
   assistant_message_id: z.number().int(),
   turn_id: z.string().min(1).max(100).nullable().optional(),
   model: z.string().default("gpt-5.4-mini"),
-  content: z.string().optional(),
+  content: z.string().max(20_000).optional(),
   attachment_ids: z.array(z.number().int()).optional()
 });
 
@@ -257,19 +258,20 @@ async function historyForSession(
   imageDataUrls: string[] = [],
   excludedAssistantMessageId: number | null = null
 ): Promise<ChatMessage[]> {
-  const messages = await all<MessageRow>(
+  const candidates = await all<ContextMessage>(
     env.DB.prepare(
-      `SELECT id, role, content, created_at
+      `SELECT id, role, content, status
        FROM (
-         SELECT id, role, content, created_at
+         SELECT id, role, content, status, created_at
          FROM messages
          WHERE session_id = ? AND id != ?
          ORDER BY created_at DESC, id DESC
-         LIMIT 60
+         LIMIT 120
        )
        ORDER BY created_at ASC, id ASC`
     ).bind(session.id, excludedAssistantMessageId ?? -1)
   );
+  const messages = selectChatContext(candidates);
   const history: ChatMessage[] = [];
   const imageContext = session.image_context.trim();
   if (imageContext) {
