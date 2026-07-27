@@ -520,8 +520,19 @@ test("assistant regenerate uses the previous user message and replaces the assis
   assert.ok(app.includes("regenerateLockRef"));
   assert.ok(app.includes("busy || sendLockRef.current"));
   assert.ok(app.includes("busy || regenerateLockRef.current"));
-  assert.ok(app.includes("const refreshedMessages = await api.messages(active.id);"));
+  assert.ok(app.includes("await reconcileSessionMessages(active.id)"));
   assert.match(styles, /\.message-action-button:disabled\s*{/);
+});
+
+test("chat uses stable turn ids and reconciles optimistic messages", () => {
+  assert.ok(app.includes("const turnId = crypto.randomUUID();"));
+  assert.ok(app.includes("turn_id: turnId"));
+  assert.ok(app.includes("turn_id: assistantMessage.turn_id"));
+  assert.ok(app.includes("status: \"pending\""));
+  assert.ok(app.includes("async function reconcileSessionMessages"));
+  assert.ok(app.includes("await reconcileSessionMessages(session.id)"));
+  assert.ok(apiSource.includes("turn_id: string | null"));
+  assert.ok(apiSource.includes('status: "pending" | "streaming" | "complete" | "failed" | "cancelled"'));
 });
 
 test("pending image previews share one visual surface with the composer", () => {
@@ -649,8 +660,8 @@ test("streaming chat batches token UI updates and aborts stale requests", () => 
   assert.ok(app.includes("assistantHadContent = true;"));
   assert.ok(app.includes("finishAssistantMessage(assistant.id, emptyAssistantReplyMessage);"));
   assert.ok(app.includes("finishAssistantMessage(assistant.id, \"已停止生成。\");"));
-  assert.ok(app.includes("const refreshedMessages = await api.messages(session.id);"));
-  assert.ok(app.includes("activeRef.current?.id === session.id"));
+  assert.ok(app.includes("await reconcileSessionMessages(session.id)"));
+  assert.ok(app.includes("activeRef.current?.id === sessionId"));
   assert.ok(apiSource.includes("options: { signal?: AbortSignal } = {}"));
   assert.ok(apiSource.includes("signal: options.signal"));
   assert.ok(apiSource.includes("let receivedDone = false;"));

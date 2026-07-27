@@ -18,6 +18,8 @@ export type Message = {
   role: "user" | "assistant";
   content: string;
   model: string | null;
+  turn_id: string | null;
+  status: "pending" | "streaming" | "complete" | "failed" | "cancelled";
   created_at: string;
   attachments: Attachment[];
 };
@@ -424,7 +426,7 @@ export const api = {
 };
 
 export async function streamChat(
-  payload: { session_id: number; content: string; model: string; attachment_ids: number[]; image_data_urls?: string[] },
+  payload: { session_id: number; turn_id: string; content: string; model: string; attachment_ids: number[]; image_data_urls?: string[] },
   onToken: (token: string) => void,
   options: { signal?: AbortSignal } = {}
 ): Promise<void> {
@@ -432,7 +434,7 @@ export async function streamChat(
 }
 
 export async function regenerateChat(
-  payload: { session_id: number; assistant_message_id: number; model: string; content?: string; attachment_ids?: number[] },
+  payload: { session_id: number; assistant_message_id: number; turn_id: string | null; model: string; content?: string; attachment_ids?: number[] },
   onToken: (token: string) => void,
   options: { signal?: AbortSignal } = {}
 ): Promise<void> {
@@ -441,7 +443,7 @@ export async function regenerateChat(
 
 async function streamChatEndpoint(
   path: string,
-  payload: { session_id: number; content?: string; model: string; attachment_ids?: number[]; image_data_urls?: string[]; assistant_message_id?: number },
+  payload: { session_id: number; turn_id?: string | null; content?: string; model: string; attachment_ids?: number[]; image_data_urls?: string[]; assistant_message_id?: number },
   onToken: (token: string) => void,
   options: { signal?: AbortSignal } = {}
 ): Promise<void> {

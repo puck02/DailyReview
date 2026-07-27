@@ -29,6 +29,8 @@ type MessageRow = Row & {
   role: string;
   content: string;
   model: string | null;
+  turn_id: string | null;
+  status: "pending" | "streaming" | "complete" | "failed" | "cancelled";
   created_at: string;
 };
 
@@ -43,6 +45,7 @@ const archiveSchema = z.object({
 
 const chatStreamSchema = z.object({
   session_id: z.number().int(),
+  turn_id: z.string().min(1).max(100).optional(),
   content: z.string().default(""),
   model: z.string().default("gpt-5.4-mini"),
   attachment_ids: z.array(z.number().int()).default([]),
@@ -54,6 +57,7 @@ const chatStreamSchema = z.object({
 const chatRegenerateSchema = z.object({
   session_id: z.number().int(),
   assistant_message_id: z.number().int(),
+  turn_id: z.string().min(1).max(100).nullable().optional(),
   model: z.string().default("gpt-5.4-mini"),
   content: z.string().optional(),
   attachment_ids: z.array(z.number().int()).optional()
@@ -177,6 +181,8 @@ async function listMessages(request: Request, env: Env, params: Record<string, s
       role: message.role,
       content: message.content,
       model: message.model,
+      turn_id: message.turn_id,
+      status: message.status,
       created_at: message.created_at,
       attachments: (byMessage.get(message.id) || []).map(attachmentResponse)
     }))
@@ -236,7 +242,8 @@ async function historyForSession(
   session: SessionRow,
   aiConfig: AiConfig,
   imageMessageId: number | null,
-  imageDataUrls: string[] = []
+  imageDataUrls: string[] = [],
+  excludedAssistantMessageId: number | null = null
 ): Promise<ChatMessage[]> {
   const messages = await all<MessageRow>(
     env.DB.prepare(
@@ -244,12 +251,12 @@ async function historyForSession(
        FROM (
          SELECT id, role, content, created_at
          FROM messages
-         WHERE session_id = ?
+         WHERE session_id = ? AND id != ?
          ORDER BY created_at DESC, id DESC
          LIMIT 60
        )
        ORDER BY created_at ASC, id ASC`
-    ).bind(session.id)
+    ).bind(session.id, excludedAssistantMessageId ?? -1)
   );
   const history: ChatMessage[] = [];
   const imageContext = session.image_context.trim();
@@ -301,7 +308,7 @@ function isRequestAbort(error: unknown, signal?: AbortSignal): boolean {
 }
 
 type StreamAssistantOptions = {
-  replaceAssistantMessageId?: number | null;
+  assistantMessageId: number;
   requestSignal?: AbortSignal;
   imageContextUserContent?: string | null;
   ctx?: ExecutionContext;
@@ -316,9 +323,8 @@ async function streamAssistantResponse(
   aiModel: string,
   history: ChatMessage[],
   userId: number,
-  options: StreamAssistantOptions = {}
+  options: StreamAssistantOptions
 ): Promise<Response> {
-  const replaceAssistantMessageId = options.replaceAssistantMessageId ?? null;
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -337,6 +343,9 @@ async function streamAssistantResponse(
       };
       const heartbeatMs = Number.parseInt(env.CHAT_HEARTBEAT_MS || "", 10) || 15_000;
       const heartbeat = setInterval(() => enqueue(": ping\n\n"), heartbeatMs);
+      await env.DB.prepare("UPDATE messages SET content = '', model = ?, status = 'streaming', created_at = ? WHERE id = ? AND session_id = ?")
+        .bind(aiModel, nowIso(), options.assistantMessageId, sessionId)
+        .run();
       try {
         for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig, {
           allowProviderFallback: false,
@@ -370,23 +379,20 @@ async function streamAssistantResponse(
       }
       const assistantContent = parts.join("");
       if (!assistantContent && !failed && !abortedByRequest) {
+        failed = true;
         parts.push(emptyAssistantReplyMessage);
         enqueue(`data: ${JSON.stringify(emptyAssistantReplyMessage)}\n\n`);
       }
+      if (!parts.length && abortedByRequest) {
+        parts.push("已停止生成。");
+      }
       const finalAssistantContent = parts.join("");
-      if (finalAssistantContent) {
-        if (replaceAssistantMessageId !== null) {
-          await env.DB.prepare("UPDATE messages SET content = ?, model = ?, created_at = ? WHERE id = ?")
-            .bind(finalAssistantContent, actualModel, nowIso(), replaceAssistantMessageId)
-            .run();
-        } else {
-          await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'assistant', ?, ?, ?)")
-            .bind(sessionId, finalAssistantContent, actualModel, nowIso())
-            .run();
-        }
-        if (options.imageContextUserContent && !failed && !abortedByRequest) {
-          await appendSessionImageContext(env, sessionId, options.imageContextUserContent, finalAssistantContent);
-        }
+      const finalStatus = abortedByRequest ? "cancelled" : failed ? "failed" : "complete";
+      await env.DB.prepare("UPDATE messages SET content = ?, model = ?, status = ?, created_at = ? WHERE id = ? AND session_id = ?")
+        .bind(finalAssistantContent, actualModel, finalStatus, nowIso(), options.assistantMessageId, sessionId)
+        .run();
+      if (options.imageContextUserContent && finalStatus === "complete") {
+        await appendSessionImageContext(env, sessionId, options.imageContextUserContent, finalAssistantContent);
       }
       await scheduleTokenUsage(options.ctx, env, userId, aiConfig, actualModel, totalTokens);
       await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
@@ -406,6 +412,35 @@ async function streamAssistantResponse(
   });
 }
 
+function storedAssistantResponse(message: MessageRow): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (message.content) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(message.content)}\n\n`));
+      }
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    }
+  });
+  return new Response(body, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache"
+    }
+  });
+}
+
+async function messagesForTurn(env: Env, sessionId: number, turnId: string): Promise<{ user: MessageRow | null; assistant: MessageRow | null }> {
+  const messages = await all<MessageRow>(
+    env.DB.prepare("SELECT * FROM messages WHERE session_id = ? AND turn_id = ? ORDER BY id ASC").bind(sessionId, turnId)
+  );
+  return {
+    user: messages.find((message) => message.role === "user") || null,
+    assistant: messages.find((message) => message.role === "assistant") || null
+  };
+}
+
 async function streamChat(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const user = await requireUser(request, env);
   const payload = chatStreamSchema.parse(await parseJson<unknown>(request));
@@ -413,6 +448,17 @@ async function streamChat(request: Request, env: Env, ctx?: ExecutionContext): P
   const session = await getSession(env, payload.session_id);
   if (!session || session.user_id !== user.id) {
     throw new HttpError(404, "会话不存在");
+  }
+  const turnId = payload.turn_id || crypto.randomUUID();
+  const existingTurn = await messagesForTurn(env, session.id, turnId);
+  if (existingTurn.user || existingTurn.assistant) {
+    if (existingTurn.user?.content !== payload.content) {
+      throw new HttpError(409, "消息标识已被其他内容使用");
+    }
+    if (existingTurn.assistant && ["complete", "failed", "cancelled"].includes(existingTurn.assistant.status)) {
+      return storedAssistantResponse(existingTurn.assistant);
+    }
+    throw new HttpError(409, "该消息正在生成");
   }
   let attachments: AttachmentRow[] = [];
   if (payload.attachment_ids.length > 0) {
@@ -425,13 +471,30 @@ async function streamChat(request: Request, env: Env, ctx?: ExecutionContext): P
       throw new HttpError(400, "附件不存在");
     }
   }
+  const aiConfig = await getAiConfig(env);
+  const hasImages = payload.attachment_ids.length > 0 || payload.image_data_urls.length > 0;
+  const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   const now = nowIso();
-  const userInsert = await env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'user', ?, ?, ?)")
-    .bind(session.id, payload.content, payload.model, now)
-    .run();
-  const userMessageId = await insertAndReturnId(userInsert);
   const title = session.title === "新会话" ? payload.content.slice(0, 32) : session.title;
-  await env.DB.prepare("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?").bind(title, now, session.id).run();
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO messages (session_id, role, content, model, turn_id, status, created_at) VALUES (?, 'user', ?, ?, ?, 'complete', ?)"
+    ).bind(session.id, payload.content, aiModel, turnId, now),
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO messages (session_id, role, content, model, turn_id, status, created_at) VALUES (?, 'assistant', '', ?, ?, 'pending', ?)"
+    ).bind(session.id, aiModel, turnId, now),
+    env.DB.prepare("UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?").bind(title, now, session.id)
+  ]);
+  const storedTurn = await messagesForTurn(env, session.id, turnId);
+  if (!storedTurn.user || !storedTurn.assistant || storedTurn.user.content !== payload.content) {
+    throw new HttpError(409, "消息标识冲突");
+  }
+  if (storedTurn.assistant.status !== "pending") {
+    return storedTurn.assistant.status === "streaming"
+      ? json({ detail: "该消息正在生成" }, { status: 409 })
+      : storedAssistantResponse(storedTurn.assistant);
+  }
+  const userMessageId = storedTurn.user.id;
 
   if (attachments.length > 0) {
     await env.DB.batch(
@@ -441,12 +504,17 @@ async function streamChat(request: Request, env: Env, ctx?: ExecutionContext): P
     );
   }
 
-  const aiConfig = await getAiConfig(env);
-  const hasImages = payload.attachment_ids.length > 0 || payload.image_data_urls.length > 0;
-  const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, userMessageId).run();
-  const history = await historyForSession(env, session, aiConfig, hasImages ? userMessageId : null, payload.image_data_urls);
+  const history = await historyForSession(
+    env,
+    session,
+    aiConfig,
+    hasImages ? userMessageId : null,
+    payload.image_data_urls,
+    storedTurn.assistant.id
+  );
   const streamOptions: StreamAssistantOptions = {
+    assistantMessageId: storedTurn.assistant.id,
     requestSignal: request.signal,
     ...(ctx ? { ctx } : {}),
     ...(hasImages ? { imageContextUserContent: payload.content } : {})
@@ -461,22 +529,18 @@ async function regenerateChat(request: Request, env: Env, ctx?: ExecutionContext
   if (!session || session.user_id !== user.id) {
     throw new HttpError(404, "会话不存在");
   }
-  let assistantMessage = await first<MessageRow>(
-    env.DB.prepare("SELECT * FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant'")
-      .bind(payload.assistant_message_id, session.id)
+  const assistantMessage = await first<MessageRow>(
+    env.DB.prepare(
+      "SELECT * FROM messages WHERE id = ? AND session_id = ? AND role = 'assistant' AND (? IS NULL OR turn_id = ?)"
+    ).bind(payload.assistant_message_id, session.id, payload.turn_id ?? null, payload.turn_id ?? null)
   );
   if (!assistantMessage) {
-    const latestAssistant = await first<MessageRow>(
-      env.DB.prepare("SELECT * FROM messages WHERE session_id = ? AND role = 'assistant' ORDER BY created_at DESC, id DESC LIMIT 1").bind(
-        session.id
-      )
-    );
-    if (!latestAssistant || payload.content === undefined) {
-      throw new HttpError(404, "回复不存在");
-    }
-    assistantMessage = latestAssistant;
+    throw new HttpError(404, "回复不存在");
   }
-  const previousUserQuery = payload.content === undefined
+  const previousUserQuery = assistantMessage.turn_id
+    ? env.DB.prepare("SELECT * FROM messages WHERE session_id = ? AND turn_id = ? AND role = 'user'")
+      .bind(session.id, assistantMessage.turn_id)
+    : payload.content === undefined
     ? env.DB.prepare(
         `SELECT * FROM messages
          WHERE session_id = ? AND role = 'user' AND (created_at < ? OR (created_at = ? AND id < ?))
@@ -485,10 +549,10 @@ async function regenerateChat(request: Request, env: Env, ctx?: ExecutionContext
       ).bind(session.id, assistantMessage.created_at, assistantMessage.created_at, assistantMessage.id)
     : env.DB.prepare(
         `SELECT * FROM messages
-         WHERE session_id = ? AND role = 'user' AND content = ?
+         WHERE session_id = ? AND role = 'user' AND (created_at < ? OR (created_at = ? AND id < ?))
          ORDER BY created_at DESC, id DESC
          LIMIT 1`
-      ).bind(session.id, payload.content);
+      ).bind(session.id, assistantMessage.created_at, assistantMessage.created_at, assistantMessage.id);
   const lastUserMessage = await first<MessageRow>(previousUserQuery);
   if (!lastUserMessage) {
     throw new HttpError(400, "没有可重新生成的用户消息");
@@ -500,9 +564,9 @@ async function regenerateChat(request: Request, env: Env, ctx?: ExecutionContext
   const hasImages = attachments.length > 0;
   const aiModel = resolveChatModel(aiConfig, payload.model, hasImages);
   await env.DB.prepare("UPDATE messages SET model = ? WHERE id = ?").bind(aiModel, lastUserMessage.id).run();
-  const history = await historyForSession(env, session, aiConfig, hasImages ? lastUserMessage.id : null);
+  const history = await historyForSession(env, session, aiConfig, hasImages ? lastUserMessage.id : null, [], assistantMessage.id);
   const streamOptions: StreamAssistantOptions = {
-    replaceAssistantMessageId: assistantMessage.id,
+    assistantMessageId: assistantMessage.id,
     requestSignal: request.signal,
     ...(ctx ? { ctx } : {}),
     ...(hasImages ? { imageContextUserContent: lastUserMessage.content } : {})

@@ -1323,6 +1323,13 @@ function ChatView({
     );
   }
 
+  async function reconcileSessionMessages(sessionId: number) {
+    const refreshedMessages = await api.messages(sessionId);
+    if (activeRef.current?.id === sessionId) {
+      setMessages(refreshedMessages);
+    }
+  }
+
   async function sendMessage() {
     const content = input.trim();
     if ((!content && !hasReadyAttachments) || busy || sendLockRef.current) return;
@@ -1336,6 +1343,7 @@ function ChatView({
     }
     const readyAttachments = attachments.filter((attachment) => attachment.status === "ready");
     let session = active;
+    const turnId = crypto.randomUUID();
     const pendingUserId = Date.now();
     const pendingAssistantId = pendingUserId + 1;
     const pendingUser: Message = {
@@ -1343,6 +1351,8 @@ function ChatView({
       role: "user",
       content,
       model,
+      turn_id: turnId,
+      status: "complete",
       created_at: new Date().toISOString(),
       attachments: readyAttachments
     };
@@ -1351,6 +1361,8 @@ function ChatView({
       role: "assistant",
       content: "",
       model,
+      turn_id: turnId,
+      status: "pending",
       created_at: new Date().toISOString(),
       attachments: []
     };
@@ -1387,6 +1399,7 @@ function ChatView({
       await streamChat(
         {
           session_id: session.id,
+          turn_id: turnId,
           content,
           model,
           attachment_ids: readyAttachments.map((item) => item.id),
@@ -1399,11 +1412,6 @@ function ChatView({
       if (!assistantHadContent) {
         finishAssistantMessage(assistant.id, emptyAssistantReplyMessage);
       }
-      const refreshedMessages = await api.messages(session.id);
-      if (activeRef.current?.id === session.id) {
-        setMessages((current) => (refreshedMessages.length ? refreshedMessages : current));
-      }
-      await refreshSessions();
     } catch (err) {
       if (!session) {
         setMessages((current) =>
@@ -1420,6 +1428,16 @@ function ChatView({
       }
     } finally {
       tokenFlush.flush();
+      if (session) {
+        try {
+          await reconcileSessionMessages(session.id);
+          await refreshSessions();
+        } catch (reconcileError) {
+          if (!abortController.signal.aborted) {
+            setError(reconcileError instanceof Error ? reconcileError.message : "消息同步失败");
+          }
+        }
+      }
       if (activeStreamAbortRef.current === abortController) {
         activeStreamAbortRef.current = null;
         sendLockRef.current = false;
@@ -1444,6 +1462,8 @@ function ChatView({
       role: "assistant",
       content: "",
       model,
+      turn_id: assistantMessage.turn_id,
+      status: "pending",
       created_at: new Date().toISOString(),
       attachments: []
     };
@@ -1475,6 +1495,7 @@ function ChatView({
         {
           session_id: active.id,
           assistant_message_id: assistantMessage.id,
+          turn_id: assistantMessage.turn_id,
           model,
           content: lastUserMessage.content,
           attachment_ids: lastUserMessage.attachments.map((attachment) => attachment.id)
@@ -1486,9 +1507,6 @@ function ChatView({
       if (!assistantHadContent) {
         finishAssistantMessage(replacement.id, emptyAssistantReplyMessage);
       }
-      const refreshedMessages = await api.messages(active.id);
-      setMessages(refreshedMessages);
-      await refreshSessions();
     } catch (err) {
       if (!abortController.signal.aborted) {
         const message = err instanceof Error ? err.message : "重新生成失败";
@@ -1499,6 +1517,14 @@ function ChatView({
       }
     } finally {
       tokenFlush.flush();
+      try {
+        await reconcileSessionMessages(active.id);
+        await refreshSessions();
+      } catch (reconcileError) {
+        if (!abortController.signal.aborted) {
+          setError(reconcileError instanceof Error ? reconcileError.message : "消息同步失败");
+        }
+      }
       if (activeStreamAbortRef.current === abortController) {
         activeStreamAbortRef.current = null;
         regenerateLockRef.current = false;

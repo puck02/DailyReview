@@ -390,12 +390,12 @@ describe("chat sessions and attachments", () => {
     ]);
   });
 
-  it("regenerates by user content when the assistant message id is stale", async () => {
+  it("does not overwrite another reply when the regeneration target is stale", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";
     env.AI_API_KEY = "test-key";
     vi.stubGlobal("fetch", async () => {
-      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: "按内容重新回答" } }] })}\n\ndata: [DONE]\n\n`, {
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: "不应写入" } }] })}\n\ndata: [DONE]\n\n`, {
         status: 200,
         headers: { "content-type": "text/event-stream" }
       });
@@ -420,17 +420,65 @@ describe("chat sessions and attachments", () => {
       body: JSON.stringify({
         session_id: session.id,
         assistant_message_id: 999999,
+        turn_id: "missing-turn",
         model: "gpt-5.4-mini",
         content: "解释导数定义"
       })
     });
 
-    expect(regenerated.status).toBe(200);
-    await expect(readSse(regenerated)).resolves.toEqual([JSON.stringify("按内容重新回答"), "[DONE]"]);
+    expect(regenerated.status).toBe(404);
+    await expect(regenerated.json()).resolves.toEqual({ detail: "回复不存在" });
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
     await expect(messages.json()).resolves.toMatchObject([
       { role: "user", content: "解释导数定义" },
-      { role: "assistant", content: "按内容重新回答" }
+      { role: "assistant", content: "旧回答" }
+    ]);
+  });
+
+  it("deduplicates repeated chat delivery by turn id", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    let upstreamCalls = 0;
+    vi.stubGlobal("fetch", async () => {
+      upstreamCalls += 1;
+      return new Response('data: {"choices":[{"delta":{"content":"唯一回答"}}]}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "幂等会话", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const payload = {
+      session_id: session.id,
+      turn_id: "turn-deduplicate-1",
+      content: "只保存一次",
+      model: "gpt-5.4-mini",
+      attachment_ids: []
+    };
+
+    const first = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify(payload)
+    });
+    await expect(readSse(first)).resolves.toEqual([JSON.stringify("唯一回答"), "[DONE]"]);
+    const second = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify(payload)
+    });
+    await expect(readSse(second)).resolves.toEqual([JSON.stringify("唯一回答"), "[DONE]"]);
+
+    expect(upstreamCalls).toBe(1);
+    const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    await expect(messages.json()).resolves.toMatchObject([
+      { role: "user", content: "只保存一次", turn_id: "turn-deduplicate-1", status: "complete" },
+      { role: "assistant", content: "唯一回答", turn_id: "turn-deduplicate-1", status: "complete" }
     ]);
   });
 
