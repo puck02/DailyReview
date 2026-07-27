@@ -1060,6 +1060,11 @@ test("markdown renderer dependencies are code split from the main app", () => {
   assert.doesNotMatch(app, /from "remark-gfm"/);
   assert.doesNotMatch(app, /from "remark-math"/);
   assert.match(app, /lazy\(\(\) => import\("\.\/MarkdownRenderer"\)\)/);
+  assert.ok(app.includes("ChunkErrorBoundary"));
+  assert.ok(app.includes("MarkdownLoadFallback"));
+  assert.ok(app.includes("window.location.reload()"));
+  assert.ok(app.includes("应用资源已更新，请刷新页面后继续。"));
+  assert.ok(app.includes("setTimeout(() => preloadMarkdownRenderer(), 1200);"));
   assert.match(markdownRenderer, /from "react-markdown"/);
   assert.ok(markdownRenderer.includes('import("./markdownPlugins")'));
 });

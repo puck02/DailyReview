@@ -219,8 +219,29 @@ export type TranslationPrompt = {
   system_prompt: string;
 };
 
+const networkErrorMessage = "网络连接失败，请检查网络后重试";
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function fetchWithRecovery(path: string, init?: RequestInit): Promise<Response> {
+  const canRetry = (init?.method || "GET").toUpperCase() === "GET";
+  const attempts = canRetry ? 2 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fetch(path, init);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      if (attempt + 1 === attempts) throw new Error(networkErrorMessage);
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw new Error(networkErrorMessage);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetchWithRecovery(path, {
     ...init,
     credentials: "include",
     cache: init?.cache ?? "no-store",
@@ -306,14 +327,15 @@ export const api = {
     form.append("file", file);
     let response: Response;
     try {
-      response = await fetch("/api/attachments", {
+      response = await fetchWithRecovery("/api/attachments", {
         method: "POST",
         body: form,
         credentials: "include",
         cache: "no-store"
       });
     } catch (error) {
-      throw new Error("图片上传失败，请检查网络后重试");
+      if (isAbortError(error)) throw error;
+      throw new Error(error instanceof Error ? error.message : networkErrorMessage);
     }
     if (!response.ok) {
       const data = await response.json().catch(() => ({ detail: "上传失败" }));
@@ -329,7 +351,7 @@ export const api = {
     request<ReportGenerationStatus[]>(`/api/reports/generation-status?report_type=${reportType}&month=${month}`),
   report: (id: number) => request<ReportContent>(`/api/reports/${id}`),
   reportPdf: async (id: number): Promise<Blob> => {
-    const response = await fetch(`/api/reports/${id}/pdf`, { credentials: "include", cache: "no-store" });
+    const response = await fetchWithRecovery(`/api/reports/${id}/pdf`, { credentials: "include", cache: "no-store" });
     if (!response.ok) {
       const data = await response.json().catch(() => ({ detail: "PDF 导出失败" }));
       throw new Error(data.detail || "PDF 导出失败");
@@ -407,7 +429,7 @@ async function streamChatEndpoint(
   onToken: (token: string) => void,
   options: { signal?: AbortSignal } = {}
 ): Promise<void> {
-  const response = await fetch(path, {
+  const response = await fetchWithRecovery(path, {
     method: "POST",
     credentials: "include",
     cache: "no-store",

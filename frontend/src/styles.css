@@ -380,6 +380,13 @@ textarea:focus {
   font-size: 13px;
 }
 
+.markdown-load-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .form-success {
   color: var(--success-text);
   background: var(--success-surface);

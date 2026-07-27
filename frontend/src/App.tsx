@@ -1,4 +1,5 @@
 import {
+  Component,
   CSSProperties,
   ChangeEvent,
   FormEvent,
@@ -12,6 +13,7 @@ import {
   useRef,
   useState
 } from "react";
+import type { ReactNode } from "react";
 import {
   ArrowDown,
   CalendarDays,
@@ -164,7 +166,51 @@ const DAILY_QUOTES = [
 ];
 
 function preloadMarkdownRenderer() {
-  void import("./MarkdownRenderer");
+  void import("./MarkdownRenderer").catch(() => undefined);
+}
+
+function MarkdownLoadFallback() {
+  return (
+    <div className="form-error markdown-load-error">
+      <span>应用资源已更新，请刷新页面后继续。</span>
+      <button type="button" className="secondary-button compact" onClick={() => window.location.reload()}>
+        刷新页面
+      </button>
+    </div>
+  );
+}
+
+class ChunkErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) return <MarkdownLoadFallback />;
+    return this.props.children;
+  }
+}
+
+function MarkdownContent({
+  markdown,
+  className,
+  copyable = false,
+  fallback
+}: {
+  markdown: string;
+  className: string;
+  copyable?: boolean;
+  fallback?: ReactNode;
+}) {
+  return (
+    <ChunkErrorBoundary>
+      <Suspense fallback={fallback || <div className="empty-state">正在加载内容...</div>}>
+        <MarkdownRenderer markdown={markdown} className={className} copyable={copyable} />
+      </Suspense>
+    </ChunkErrorBoundary>
+  );
 }
 const openingLines = [
   "准备好了，随时开始",
@@ -376,11 +422,7 @@ function MessageActions({
 }
 
 function MarkdownPreview({ markdown }: { markdown: string }) {
-  return (
-    <Suspense fallback={<div className="empty-state">正在加载报告内容...</div>}>
-      <MarkdownRenderer markdown={markdown} className="markdown-preview" />
-    </Suspense>
-  );
+  return <MarkdownContent markdown={markdown} className="markdown-preview" fallback={<div className="empty-state">正在加载报告内容...</div>} />;
 }
 
 function reportGenerationTitle(status: ReportGenerationStatus, reportTypeLabel: string): string {
@@ -397,11 +439,7 @@ function reportGenerationMessage(status: ReportGenerationStatus): string {
 }
 
 const MessageMarkdown = memo(function MessageMarkdown({ markdown, copyable }: { markdown: string; copyable: boolean }) {
-  return (
-    <Suspense fallback={<div className="message-markdown">{markdown}</div>}>
-      <MarkdownRenderer markdown={markdown} className="message-markdown" copyable={copyable} />
-    </Suspense>
-  );
+  return <MarkdownContent markdown={markdown} className="message-markdown" copyable={copyable} fallback={<div className="message-markdown">{markdown}</div>} />;
 });
 
 const MessageItem = memo(function MessageItem({
@@ -749,7 +787,7 @@ function TranslationWordCloud({
               ) : (
                 <>
                   <TranslationPhonetic phonetic={detailEntry.phonetic} />
-                  <MarkdownRenderer markdown={detailEntry.result_markdown} className="translation-markdown" />
+                  <MarkdownContent markdown={detailEntry.result_markdown} className="translation-markdown" />
                 </>
               )
             ) : (
@@ -2147,7 +2185,7 @@ function TranslationView({ wordCloudEnabled }: { wordCloudEnabled: boolean }) {
                 ) : (
                   <>
                     <TranslationPhonetic phonetic={activeResult.phonetic} />
-                    <MarkdownRenderer markdown={activeResult.result_markdown} className="translation-markdown" />
+                    <MarkdownContent markdown={activeResult.result_markdown} className="translation-markdown" />
                   </>
                 )
               ) : historyLoading ? (
@@ -3830,6 +3868,12 @@ export default function App() {
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const timer = window.setTimeout(() => preloadMarkdownRenderer(), 1200);
+    return () => window.clearTimeout(timer);
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
