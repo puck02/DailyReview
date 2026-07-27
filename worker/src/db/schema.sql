@@ -51,9 +51,22 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '',
   model TEXT,
+  turn_id TEXT,
+  status TEXT NOT NULL DEFAULT 'complete' CHECK (status IN ('pending', 'streaming', 'complete', 'failed', 'cancelled')),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at ASC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_session_turn_role
+  ON messages(session_id, turn_id, role)
+  WHERE turn_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS chat_generation_locks (
+  session_id INTEGER PRIMARY KEY,
+  turn_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_generation_locks_expires ON chat_generation_locks(expires_at);
 
 CREATE TABLE IF NOT EXISTS attachments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

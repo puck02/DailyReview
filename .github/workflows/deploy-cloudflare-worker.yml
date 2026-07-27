@@ -95,6 +95,12 @@ jobs:
           npm run load
         working-directory: worker
 
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply dailyreview-prod --remote
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Deploy worker
         run: npx wrangler deploy
         working-directory: worker
