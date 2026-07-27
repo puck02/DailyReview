@@ -165,8 +165,8 @@ const env = {
   BUCKET: new MemoryR2(),
   ASSETS: { fetch: () => new Response("asset") },
   SECRET_KEY: "local-load-secret",
-  AI_BASE_URL: "",
-  AI_API_KEY: "",
+  AI_BASE_URL: `http://127.0.0.1:${PORT}/mock-ai/v1`,
+  AI_API_KEY: "local-load-key",
   AI_DEFAULT_MODEL: "gpt-5.4-mini",
   AI_COMPLEX_MODEL: "gpt-5.5",
   ADMIN_EMAIL: process.env.ADMIN_EMAIL || "admin@example.com",
@@ -177,6 +177,15 @@ const env = {
 
 const server = createServer(async (nodeRequest, nodeResponse) => {
   try {
+    if (nodeRequest.url === "/mock-ai/v1/chat/completions") {
+      nodeResponse.statusCode = 200;
+      nodeResponse.setHeader("content-type", "text/event-stream; charset=utf-8");
+      nodeResponse.flushHeaders();
+      setTimeout(() => {
+        nodeResponse.end('data: {"choices":[{"delta":{"content":"local load reply"}}]}\n\ndata: [DONE]\n\n');
+      }, 35);
+      return;
+    }
     const body = await readBody(nodeRequest);
     const request = new Request(`http://127.0.0.1:${PORT}${nodeRequest.url}`, {
       method: nodeRequest.method,

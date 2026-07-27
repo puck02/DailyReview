@@ -144,7 +144,8 @@ async function readSse(response) {
   const decoder = new TextDecoder();
   let buffer = "";
   let firstTokenMs = 0;
-  while (true) {
+  let receivedDone = false;
+  while (!receivedDone) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
@@ -154,10 +155,14 @@ async function readSse(response) {
       const line = event.split("\n").find((item) => item.startsWith("data:"));
       if (!line) continue;
       const data = line.replace(/^data:\s?/, "");
-      if (data === "[DONE]") return firstTokenMs;
+      if (data === "[DONE]") {
+        receivedDone = true;
+        break;
+      }
       if (!firstTokenMs) firstTokenMs = performance.now() - started;
     }
   }
+  if (!receivedDone) throw new Error("AI stream ended before [DONE]");
   return firstTokenMs;
 }
 
@@ -167,6 +172,7 @@ async function streamChat(cookie, sessionId, attachmentId, index) {
     cookie,
     json: {
       session_id: sessionId,
+      turn_id: crypto.randomUUID(),
       content: `load test ${index} ${Date.now()}`,
       model: "gpt-5.4-mini",
       attachment_ids: attachmentId ? [attachmentId] : []
@@ -175,6 +181,42 @@ async function streamChat(cookie, sessionId, attachmentId, index) {
   });
   const firstTokenMs = await readSse(response);
   record("chat.sse_first_token", firstTokenMs);
+}
+
+async function verifySessionConcurrency(cookie, sessionId, index) {
+  const responses = await Promise.all([
+    request("/api/chat/stream", {
+      method: "POST",
+      cookie,
+      json: {
+        session_id: sessionId,
+        turn_id: crypto.randomUUID(),
+        content: `concurrency A ${index} ${Date.now()}`,
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      },
+      metric: "chat.concurrent_response"
+    }),
+    request("/api/chat/stream", {
+      method: "POST",
+      cookie,
+      json: {
+        session_id: sessionId,
+        turn_id: crypto.randomUUID(),
+        content: `concurrency B ${index} ${Date.now()}`,
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      },
+      metric: "chat.concurrent_response"
+    })
+  ]);
+  const successful = responses.filter((response) => response.status === 200);
+  const conflicts = responses.filter((response) => response.status === 409);
+  const completed = await Promise.all(successful.map((response) => readSse(response)));
+  if (successful.length !== 1 || conflicts.length !== 1) {
+    throw new Error(`session concurrency expected one 200 and one 409, got ${responses.map((response) => response.status).join(",")}`);
+  }
+  record("chat.sse_first_token", completed[0] || 0);
 }
 
 async function userLoop(user, index, deadline) {
@@ -186,6 +228,7 @@ async function userLoop(user, index, deadline) {
   });
   const attachment = await uploadTinyPng(user.cookie);
   await streamChat(user.cookie, session.id, attachment.id, index);
+  await verifySessionConcurrency(user.cookie, session.id, index);
 
   let iteration = 0;
   while (Date.now() < deadline) {

@@ -803,6 +803,61 @@ describe("chat sessions and attachments", () => {
     });
   });
 
+  it("logs failed chat telemetry without prompt or credentials", async () => {
+    const { env, cookie } = await loginUser();
+    const secretKey = "private-api-key-telemetry";
+    const privatePrompt = "private-prompt-telemetry";
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = secretKey;
+    const logged: unknown[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((entry) => {
+      logged.push(entry);
+    });
+    vi.stubGlobal("fetch", async () => {
+      throw new Error(`upstream exposed ${privatePrompt} ${secretKey}`);
+    });
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "日志安全", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie, "cf-ray": "telemetry-request-1" },
+      body: JSON.stringify({
+        session_id: session.id,
+        turn_id: "telemetry-turn-1",
+        content: privatePrompt,
+        model: "gpt-5.4-mini",
+        attachment_ids: []
+      })
+    });
+    await readSse(stream);
+    logSpy.mockRestore();
+
+    const events = logged.filter((entry): entry is Record<string, unknown> =>
+      Boolean(entry && typeof entry === "object" && (entry as { event?: unknown }).event === "chat_generation")
+    );
+    expect(events).toContainEqual(expect.objectContaining({
+      requestId: "telemetry-request-1",
+      turnId: "telemetry-turn-1",
+      sessionId: session.id,
+      userId: 2,
+      model: "gpt-5.4-mini",
+      phase: "finish",
+      outcome: "failed",
+      errorType: "upstream_error",
+      durationMs: expect.any(Number),
+      outputChars: expect.any(Number)
+    }));
+    const serialized = JSON.stringify(logged);
+    expect(serialized).not.toContain(privatePrompt);
+    expect(serialized).not.toContain(secretKey);
+    expect(serialized).not.toContain(cookie);
+  });
+
   it("marks a clean upstream EOF without DONE as an interrupted reply", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";
@@ -879,6 +934,10 @@ describe("chat sessions and attachments", () => {
     env.AI_BASE_URL = "https://ai.example.test/v1";
     env.AI_API_KEY = "test-key";
     env.AI_STREAM_TIMEOUT_MS = "25";
+    const logged: unknown[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((entry) => {
+      logged.push(entry);
+    });
     vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
       return await new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
@@ -906,6 +965,13 @@ describe("chat sessions and attachments", () => {
       role: "assistant",
       content: "AI 服务连接失败，请稍后重试。"
     });
+    logSpy.mockRestore();
+    expect(logged).toContainEqual(expect.objectContaining({
+      event: "chat_generation",
+      phase: "finish",
+      outcome: "failed",
+      errorType: "upstream_timeout"
+    }));
   });
 
   it("stores a visible failure message when upstream finishes without assistant content", async () => {

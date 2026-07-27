@@ -13,6 +13,12 @@ import { resolveChatModel } from "../ai/providers";
 import { scheduleTokenUsage } from "../ai/usage";
 import { selectChatContext, type ContextMessage } from "./context";
 import { acquireGenerationLock, activeGenerationLock, releaseGenerationLock } from "./generation-lock";
+import {
+  createChatTelemetryContext,
+  emitChatTelemetry,
+  safeChatErrorType,
+  type ChatTelemetryContext
+} from "./telemetry";
 
 type SessionRow = Row & {
   id: number;
@@ -332,6 +338,7 @@ function isRequestAbort(error: unknown, signal?: AbortSignal): boolean {
 type StreamAssistantOptions = {
   assistantMessageId: number;
   generationTurnId: string;
+  telemetry: ChatTelemetryContext;
   requestSignal?: AbortSignal;
   imageContextUserContent?: string | null;
   ctx?: ExecutionContext;
@@ -356,6 +363,8 @@ async function streamAssistantResponse(
       let actualModel = aiModel;
       let failed = false;
       let abortedByRequest = false;
+      let errorType: string | undefined;
+      let telemetryFinished = false;
       const enqueue = (value: string) => {
         try {
           controller.enqueue(encoder.encode(value));
@@ -366,6 +375,7 @@ async function streamAssistantResponse(
       };
       const heartbeatMs = Number.parseInt(env.CHAT_HEARTBEAT_MS || "", 10) || 15_000;
       const heartbeat = setInterval(() => enqueue(": ping\n\n"), heartbeatMs);
+      emitChatTelemetry(options.telemetry, { phase: "start", outcome: "started" });
       try {
         await env.DB.prepare("UPDATE messages SET content = '', model = ?, status = 'streaming', created_at = ? WHERE id = ? AND session_id = ?")
           .bind(aiModel, nowIso(), options.assistantMessageId, sessionId)
@@ -389,6 +399,7 @@ async function streamAssistantResponse(
           }
         } catch (error) {
           abortedByRequest = isRequestAbort(error, options.requestSignal);
+          errorType = abortedByRequest ? "request_aborted" : safeChatErrorType(error);
           if (!abortedByRequest) {
             failed = true;
             const token = "AI 服务连接失败，请稍后重试。";
@@ -402,6 +413,7 @@ async function streamAssistantResponse(
         const assistantContent = parts.join("");
         if (!assistantContent && !failed && !abortedByRequest) {
           failed = true;
+          errorType = "empty_response";
           parts.push(emptyAssistantReplyMessage);
           enqueue(`data: ${JSON.stringify(emptyAssistantReplyMessage)}\n\n`);
         }
@@ -418,12 +430,31 @@ async function streamAssistantResponse(
         }
         await scheduleTokenUsage(options.ctx, env, userId, aiConfig, actualModel, totalTokens);
         await env.DB.prepare("UPDATE chat_sessions SET updated_at = ? WHERE id = ?").bind(nowIso(), sessionId).run();
+        emitChatTelemetry(options.telemetry, {
+          phase: "finish",
+          outcome: finalStatus,
+          model: actualModel,
+          outputChars: finalAssistantContent.length,
+          ...(errorType ? { errorType } : {})
+        });
+        telemetryFinished = true;
         enqueue("data: [DONE]\n\n");
         try {
           controller.close();
         } catch {
           // The browser may already have closed the response after an explicit abort.
         }
+      } catch (error) {
+        if (!telemetryFinished) {
+          emitChatTelemetry(options.telemetry, {
+            phase: "error",
+            outcome: "failed",
+            model: actualModel,
+            outputChars: parts.join("").length,
+            errorType: safeChatErrorType(error)
+          });
+        }
+        throw error;
       } finally {
         clearInterval(heartbeat);
         await releaseGenerationLock(env, sessionId, options.generationTurnId);
@@ -546,6 +577,7 @@ async function streamChat(request: Request, env: Env, ctx?: ExecutionContext): P
     const streamOptions: StreamAssistantOptions = {
       assistantMessageId: storedTurn.assistant.id,
       generationTurnId: turnId,
+      telemetry: createChatTelemetryContext(request, turnId, session.id, user.id, aiModel),
       requestSignal: request.signal,
       ...(ctx ? { ctx } : {}),
       ...(hasImages ? { imageContextUserContent: payload.content } : {})
@@ -608,6 +640,7 @@ async function regenerateChat(request: Request, env: Env, ctx?: ExecutionContext
     const streamOptions: StreamAssistantOptions = {
       assistantMessageId: assistantMessage.id,
       generationTurnId,
+      telemetry: createChatTelemetryContext(request, generationTurnId, session.id, user.id, aiModel),
       requestSignal: request.signal,
       ...(ctx ? { ctx } : {}),
       ...(hasImages ? { imageContextUserContent: lastUserMessage.content } : {})
