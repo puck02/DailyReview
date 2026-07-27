@@ -96,7 +96,27 @@ jobs:
         working-directory: worker
 
       - name: Apply D1 migrations
-        run: npx wrangler d1 migrations apply dailyreview-prod --remote
+        run: |
+          set +e
+          migration_output="$(npx wrangler d1 migrations apply dailyreview-prod --remote 2>&1)"
+          migration_status=$?
+          set -e
+
+          printf '%s\n' "$migration_output"
+          if [ "$migration_status" -eq 0 ]; then
+            exit 0
+          fi
+
+          if printf '%s' "$migration_output" | grep -Eqi 'authentication|unauthorized|not authorized|permission|forbidden|code: (10000|9109)'; then
+            printf '::error title=D1 migration failed::diagnostic=d1_auth_or_permission\n'
+          elif printf '%s' "$migration_output" | grep -Eqi 'duplicate column|already exists|unique constraint failed'; then
+            printf '::error title=D1 migration failed::diagnostic=d1_schema_conflict\n'
+          elif printf '%s' "$migration_output" | grep -Eqi 'no migrations|migration.*not found|no such table'; then
+            printf '::error title=D1 migration failed::diagnostic=d1_migration_state\n'
+          else
+            printf '::error title=D1 migration failed::diagnostic=d1_unknown\n'
+          fi
+          exit "$migration_status"
         working-directory: worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
