@@ -335,6 +335,8 @@ async function streamAssistantResponse(
         }
         return true;
       };
+      const heartbeatMs = Number.parseInt(env.CHAT_HEARTBEAT_MS || "", 10) || 15_000;
+      const heartbeat = setInterval(() => enqueue(": ping\n\n"), heartbeatMs);
       try {
         for await (const chunk of streamChatCompletionWithUsage(history, aiModel, env, aiConfig, {
           allowProviderFallback: false,
@@ -363,6 +365,8 @@ async function streamAssistantResponse(
           parts.push(token);
           enqueue(`data: ${JSON.stringify(token)}\n\n`);
         }
+      } finally {
+        clearInterval(heartbeat);
       }
       const assistantContent = parts.join("");
       if (!assistantContent && !failed && !abortedByRequest) {

@@ -15,6 +15,7 @@ export type Env = {
   AI_COMPLEX_MODEL?: string;
   AI_VISION_MODEL?: string;
   AI_STREAM_TIMEOUT_MS?: string;
+  CHAT_HEARTBEAT_MS?: string;
   ADMIN_EMAIL?: string;
   ADMIN_INITIAL_PASSWORD?: string;
   APP_TIMEZONE: string;

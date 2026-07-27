@@ -317,8 +317,11 @@ export async function* streamChatCompletionWithUsage(
   let buffer = "";
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    if (done) {
+      buffer += `${decoder.decode()}\n`;
+    } else {
+      buffer += decoder.decode(value, { stream: true });
+    }
     const lines = buffer.split("\n");
     buffer = lines.pop() || "";
     for (const line of lines) {
@@ -336,7 +339,9 @@ export async function* streamChatCompletionWithUsage(
       const content = chunk.choices?.[0]?.delta?.content;
       if (content) yield { content };
     }
+    if (done) break;
   }
+  throw new Error("AI stream interrupted before DONE");
 }
 
 export async function testAiConnection(config: AiConfig, model: string): Promise<string> {

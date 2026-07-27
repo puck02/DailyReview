@@ -524,6 +524,77 @@ describe("chat sessions and attachments", () => {
     });
   });
 
+  it("marks a clean upstream EOF without DONE as an interrupted reply", async () => {
+    const { env, cookie } = await loginUser();
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    vi.stubGlobal("fetch", async () => {
+      return new Response('data: {"choices":[{"delta":{"content":"未完成回答"}}]}\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" }
+      });
+    });
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "无完成标记", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ session_id: session.id, content: "继续说明", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+
+    await expect(readSse(stream)).resolves.toEqual([
+      JSON.stringify("未完成回答"),
+      JSON.stringify("AI 服务连接失败，请稍后重试。"),
+      "[DONE]"
+    ]);
+  });
+
+  it("keeps a silent downstream stream alive with SSE comments", async () => {
+    const login = await loginUser();
+    const env = Object.assign(login.env, { CHAT_HEARTBEAT_MS: "10" });
+    env.AI_BASE_URL = "https://ai.example.test/v1";
+    env.AI_API_KEY = "test-key";
+    const requestAbort = new AbortController();
+    vi.stubGlobal("fetch", async (_input: RequestInfo | URL, init?: RequestInit) => {
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    });
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie: login.cookie },
+      body: JSON.stringify({ title: "心跳", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    const stream = await fetchWorker(env, "/api/chat/stream", {
+      method: "POST",
+      headers: { cookie: login.cookie },
+      signal: requestAbort.signal,
+      body: JSON.stringify({ session_id: session.id, content: "长思考", model: "gpt-5.4-mini", attachment_ids: [] })
+    });
+    const reader = stream.body?.getReader();
+    expect(reader).toBeDefined();
+
+    try {
+      const first = await Promise.race([
+        reader!.read(),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 60))
+      ]);
+      expect(first).not.toBe("timeout");
+      if (first !== "timeout") {
+        expect(new TextDecoder().decode(first.value)).toBe(": ping\n\n");
+      }
+    } finally {
+      requestAbort.abort();
+      await reader?.cancel().catch(() => undefined);
+    }
+  });
+
   it("times out stalled upstream streams and stores the failure message", async () => {
     const { env, cookie } = await loginUser();
     env.AI_BASE_URL = "https://ai.example.test/v1";
