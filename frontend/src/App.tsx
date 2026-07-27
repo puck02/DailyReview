@@ -22,6 +22,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronDown,
+  ChevronUp,
   CircleUserRound,
   Copy,
   Download,
@@ -911,6 +912,7 @@ function ChatView({
   const [sessionMenu, setSessionMenu] = useState<{ session: ChatSession; x: number; y: number } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport());
   const [messages, setMessages] = useState<Message[]>([]);
+  const [nextBeforeMessageId, setNextBeforeMessageId] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [model, setModel] = useState(defaultModel);
   const [chatModelOptions, setChatModelOptions] = useState(reportModels);
@@ -938,6 +940,7 @@ function ChatView({
   const [capturingScreenshot, setCapturingScreenshot] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [error, setError] = useState("");
   const [openingLine, setOpeningLine] = useState(randomOpeningLine);
@@ -1022,7 +1025,9 @@ function ChatView({
     if (!active) {
       skipNextMessageLoadSessionIdRef.current = null;
       setMessagesLoading(false);
+      setOlderMessagesLoading(false);
       setMessages([]);
+      setNextBeforeMessageId(null);
       return;
     }
     if (skipNextMessageLoadSessionIdRef.current === active.id) {
@@ -1031,12 +1036,15 @@ function ChatView({
       return;
     }
     setMessages([]);
+    setNextBeforeMessageId(null);
+    setOlderMessagesLoading(false);
     setMessagesLoading(true);
     api
       .messages(active.id)
-      .then((items) => {
+      .then((page) => {
         if (requestId !== messageLoadRequestRef.current) return;
-        setMessages(items);
+        setMessages(page.items);
+        setNextBeforeMessageId(page.next_before_id);
       })
       .catch((err) => {
         if (requestId !== messageLoadRequestRef.current) return;
@@ -1100,6 +1108,36 @@ function ChatView({
     messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }
 
+  async function loadOlderMessages() {
+    const session = activeRef.current;
+    const beforeId = nextBeforeMessageId;
+    const viewport = messagesViewportRef.current;
+    if (!session || beforeId === null || olderMessagesLoading || !viewport) return;
+    const previousScrollHeight = viewport.scrollHeight;
+    const previousScrollTop = viewport.scrollTop;
+    autoFollowRef.current = false;
+    setOlderMessagesLoading(true);
+    try {
+      const page = await api.messages(session.id, beforeId);
+      if (activeRef.current?.id !== session.id) return;
+      setMessages((current) => {
+        const existingIds = new Set(current.map((message) => message.id));
+        return [...page.items.filter((message) => !existingIds.has(message.id)), ...current];
+      });
+      setNextBeforeMessageId(page.next_before_id);
+      window.requestAnimationFrame(() => {
+        if (activeRef.current?.id !== session.id || messagesViewportRef.current !== viewport) return;
+        viewport.scrollTop = previousScrollTop + (viewport.scrollHeight - previousScrollHeight);
+      });
+    } catch (err) {
+      if (activeRef.current?.id === session.id) {
+        setError(err instanceof Error ? err.message : "更早消息加载失败");
+      }
+    } finally {
+      setOlderMessagesLoading(false);
+    }
+  }
+
   useEffect(() => {
     return () => {
       activeStreamAbortRef.current?.abort();
@@ -1136,6 +1174,7 @@ function ChatView({
     activeRef.current = null;
     setActive(null);
     setMessages([]);
+    setNextBeforeMessageId(null);
     setInput("");
     clearAttachments();
     setError("");
@@ -1324,9 +1363,10 @@ function ChatView({
   }
 
   async function reconcileSessionMessages(sessionId: number) {
-    const refreshedMessages = await api.messages(sessionId);
+    const refreshedPage = await api.messages(sessionId);
     if (activeRef.current?.id === sessionId) {
-      setMessages(refreshedMessages);
+      setMessages(refreshedPage.items);
+      setNextBeforeMessageId(refreshedPage.next_before_id);
     }
   }
 
@@ -1819,6 +1859,19 @@ function ChatView({
             </div>
           ) : (
             <>
+              {nextBeforeMessageId !== null && (
+                <div className="load-older-messages">
+                  <button
+                    type="button"
+                    className="secondary-button compact"
+                    onClick={loadOlderMessages}
+                    disabled={olderMessagesLoading}
+                  >
+                    <ChevronUp size={16} />
+                    {olderMessagesLoading ? "正在加载..." : "加载更早消息"}
+                  </button>
+                </div>
+              )}
               {messages.map((message) => (
                 <MessageItem
                   key={message.id}

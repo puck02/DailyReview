@@ -36,6 +36,11 @@ async function readSse(response: Response): Promise<string[]> {
     .map((chunk) => chunk.replace(/^data:\s*/, ""));
 }
 
+async function readMessageItems<T>(response: Response): Promise<T[]> {
+  const page = (await response.json()) as { items: T[] };
+  return page.items;
+}
+
 describe("chat sessions and attachments", () => {
   it("creates a session, streams fallback chat, and lists stored messages", async () => {
     const { env, cookie } = await loginUser();
@@ -61,10 +66,61 @@ describe("chat sessions and attachments", () => {
 
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
     expect(messages.status).toBe(200);
-    await expect(messages.json()).resolves.toMatchObject([
+    await expect(readMessageItems(messages)).resolves.toMatchObject([
       { role: "user", content: "今天学了极限" },
       { role: "assistant", content: "这是一个本地测试回答。生产环境会使用配置的 AI API。" }
     ]);
+  });
+
+  it("paginates messages backward with a 100 row id cursor", async () => {
+    const { env, cookie } = await loginUser();
+    const sessionResponse = await fetchWorker(env, "/api/sessions", {
+      method: "POST",
+      headers: { cookie },
+      body: JSON.stringify({ title: "分页会话", model: "gpt-5.4-mini" })
+    });
+    const session = (await sessionResponse.json()) as { id: number };
+    await env.DB.batch(
+      Array.from({ length: 205 }, (_, index) =>
+        env.DB.prepare("INSERT INTO messages (session_id, role, content, model, created_at) VALUES (?, 'user', ?, ?, ?)")
+          .bind(session.id, `history-${String(index).padStart(3, "0")}`, "gpt-5.4-mini", new Date(Date.UTC(2026, 6, 1, 0, 0, index)).toISOString())
+      )
+    );
+
+    const newestResponse = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
+    const newest = (await newestResponse.json()) as {
+      items: Array<{ id: number; content: string }>;
+      next_before_id: number | null;
+    };
+    const middleResponse = await fetchWorker(
+      env,
+      `/api/sessions/${session.id}/messages?before_id=${newest.next_before_id}`,
+      { headers: { cookie } }
+    );
+    const middle = (await middleResponse.json()) as typeof newest;
+    const oldestResponse = await fetchWorker(
+      env,
+      `/api/sessions/${session.id}/messages?before_id=${middle.next_before_id}`,
+      { headers: { cookie } }
+    );
+    const oldest = (await oldestResponse.json()) as typeof newest;
+
+    expect(newest.items).toHaveLength(100);
+    expect(newest.items[0]?.content).toBe("history-105");
+    expect(newest.items.at(-1)?.content).toBe("history-204");
+    expect(newest.next_before_id).toBe(newest.items[0]?.id);
+    expect(middle.items).toHaveLength(100);
+    expect(middle.items[0]?.content).toBe("history-005");
+    expect(middle.items.at(-1)?.content).toBe("history-104");
+    expect(middle.next_before_id).toBe(middle.items[0]?.id);
+    expect(oldest.items.map((message) => message.content)).toEqual([
+      "history-000",
+      "history-001",
+      "history-002",
+      "history-003",
+      "history-004"
+    ]);
+    expect(oldest.next_before_id).toBeNull();
   });
 
   it("rejects invalid attachments before storing the user message", async () => {
@@ -229,7 +285,7 @@ describe("chat sessions and attachments", () => {
     expect(calls.map((call) => call.model)).toEqual(["gpt-5.5"]);
 
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    const stored = (await messages.json()) as Array<{ role: string; content: string; model: string | null }>;
+    const stored = await readMessageItems<{ role: string; content: string; model: string | null }>(messages);
     expect(stored.at(-1)).toMatchObject({
       role: "assistant",
       content: "AI 服务连接失败，请稍后重试。",
@@ -402,7 +458,7 @@ describe("chat sessions and attachments", () => {
     expect(first.status).toBe(200);
     await expect(readSse(first)).resolves.toEqual([JSON.stringify("第一次回答"), "[DONE]"]);
     const initialMessages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    const [, assistant] = (await initialMessages.json()) as Array<{ id: number; role: string; content: string }>;
+    const [, assistant] = await readMessageItems<{ id: number; role: string; content: string }>(initialMessages);
 
     const regenerated = await fetchWorker(env, "/api/chat/regenerate", {
       method: "POST",
@@ -413,7 +469,7 @@ describe("chat sessions and attachments", () => {
     expect(regenerated.status).toBe(200);
     await expect(readSse(regenerated)).resolves.toEqual([JSON.stringify("重新回答"), "[DONE]"]);
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    await expect(messages.json()).resolves.toMatchObject([
+    await expect(readMessageItems(messages)).resolves.toMatchObject([
       { role: "user", content: "解释洛必达" },
       { role: "assistant", content: "重新回答" }
     ]);
@@ -458,7 +514,7 @@ describe("chat sessions and attachments", () => {
     expect(regenerated.status).toBe(404);
     await expect(regenerated.json()).resolves.toEqual({ detail: "回复不存在" });
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    await expect(messages.json()).resolves.toMatchObject([
+    await expect(readMessageItems(messages)).resolves.toMatchObject([
       { role: "user", content: "解释导数定义" },
       { role: "assistant", content: "旧回答" }
     ]);
@@ -505,7 +561,7 @@ describe("chat sessions and attachments", () => {
 
     expect(upstreamCalls).toBe(1);
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    await expect(messages.json()).resolves.toMatchObject([
+    await expect(readMessageItems(messages)).resolves.toMatchObject([
       { role: "user", content: "只保存一次", turn_id: "turn-deduplicate-1", status: "complete" },
       { role: "assistant", content: "唯一回答", turn_id: "turn-deduplicate-1", status: "complete" }
     ]);
@@ -740,7 +796,7 @@ describe("chat sessions and attachments", () => {
       "[DONE]"
     ]);
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    const stored = (await messages.json()) as Array<{ role: string; content: string }>;
+    const stored = await readMessageItems<{ role: string; content: string }>(messages);
     expect(stored.at(-1)).toMatchObject({
       role: "assistant",
       content: "先给出部分回答\n\nAI 服务连接失败，请稍后重试。"
@@ -845,7 +901,7 @@ describe("chat sessions and attachments", () => {
     expect(stream.status).toBe(200);
     await expect(readSse(stream)).resolves.toEqual([JSON.stringify("AI 服务连接失败，请稍后重试。"), "[DONE]"]);
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    const stored = (await messages.json()) as Array<{ role: string; content: string }>;
+    const stored = await readMessageItems<{ role: string; content: string }>(messages);
     expect(stored.at(-1)).toMatchObject({
       role: "assistant",
       content: "AI 服务连接失败，请稍后重试。"
@@ -879,7 +935,7 @@ describe("chat sessions and attachments", () => {
     expect(stream.status).toBe(200);
     await expect(readSse(stream)).resolves.toEqual([JSON.stringify("AI 没有返回内容，请重试或切换模型。"), "[DONE]"]);
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    const stored = (await messages.json()) as Array<{ role: string; content: string }>;
+    const stored = await readMessageItems<{ role: string; content: string }>(messages);
     expect(stored.at(-1)).toMatchObject({
       role: "assistant",
       content: "AI 没有返回内容，请重试或切换模型。"
@@ -1088,7 +1144,7 @@ describe("chat sessions and attachments", () => {
       ]
     });
     const messages = await fetchWorker(env, `/api/sessions/${session.id}/messages`, { headers: { cookie } });
-    const storedMessages = (await messages.json()) as Array<{ role: string; content: string }>;
+    const storedMessages = await readMessageItems<{ role: string; content: string }>(messages);
     expect(storedMessages[0]).toMatchObject({ role: "user", content: "" });
   });
 

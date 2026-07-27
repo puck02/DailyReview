@@ -791,6 +791,14 @@ textarea:focus {
   height: 1px;
 }
 
+.load-older-messages {
+  min-height: 40px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  margin: 0 auto 12px;
+}
+
 .scroll-to-bottom {
   position: absolute;
   left: 50%;

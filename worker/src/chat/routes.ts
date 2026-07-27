@@ -159,26 +159,33 @@ async function listMessages(request: Request, env: Env, params: Record<string, s
   if (!session || session.user_id !== user.id) {
     throw new HttpError(404, "会话不存在");
   }
-  const messages = await all<MessageRow>(
-    env.DB.prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC").bind(session.id)
+  const beforeValue = new URL(request.url).searchParams.get("before_id");
+  const beforeId = beforeValue === null ? null : Number.parseInt(beforeValue, 10);
+  if (beforeValue !== null && (!Number.isInteger(beforeId) || (beforeId || 0) <= 0 || String(beforeId) !== beforeValue)) {
+    throw new HttpError(400, "消息游标无效");
+  }
+  const candidates = await all<MessageRow>(
+    beforeId === null
+      ? env.DB.prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 101").bind(session.id)
+      : env.DB.prepare("SELECT * FROM messages WHERE session_id = ? AND id < ? ORDER BY id DESC LIMIT 101").bind(session.id, beforeId)
   );
-  const attachments = await all<AttachmentRow>(
-    env.DB.prepare(
-      `SELECT a.*
-       FROM attachments a
-       JOIN messages m ON a.message_id = m.id
-       WHERE m.session_id = ?
-       ORDER BY a.id ASC`
-    ).bind(session.id)
-  );
+  const hasMore = candidates.length > 100;
+  const messages = candidates.slice(0, 100).reverse();
+  const messageIds = messages.map((message) => message.id);
+  const attachments = messageIds.length
+    ? await all<AttachmentRow>(
+        env.DB.prepare(`SELECT * FROM attachments WHERE message_id IN (${messageIds.map(() => "?").join(", ")}) ORDER BY id ASC`)
+          .bind(...messageIds)
+      )
+    : [];
   const byMessage = new Map<number, AttachmentRow[]>();
   for (const attachment of attachments) {
     if (attachment.message_id !== null) {
       byMessage.set(attachment.message_id, [...(byMessage.get(attachment.message_id) || []), attachment]);
     }
   }
-  return json(
-    messages.map((message) => ({
+  return json({
+    items: messages.map((message) => ({
       id: message.id,
       role: message.role,
       content: message.content,
@@ -187,8 +194,9 @@ async function listMessages(request: Request, env: Env, params: Record<string, s
       status: message.status,
       created_at: message.created_at,
       attachments: (byMessage.get(message.id) || []).map(attachmentResponse)
-    }))
-  );
+    })),
+    next_before_id: hasMore ? messages[0]?.id ?? null : null
+  });
 }
 
 async function deleteSession(request: Request, env: Env, params: Record<string, string>): Promise<Response> {

@@ -24,6 +24,11 @@ export type Message = {
   attachments: Attachment[];
 };
 
+export type MessagePage = {
+  items: Message[];
+  next_before_id: number | null;
+};
+
 export type EssaySession = {
   id: number;
   title: string;
@@ -310,7 +315,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ archived })
     }),
-  messages: (sessionId: number) => request<Message[]>(`/api/sessions/${sessionId}/messages`),
+  messages: (sessionId: number, beforeId?: number) => {
+    const query = beforeId === undefined ? "" : `?before_id=${encodeURIComponent(beforeId)}`;
+    return request<MessagePage>(`/api/sessions/${sessionId}/messages${query}`);
+  },
   essaySessions: () => request<EssaySession[]>("/api/essay/sessions"),
   createEssaySession: (payload: { title?: string; model?: string }) =>
     request<EssaySession>("/api/essay/sessions", {

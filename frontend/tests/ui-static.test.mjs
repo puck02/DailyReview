@@ -535,6 +535,21 @@ test("chat uses stable turn ids and reconciles optimistic messages", () => {
   assert.ok(apiSource.includes('status: "pending" | "streaming" | "complete" | "failed" | "cancelled"'));
 });
 
+test("chat history uses cursor pagination and preserves scroll position when prepending", () => {
+  assert.ok(apiSource.includes("export type MessagePage"));
+  assert.ok(apiSource.includes("next_before_id: number | null"));
+  assert.ok(apiSource.includes("before_id"));
+  assert.ok(app.includes("const [nextBeforeMessageId, setNextBeforeMessageId]"));
+  assert.ok(app.includes("const [olderMessagesLoading, setOlderMessagesLoading]"));
+  assert.ok(app.includes("async function loadOlderMessages"));
+  assert.ok(app.includes("new Set(current.map((message) => message.id))"));
+  assert.ok(app.includes("previousScrollHeight"));
+  assert.ok(app.includes("previousScrollTop"));
+  assert.ok(app.includes("viewport.scrollTop = previousScrollTop + (viewport.scrollHeight - previousScrollHeight)"));
+  assert.ok(app.includes("加载更早消息"));
+  assert.match(styles, /\.load-older-messages\s*{[^}]*min-height:\s*40px;/s);
+});
+
 test("pending image previews share one visual surface with the composer", () => {
   assert.ok(app.includes("composer-shell"));
   assert.match(styles, /\.composer-shell\s*{[^}]*background:\s*var\(--surface\);[^}]*border:\s*1px solid var\(--stroke\);[^}]*border-radius:\s*32px;/s);
