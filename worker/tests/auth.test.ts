@@ -45,16 +45,29 @@ describe("auth security", () => {
 });
 
 describe("auth and invite routes", () => {
-  it("serves health checks without touching D1", async () => {
-    const throwingDb = new Proxy({}, {
-      get() {
-        throw new Error("health check accessed D1");
-      }
-    }) as D1Database;
-    const response = await fetchWorker(createTestEnv({ DB: throwingDb }), "/api/health");
+  it("migrates the legacy chat schema before reporting healthy", async () => {
+    const env = createTestEnv();
+    await env.DB.prepare("DROP INDEX idx_messages_session_turn_role").run();
+    await env.DB.prepare("DROP TABLE chat_generation_locks").run();
+    await env.DB.prepare("ALTER TABLE messages DROP COLUMN status").run();
+    await env.DB.prepare("ALTER TABLE messages DROP COLUMN turn_id").run();
+
+    const response = await fetchWorker(env, "/api/health");
+    const columns = await env.DB.prepare("PRAGMA table_info(messages)").all<{ name: string }>();
+    const lockTable = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chat_generation_locks'"
+    ).first<{ name: string }>();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ status: "ok", runtime: "cloudflare-workers" });
+    await expect(response.json()).resolves.toEqual({
+      status: "ok",
+      runtime: "cloudflare-workers",
+      schema: "ready"
+    });
+    expect(columns.results.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["turn_id", "status"])
+    );
+    expect(lockTable?.name).toBe("chat_generation_locks");
   });
 
   it("redirects plain HTTP requests to HTTPS so secure session cookies can be stored", async () => {

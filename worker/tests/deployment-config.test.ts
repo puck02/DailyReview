@@ -27,9 +27,9 @@ describe("deployment config", () => {
     expect(loadSmoke).toMatch(/successful\.length !== 1 \|\| conflicts\.length !== 1/);
   });
 
-  it("classifies D1 migration failures without printing credentials", () => {
-    expect(deployWorkflow).toContain("diagnostic=d1_auth_or_permission");
-    expect(deployWorkflow).toContain("diagnostic=d1_schema_conflict");
+  it("verifies the schema-ready health response after deployment", () => {
+    expect(deployWorkflow).toContain("https://nektos.cn/api/health");
+    expect(deployWorkflow).toContain("h.schema !== 'ready'");
     expect(deployWorkflow).not.toContain("printenv CLOUDFLARE_API_TOKEN");
   });
 });

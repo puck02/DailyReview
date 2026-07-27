@@ -3,6 +3,7 @@ import { adminRoutes } from "./admin/routes";
 import { attachmentRoutes } from "./attachments/routes";
 import { authRoutes } from "./auth/routes";
 import { chatRoutes } from "./chat/routes";
+import { ensureChatStabilitySchema } from "./db/chat-schema";
 import { essayRoutes } from "./essay/routes";
 import { dispatch, errorResponse, json } from "./http";
 import { runScheduledJobs } from "./cron/jobs";
@@ -24,8 +25,9 @@ function redirectToHttps(request: Request): Response | null {
 
 async function handleApi(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
+  await ensureChatStabilitySchema(env.DB);
   if (url.pathname === "/api/health") {
-    return json({ status: "ok", runtime: "cloudflare-workers" });
+    return json({ status: "ok", runtime: "cloudflare-workers", schema: "ready" });
   }
   const response = await dispatch(
     [

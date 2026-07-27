@@ -38,7 +38,7 @@
 
 ## Worker 性能设计
 
-所有表、列和索引由 `schema.sql` 或迁移创建，请求处理函数不执行 DDL。AI 配置允许 Worker isolate 内短期缓存，管理员更新后立即失效。
+所有表、列和索引由 `schema.sql` 或集中式迁移模块创建，业务路由不直接包含 DDL；迁移结果按 D1 binding 在 Worker isolate 内复用。AI 配置允许 Worker isolate 内短期缓存，管理员更新后立即失效。
 
 聊天附件使用单次所有权查询和批量关联。消息、会话时间及图片上下文等核心写入合并执行；Token 使用记录通过 `ExecutionContext.waitUntil` 写入。聊天历史使用最近消息窗口和滚动摘要，避免无限增长的模型上下文。
 

@@ -42,14 +42,14 @@ assistant 状态限定为 `pending`、`streaming`、`complete`、`failed`、`can
 
 ## 数据迁移
 
-新增 D1 migration：
+新增 D1 schema 迁移：
 
 - `messages.turn_id TEXT`
 - `messages.status TEXT NOT NULL DEFAULT 'complete'`
 - turn 唯一索引
 - `chat_generation_locks` 表及过期索引
 
-`schema.sql` 同步为新建数据库的完整结构。部署工作流在发布 Worker 前执行 `wrangler d1 migrations apply --remote`，保证代码不会先于数据库结构上线。
+`schema.sql` 同步为新建数据库的完整结构。现有数据库由 Worker 通过 D1 binding 幂等检查并补齐结构，所有 API 路由都在 schema 就绪后才继续处理。部署工作流发布 Worker 后请求健康接口，只有返回 `schema: ready` 才视为部署成功，避免依赖仅有 Worker 发布权限的 CI Token 执行 D1 管理 API。
 
 ## 测试
 
@@ -59,4 +59,3 @@ assistant 状态限定为 `pending`、`streaming`、`complete`、`failed`、`can
 - 上下文测试覆盖字符预算、完整 turn 边界和状态过滤。
 - 分页测试覆盖游标、无重复和前端向前合并。
 - 负载冒烟增加同会话并发冲突和 SSE 完成标记断言。
-

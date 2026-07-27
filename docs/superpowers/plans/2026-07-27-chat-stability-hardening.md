@@ -13,16 +13,17 @@
 ### Task 1: D1 schema and deployment migration
 
 **Files:**
-- Create: `worker/migrations/0001_chat_stability.sql`
+- Create: `worker/src/db/chat-schema.ts`
 - Modify: `worker/src/db/schema.sql`
+- Modify: `worker/src/index.ts`
 - Modify: `.github/workflows/deploy-cloudflare-worker.yml`
-- Test: `worker/tests/db.test.ts`
+- Test: `worker/tests/auth.test.ts`, `worker/tests/db.test.ts`
 
 - [ ] Add failing schema assertions for `turn_id`, `status`, the unique turn index, and `chat_generation_locks`.
 - [ ] Run `npm test -- db.test.ts` and confirm the assertions fail.
-- [ ] Add the fresh-schema definitions and the equivalent ALTER migration.
-- [ ] Add `npx wrangler d1 migrations apply dailyreview-prod --remote` before deploy.
-- [ ] Re-run the database test and commit with `新增聊天稳定性数据库迁移`.
+- [ ] Add the fresh-schema definitions and an idempotent D1 binding migration for existing databases.
+- [ ] Require schema readiness before API dispatch and return `schema: ready` from health checks.
+- [ ] Deploy the Worker, verify the online health response, and commit with `新增聊天稳定性数据库迁移`.
 
 ### Task 2: Cancellation, heartbeat, and upstream completion
 
@@ -123,4 +124,3 @@
 - [ ] Run `git diff --check` and verify `example.txt` remains untracked.
 - [ ] Push `cloudflare-workers-deploy` and wait for GitHub Actions success.
 - [ ] Verify the production asset, `/api/health`, and the deployed commit SHA.
-
