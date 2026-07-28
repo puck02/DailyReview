@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import chatRoutesSource from "../src/chat/routes.ts?raw";
 import { cookieFrom, createTestEnv, fetchWorker } from "./helpers";
 
 afterEach(() => {
@@ -70,6 +71,15 @@ describe("chat sessions and attachments", () => {
       { role: "user", content: "今天学了极限" },
       { role: "assistant", content: "这是一个本地测试回答。生产环境会使用配置的 AI API。" }
     ]);
+  });
+
+  it("releases the generation lock before completing the SSE response", () => {
+    const releaseIndex = chatRoutesSource.indexOf("await releaseGenerationLock(env, sessionId, options.generationTurnId);");
+    const doneIndex = chatRoutesSource.indexOf('enqueue("data: [DONE]\\n\\n");');
+
+    expect(releaseIndex).toBeGreaterThanOrEqual(0);
+    expect(doneIndex).toBeGreaterThanOrEqual(0);
+    expect(releaseIndex).toBeLessThan(doneIndex);
   });
 
   it("paginates messages backward with a 100 row id cursor", async () => {

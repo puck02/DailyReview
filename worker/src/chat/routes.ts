@@ -365,6 +365,12 @@ async function streamAssistantResponse(
       let abortedByRequest = false;
       let errorType: string | undefined;
       let telemetryFinished = false;
+      let generationLockReleased = false;
+      const releaseLock = async () => {
+        if (generationLockReleased) return;
+        await releaseGenerationLock(env, sessionId, options.generationTurnId);
+        generationLockReleased = true;
+      };
       const enqueue = (value: string) => {
         try {
           controller.enqueue(encoder.encode(value));
@@ -438,6 +444,7 @@ async function streamAssistantResponse(
           ...(errorType ? { errorType } : {})
         });
         telemetryFinished = true;
+        await releaseLock();
         enqueue("data: [DONE]\n\n");
         try {
           controller.close();
@@ -457,7 +464,7 @@ async function streamAssistantResponse(
         throw error;
       } finally {
         clearInterval(heartbeat);
-        await releaseGenerationLock(env, sessionId, options.generationTurnId);
+        await releaseLock();
       }
     }
   });
